@@ -1,0 +1,207 @@
+# <std-header style='tcl' orig-src='shore'>
+#
+#  $Id: quark.1,v 1.17.4.2 2009/12/03 00:21:11 nhall Exp $
+#
+# SHORE -- Scalable Heterogeneous Object REpository
+#
+# Copyright (c) 1994-99 Computer Sciences Department, University of
+#                       Wisconsin -- Madison
+# All Rights Reserved.
+#
+# Permission to use, copy, modify and distribute this software and its
+# documentation is hereby granted, provided that both the copyright
+# notice and this permission notice appear in all copies of the
+# software, derivative works or modified versions, and any portions
+# thereof, and that both notices appear in supporting documentation.
+#
+# THE AUTHORS AND THE COMPUTER SCIENCES DEPARTMENT OF THE UNIVERSITY
+# OF WISCONSIN - MADISON ALLOW FREE USE OF THIS SOFTWARE IN ITS
+# "AS IS" CONDITION, AND THEY DISCLAIM ANY LIABILITY OF ANY KIND
+# FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+#
+# This software was developed with support by the Advanced Research
+# Project Agency, ARPA order number 018 (formerly 8230), monitored by
+# the U.S. Army Research Laboratory under contract DAAB07-91-C-Q518.
+# Further funding for this work was provided by DARPA through
+# Rome Research Laboratory Contract No. F30602-97-2-0247.
+#
+#   -- do not edit anything above this line --   </std-header>
+
+#
+#	Test quarks
+#	The syncronization on this gets really messy because it checks
+#	the sync_result, so sometimes we need sync points just to give
+#	the reader and writer time for that setting of the sync_result.
+#
+source $script_dir/vol.init
+
+set update_ops {update_rec update_rec_hdr append_rec truncate_rec}
+
+# count syncs; global variable printed by reader and writer
+
+set sreader "BEGIN"
+set swriter "BEGIN"
+set state "POST00  $sreader $swriter"
+
+sm begin_xct
+set f1 [sm create_file $volid]
+verbose $state f1 = $f1
+
+for {set i 0} {$i < [llength $update_ops]} {incr i} {
+    set rec($i) [sm create_rec $f1 rec$i 11 rec$i]
+    verbose $state rec $i = $rec($i)
+}
+sm commit_xct
+
+link_to_inter_thread_comm_buffer sync_result
+set sync_result "hello"
+
+# get the reader and writer proc.
+# They are in separate files so it's easier to edit them side-by-side
+source $script_dir/quark.1.sub.reader
+source $script_dir/quark.1.sub.writer
+
+verbose $state forker: forking 1
+set t1 [ fork_thread reader $rec(0) $rec(1)]
+verbose $state forker: forking 2
+set t2 [ fork_thread writer $rec(1) $rec(0)]
+
+# Forked threads will wait at 1st sync point so sync_result
+# should still be "hello"
+verbose $state forker: sync_result: $sync_result
+assert {expr [string compare $sync_result hello] == 0}
+
+## -------------------------------------------------------------------
+#  let reader pin within a quark while writer waits
+
+verbose $state forker: sync1 reader 
+sync_thread $t1
+set sreader "POST1"
+set state "POST10 $sreader $swriter"
+# first sync of reader lets it
+# start an xct, pin, open quark, pin, (no updates) AND
+# change sync_result.
+# writer still waiting for sync1
+# Do a sync here just to be sure it has already set the 
+# result before we check it.
+# We were first using sm sleep 10, but that doesn't guarantee anything.
+verbose $state forker: sync1 reader 
+sync_thread $t1
+set sreader "POST1a"
+set state "POST1a0 $sreader $swriter"
+
+verbose $state forker: finds sync_result = $sync_result
+verbose $state assert {= "$rec(0) and $rec(1) are pinned"}
+assert {expr [string compare $sync_result "$rec(0) and $rec(1) are pinned"] == 0}
+## -------------------------------------------------------------------
+
+## -------------------------------------------------------------------
+#  let writer proceed, try updating record, block on lock and then latch.
+#
+verbose $state forker: sync1 writer
+sync_thread $t2
+set swriter "POST1a"
+set state "POST1a1 $sreader $swriter"
+# thread 2 should block on lock, so sync has no effect on sync_result
+# until reader gets another sync
+assert {expr [string compare $sync_result "$rec(0) and $rec(1) are pinned"] == 0}
+
+# tell reader to release its locks by closing the quark. Reader
+# changes the sync_result and waits for next sync
+# Reader's closing quark allows writer to get the lock but
+# it still waits on the page latch.
+
+verbose $state forker: sync2 reader
+sync_thread $t1
+set sreader "POST2"
+set state "POST21 $sreader $swriter"
+
+# don't check sync_result until we know that reader has made the change.
+verbose $state forker: sync2a reader
+sync_thread $t1
+set sreader "POST2a"
+set state "POST2a1 $sreader $swriter"
+
+verbose $state forker: finds sync_result =  $sync_result
+assert {expr [string compare $sync_result "$rec(1) lock released by quark"] == 0}
+## -------------------------------------------------------------------
+
+## -------------------------------------------------------------------
+# writer still waits for latch, so tell reader to destroy the 
+# pin (unlatching page),
+# which allows writer to proceed and update the rec and wait on sync2
+verbose $state forker: sync3 reader
+sync_thread $t1
+set sreader "POST3"
+set state "POST31 $sreader $swriter"
+
+# Wait until writer is at sync2-b
+verbose $state forker: sync2-a writer 
+sync_thread $t2
+set swriter "POST2"
+set state "POST32 $sreader $swriter"
+
+verbose $state forker: sync_result: $sync_result
+assert {expr [string compare $sync_result "$rec(1) updated"] == 0}
+## -------------------------------------------------------------------
+
+## -------------------------------------------------------------------
+# let writer finish
+
+verbose $state forker: sync2-b writer 
+sync_thread $t2
+set swriter "POST3"
+set state "POST33 $sreader $swriter"
+# at this point, writer wants to pin-for-update $rec(0)
+# but reader still holds the lock so writer hasn't go to its
+# 3rd sync point.
+# let reader change sync_result so and commit to free the lock
+verbose $state forker: sync4 reader
+sync_thread $t1
+set sreader "POST4"
+set state "POST43 $sreader $swriter"
+
+verbose $state forker: sync5 reader
+sync_thread $t1
+set sreader "POST5"
+set state "POST53 $sreader $swriter"
+# Now reader HAS changed the sync result and writer is still waiting on sync3
+# before it changes the sync_result
+verbose $state forker: sync_result: $sync_result
+assert {expr [string compare $sync_result "$rec(0) lock released by commit"] == 0}
+## -------------------------------------------------------------------
+
+## -------------------------------------------------------------------
+# let writer proceed to unpin and when it gets to sync5, it has changed
+# the sync_result
+
+verbose $state forker: sync4 writer 
+sync_thread $t2
+set swriter "POST4"
+set state "POST54 $sreader $swriter"
+
+verbose $state forker: sync5 writer 
+sync_thread $t2
+set swriter "POST5"
+set state "POST55 $sreader $swriter"
+verbose $state forker: sync_result: $sync_result
+assert {expr [string compare $sync_result "$rec(0) updated"]==0}
+## -------------------------------------------------------------------
+
+
+verbose $state forker: joining threads
+join_thread $t1 $t2
+
+
+sm begin_xct
+sm destroy_file $f1
+sm commit_xct
+
+verbose $state done
+
+unset rec update_ops t1 t2 
+unset f1 i
+unset state sreader swriter
+# can't unset sync_result -- it's linked to the comm buffer.
+addcleanupvars {sync_result}
+

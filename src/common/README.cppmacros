@@ -1,0 +1,39 @@
+/*
+ * Define this if you want to specify a different size than
+ * the default (40 bytes) for global transaction IDs, gtids.
+ */
+#undef COMMON_GTID_LENGTH
+
+/*
+ * Define this if you want to specify a different size than
+ * the default (100 bytes) for server handle IDs for transaction IDs.
+ */
+#undef COMMON_SERVER_HANDLE_LENGTH
+
+/*
+ * Define this if your system's memcmp() function makes _signed_
+ * comparisons on each character, instead of unsigned comparisons.
+ * This most likely corresponds to whether the default character
+ * type on your system is 'signed char'.   The symptom you'll see if
+ * this is needed is that key comparisons will go wacky.
+ *
+ * This option is enabled automagically on Sparc platforms in
+ * common/umemcmp.h, as the memcmp function on SunOS use signed comparison.
+ * All other systems shore runs on have a memcmp() which provides unsigned
+ * comparisons already, and that is used.
+ * In theory, SunOS is now fixed, too, but we have not verified that.
+ */
+#undef COMMON_USE_UMEMCMP
+
+/*
+ * The default number of sharers of a latch is 4.  If you want to 
+ * allow more sharing of a latch, #define this to the integer value
+ * of the maximum number of sharers allowed.  This has been tested
+ * with 8 and 16 sharers for correctness.  Above 16 sharers is
+ * not recommended .... the algorithms needs to be improved.
+ *
+ * XXX this really changes common/latch parameters, but is labelled
+ * 'SM' as that is where latches really exist.
+ */
+#undef SM_LATCH_SHARE_MAX
+

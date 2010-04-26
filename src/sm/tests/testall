@@ -1,0 +1,136 @@
+#!/bin/ksh 
+
+# <std-header style='shell' orig-src='shore'>
+#
+#  $Id: testall,v 1.1.2.6 2010/03/19 22:20:38 nhall Exp $
+#
+# SHORE -- Scalable Heterogeneous Object REpository
+#
+# Copyright (c) 1994-99 Computer Sciences Department, University of
+#                       Wisconsin -- Madison
+# All Rights Reserved.
+#
+# Permission to use, copy, modify and distribute this software and its
+# documentation is hereby granted, provided that both the copyright
+# notice and this permission notice appear in all copies of the
+# software, derivative works or modified versions, and any portions
+# thereof, and that both notices appear in supporting documentation.
+#
+# THE AUTHORS AND THE COMPUTER SCIENCES DEPARTMENT OF THE UNIVERSITY
+# OF WISCONSIN - MADISON ALLOW FREE USE OF THIS SOFTWARE IN ITS
+# "AS IS" CONDITION, AND THEY DISCLAIM ANY LIABILITY OF ANY KIND
+# FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+#
+# This software was developed with support by the Advanced Research
+# Project Agency, ARPA order number 018 (formerly 8230), monitored by
+# the U.S. Army Research Laboratory under contract DAAB07-91-C-Q518.
+# Further funding for this work was provided by DARPA through
+# Rome Research Laboratory Contract No. F30602-97-2-0247.
+#
+#   -- do not edit anything above this line --   </std-header>
+function execute  {
+    print -n "$1\t--> running --> "
+    print "running $1" >> $2
+
+    if [[ -a $3 ]]; then
+	of=/tmp/$$
+	if $1 1> $of 2> $of.err ; then
+	    if diff $of $3 >> $2; then
+		print "ok"
+	    else
+		print "diff failed; results in " $of " and " $of.err 
+		print "  expected results in " $3
+		print "  All diffs in " $2
+                exit 1
+	    fi
+	else
+	    print "failed to execute $1 ( $? )"
+            exit 1
+	fi
+	cat $of >> $2
+	rm $of
+
+    elif $1 >> $2 2>&1; then
+	print "ok"
+    else
+	print "failed to execute $1 ( $? )"
+        exit 1
+    fi
+}
+
+function file_scan_test  {
+    echo "{---------------------------------------FILE SCAN TEST -----"
+    echo creating log directory
+    mkdir -p ./log
+
+    echo creating volume  directory
+    mkdir -p ./volumes
+
+    echo blowing away log and volumes
+    /bin/rm -f ./log/* ./volumes/*
+
+    echo "------------------------------------------create------------"
+    echo creating...
+    rm -f $1-i.out
+    touch $1-i.out
+    execute "./$1 -i $2" $1-i.out
+    echo created. Resulting output is in $1-i.out
+    ## cat $1-i.out
+    ## echo 
+    ## echo 
+    ## echo 
+
+    echo "------------------------------------------scan--------------"
+    echo scanning ...
+    rm -f $1.out
+    touch $1.out
+    execute "./$1 $3" $1.out
+    echo scanned. Resulting output: is in $1-i.out
+    ## cat $1.out
+    ## echo 
+    ## echo 
+    echo 
+
+    echo "------------------------------------------cleanup------------"
+    echo removing log dir and volume dir after test
+    /bin/rm -rf ./log ./volumes
+    echo "------------------------------------------------------------}"
+}
+
+
+numrecs=55
+numthreads=6
+
+echo "---------------------------------------------------------"
+echo "running create_rec test"
+echo creating log directory
+mkdir -p ./log
+echo creating volume  directory
+mkdir -p ./volumes
+echo blowing away log and volumes
+/bin/rm -f ./log/* ./volumes/* tmp.out
+##
+## create_rec tests cannot diff with .out file because
+## numbers will differ each time.  We just stuff the results
+## into create_rec.out
+execute "create_rec " create_rec.result
+
+echo "---------------------------------------------------------"
+echo "running hash table tests"
+execute "htab -n 500 " tmp.out htab-n500.out
+execute "htab -n 10000 -R" tmp.out htab-n10000-R.out
+# We are seeing slightly different performance statistics
+# here so we will remove the comparison with output file
+# for the moment.
+# execute "htab -n 100000 -R" tmp.out htab-n100000-R.out
+execute "htab -n 100000 -R" tmp.out 
+echo "---------------------------------------------------------"
+echo "running startstop"
+execute "startstop" tmp.out
+
+echo "---------------------------------------------------------"
+echo "running file_scan test"
+file_scan_test file_scan "-n $numrecs" "-s s -n $numrecs"
+echo "---------------------------------------------------------"
+echo "running file_scan_many test"
+file_scan_test file_scan_many "-t $numthreads -A -n $numrecs" "-t $numthreads"

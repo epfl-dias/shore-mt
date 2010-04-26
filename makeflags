@@ -1,0 +1,2 @@
+These are the CXX flags used with the last build: 
+-mtune=nocona -DNDEBUG -UDEBUG -Wall -fno-strict-aliasing -Wextra -Wpointer-arith -Wwrite-strings -Woverloaded-virtual -Wno-deprecated -O3 -fexpensive-optimizations -finline-functions -DNO_FASTNEW -D_REENTRANT -D_POSIX_PTHREAD_SEMANTICS -Wno-long-long -Wno-ignored-qualifiers -Werror -pthread -m64 -DARCH_LP64 -I../src/atomic_ops

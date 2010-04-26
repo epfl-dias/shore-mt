@@ -1,0 +1,114 @@
+# <std-header style='tcl' orig-src='shore'>
+#
+#  $Id: deadlock.3,v 1.16.4.1 2009/10/27 16:44:48 nhall Exp $
+#
+# SHORE -- Scalable Heterogeneous Object REpository
+#
+# Copyright (c) 1994-99 Computer Sciences Department, University of
+#                       Wisconsin -- Madison
+# All Rights Reserved.
+#
+# Permission to use, copy, modify and distribute this software and its
+# documentation is hereby granted, provided that both the copyright
+# notice and this permission notice appear in all copies of the
+# software, derivative works or modified versions, and any portions
+# thereof, and that both notices appear in supporting documentation.
+#
+# THE AUTHORS AND THE COMPUTER SCIENCES DEPARTMENT OF THE UNIVERSITY
+# OF WISCONSIN - MADISON ALLOW FREE USE OF THIS SOFTWARE IN ITS
+# "AS IS" CONDITION, AND THEY DISCLAIM ANY LIABILITY OF ANY KIND
+# FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+#
+# This software was developed with support by the Advanced Research
+# Project Agency, ARPA order number 018 (formerly 8230), monitored by
+# the U.S. Army Research Laboratory under contract DAAB07-91-C-Q518.
+# Further funding for this work was provided by DARPA through
+# Rome Research Laboratory Contract No. F30602-97-2-0247.
+#
+#   -- do not edit anything above this line --   </std-header>
+
+# Test Upgrade deadlock detection
+#
+#    {1SH, 2SH} <-- 1EX <-- 2EX
+#
+
+set o1 "s(10.34)"
+
+proc t1 {} {
+    global o1
+	verbose "{ t1 sync to start"
+    sync
+	verbose "t1 sync }"
+    sm begin_xct
+    sm lock $o1 SH LONG
+    verbose "t1: acquired SH on o1"
+	verbose "{ t1 sync "
+    sync
+	verbose "t1 sync }"
+    verbose "t1: attempting to acquire EX on o1"
+    set caught [catch {sm lock $o1 EX LONG} errorno]
+	if {$caught == 0} {
+      sm commit_xct
+	} else {
+       verbose "(EXPECTED E_DEADLOCK) error is $errorno"
+       assert {error_is $errorno E_DEADLOCK}
+	   sm abort_xct
+    }
+}
+
+proc t2 {} {
+    global o1 
+	verbose "{ t2 sync to start"
+    sync
+	verbose "t2 sync }"
+    sm begin_xct
+    sm lock $o1 SH LONG
+    verbose "t2: acquired SH on o1"
+
+	verbose "{ t2 sync "
+    sync
+	verbose "t2 sync }"
+
+	verbose "{ t2 sync "
+    sync
+	verbose "t2 sync }"
+    verbose "t2: attempting to acquire EX on o1"
+
+    # catch deadlock
+    verbose catch deadlock:
+    set caught [catch {sm lock $o1 EX LONG} errorno]
+	if {$caught == 0} {
+	   # verbose no error
+       sm commit_xct
+	} else {
+       verbose "(EXPECTED E_DEADLOCK) error is $errorno"
+       assert {error_is $errorno E_DEADLOCK}
+	   sm abort_xct
+    }
+}
+
+set first [select_stat_value [sm gather_stats] abort_xct_cnt]
+
+set x [fork_thread t1 {}]
+set y [fork_thread t2 {}]
+
+verbose sync_thread to start $x $y
+sync_thread $x $y
+
+verbose sync_thread $x $y
+sync_thread $x $y
+
+verbose sync_thread only $y
+sync_thread $y
+
+verbose join_thread $x $y
+join_thread $x $y
+
+set second [select_stat_value [sm gather_stats] abort_xct_cnt]
+set diff [expr { $second - $first }]
+assert {expr {$diff > 0} }
+
+# echo [pnzstats [sm gather_stats]]
+
+unset x y o1  diff first second
+

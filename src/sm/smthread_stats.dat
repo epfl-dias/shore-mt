@@ -1,0 +1,184 @@
+# <std-header style='data' orig-src='shore'>
+#
+#  $Id: smthread_stats.dat,v 1.1.2.6 2009/12/03 00:22:29 nhall Exp $
+#
+# SHORE -- Scalable Heterogeneous Object REpository
+#
+# Copyright (c) 1994-99 Computer Sciences Department, University of
+#                       Wisconsin -- Madison
+# All Rights Reserved.
+#
+# Permission to use, copy, modify and distribute this software and its
+# documentation is hereby granted, provided that both the copyright
+# notice and this permission notice appear in all copies of the
+# software, derivative works or modified versions, and any portions
+# thereof, and that both notices appear in supporting documentation.
+#
+# THE AUTHORS AND THE COMPUTER SCIENCES DEPARTMENT OF THE UNIVERSITY
+# OF WISCONSIN - MADISON ALLOW FREE USE OF THIS SOFTWARE IN ITS
+# "AS IS" CONDITION, AND THEY DISCLAIM ANY LIABILITY OF ANY KIND
+# FOR ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+#
+# This software was developed with support by the Advanced Research
+# Project Agency, ARPA order number 018 (formerly 8230), monitored by
+# the U.S. Army Research Laboratory under contract DAAB07-91-C-Q518.
+# Further funding for this work was provided by DARPA through
+# Rome Research Laboratory Contract No. F30602-97-2-0247.
+#
+#   -- do not edit anything above this line --   </std-header>
+
+SMT smthread = 0x00070000 smthread_stats_t {
+    // Record pinning:
+    u_long rec_pin_cnt		Times records were pinned in the buffer pool
+    u_long rec_unpin_cnt	Times records were unpinned
+    u_long rec_repin_cvt	Converted latch-lock to lock-lock deadlock
+
+    // file manager
+    u_long fm_pagecache_hit	Found recently-used page
+    u_long fm_nolatch	 	Couldn't latch recently-used page 
+    u_long fm_page_moved	Recently-used page moved to new store
+    u_long fm_page_full	    Recently-used page was full
+    u_long fm_histogram_hit	Histogram says file search worthwhile
+    u_long fm_search_pages	Pages inspected in file search
+    u_long fm_search_failed	File search unsuccessful
+    u_long fm_search_hit	File search successful
+    u_long fm_lastpid_cached    Have last pid cached
+    u_long fm_lastpid_hit       Found slot on page lastpid 
+    u_long fm_alloc_pg		Allocated a new page
+    u_long fm_ext_touch		Updates to extent info
+    u_long fm_ext_touch_nop	No-op updates to extent info
+    u_long fm_nospace		Could not create rec
+    u_long fm_cache		    Policy permitted looking in cache
+    u_long fm_compact		Policy permitted searching file
+    u_long fm_append		Policy permitted appending to file
+    u_long fm_appendonly	Policy required strict append
+
+    // Btree stats:
+    u_long bt_find_cnt		Btree lookups (find_assoc())
+    u_long bt_insert_cnt	Btree inserts (create_assoc())
+    u_long bt_remove_cnt	Btree removes (destroy_assoc())
+    u_long bt_traverse_cnt	Btree traversals
+    u_long bt_partial_traverse_cnt	Btree traversals starting below root
+    u_long bt_restart_traverse_cnt	Restarted traversals
+    u_long bt_posc		POSCs established
+    u_long bt_scan_cnt		Btree scans started
+    u_long bt_splits		Btree pages split (interior and leaf)
+    u_long bt_cuts		Btree pages removed (interior and leaf)
+    u_long bt_grows		Btree grew a level
+    u_long bt_shrinks		Btree shrunk a level
+    u_long bt_links		Btree links followed
+    u_long bt_upgrade_fail_retry	Failure to upgrade a latch forced a retry
+    u_long bt_clr_smo_traverse	Cleared SMO bits on traverse
+    u_long bt_pcompress		Prefixes compressed
+    u_long bt_plmax		Maximum prefix levels encountered
+
+    // Sort 
+    u_long sort_keycmp_cnt	Key-comparison callbacks
+    u_long sort_lexindx_cnt	Lexify index key callbacks
+    u_long sort_getinfo_cnt	Create-sort-key callbacks
+    u_long sort_mof_cnt		Marshal-object callbacks
+    u_long sort_umof_cnt	Unmarshal-object callbacks
+    u_long sort_memcpy_cnt	Memcpys
+    u_long sort_memcpy_bytes	Bytes copied in memcpy
+    u_long sort_keycpy_cnt	Keycopies (part of memcpy_cnt)
+    u_long sort_mallocs		Allocations
+    u_long sort_malloc_bytes	Bytes allocated total
+    u_long sort_malloc_hiwat	Max allocated at any one time
+    u_long sort_malloc_max	Largest chunk allocated
+    u_long sort_malloc_curr	Amt presently allocated
+    u_long sort_tmpfile_cnt 	Records written to temp files
+    u_long sort_tmpfile_bytes 	Bytes written to temp files
+    u_long sort_duplicates 	Duplicate records eliminated
+    u_long sort_page_fixes 	Orig slotted pages fixed by sort for read
+    u_long sort_page_fixes_2 	Tmp file slotted pages fixed by sort for read
+    u_long sort_lg_page_fixes 	Large obj pages explicitly fixed by sort
+    u_long sort_rec_pins 	Recs explicitly pinned by sort
+    u_long sort_files_created 	Files created by sort
+    u_long sort_recs_created 	Final records created by sort
+    u_long sort_rec_bytes       Bytes in final records
+    u_long sort_runs 		Runs merged
+    u_long sort_run_size 	Pages of input recs per run
+    u_long sort_phases 		Polyphase phases
+    u_long sort_ntapes 		Number of pseudo-tapes used by sort
+
+    // Page operation counts
+    u_long page_fix_cnt		Times pages were fixed in the buffer pool
+    u_long page_refix_cnt	Times pages were refixed (cheaper than fix)
+    u_long page_unfix_cnt	Times pages were unfixed
+    u_long page_alloc_cnt	Pages allocated
+    u_long page_dealloc_cnt	Pages deallocated
+
+    // Extent operation counts
+    u_long ext_lookup_hits	Hits in extent lookups in cache 
+    u_long ext_lookup_misses	Misses in extent lookups in cache 
+    u_long alloc_page_in_ext	Extent searches for free pages
+    u_long extent_lsearch	Linear searches through file looking for space
+
+    // Transaction related stats
+    u_long begin_xct_cnt	Transactions started
+    u_long commit_xct_cnt	Transactions committed
+    u_long abort_xct_cnt	Transactions aborted
+    u_long prepare_xct_cnt	Transactions prepared
+    u_long rollback_savept_cnt	Rollbacks to savepoints (not incl aborts)
+    u_long mpl_attach_cnt	Times a thread was not the only one attaching to a transaction
+    u_long anchors		Log Anchors grabbed
+    u_long compensate_in_log	Compensations written in log buffer
+    u_long compensate_in_xct	Compensations written in xct log buffer
+    u_long compensate_records	Compensations written as own log record 
+    u_long compensate_skipped	Compensations would be a no-op
+    u_long log_switches		Times log turned off
+    u_long await_1thread_log	Times blocked on 1thread mutex for xct-log
+    u_long acquire_1thread_log	Times acquired 1thread mutex for xct-log
+    u_long get_logbuf	        Times acquired log buf for xct
+    u_long await_1thread_xct	Times blocked on 1thread mutex for xct
+    u_long await_vol_monitor	Times couldn't grab volume mutex immediately
+
+    u_long s_prepared		Externally coordinated prepares
+
+	//
+    // Lock manager related stats
+	//
+    u_long lock_query_cnt       High-level query for lock information
+    u_long unlock_request_cnt	High-level unlock requests
+    u_long lock_request_cnt 	High-level lock requests
+    u_long lock_head_t_cnt	Locks heads put in table for chains of requests
+    u_long lock_acquire_cnt	Acquires to satisfy high-level requests
+    u_long lock_await_alt_cnt	Transaction had a waiting thread in the lock manager and had to wait on alternate resource
+    u_long lock_extraneous_req_cnt Extraneous requests (already granted)
+    u_long lock_conversion_cnt  Requests requiring conversion
+
+	// Deadlock detector-related
+    u_long lock_deadlock_cnt	Deadlocks detected
+    u_long lock_false_deadlock_cnt	False positive deadlocks
+    u_long lock_dld_call_cnt	Deadlock detector total calls
+    u_long lock_dld_first_call_cnt	Deadlock detector first called for one lock
+    u_long lock_dld_false_victim_cnt	Deadlock detector victim not blocked
+    u_long lock_dld_victim_self_cnt	Deadlock detector picked self as victim 
+    u_long lock_dld_victim_other_cnt	Deadlock detector picked other as victim 
+	// Lock cache
+    u_long lock_cache_hit_cnt   Hits on lock cache (avoid acquires)
+    u_long lock_request_t_cnt	Lock request structures chained off lock heads
+
+	// Lock escalation
+    u_long lock_esc_to_page	Number of escalations to page level
+    u_long lock_esc_to_store	Number of escalations to store level
+    u_long lock_esc_to_volume	Number of escalations to volume level
+
+	// Lock types acquired
+    u_long lk_vol_acq		Volume locks acquired
+    u_long lk_store_acq		Store locks acquired
+    u_long lk_page_acq		Page locks acquired
+    u_long lk_kvl_acq		Key-value locks acquired
+    u_long lk_rec_acq		Record locks acquired
+    u_long lk_ext_acq		Extent locks acquired
+    u_long lk_user1_acq		User1 locks acquired
+    u_long lk_user2_acq		User2 locks acquired
+    u_long lk_user3_acq		User3 locks acquired
+    u_long lk_user4_acq		User4 locks acquired
+
+
+	//
+    // Log operations -- per thread
+	//
+    u_long await_log_io_monitor Possible long wait for log I/O monitor
+};
