@@ -1158,7 +1158,7 @@ io_m::alloc_a_file_page(
 
     int ngot=0;
     X_DO( _alloc_pages_with_vol_mutex(
-#if GNATS110_FIX
+#ifdef GNATS110_FIX
                 filter,
 #endif
                 v, fid, near_p, 1, ngot, 
@@ -1468,7 +1468,7 @@ io_m::_alloc_pages_with_vol_mutex(
         int remaining_in_ext=0;
         int allocated = 0;
         W_DO(v->alloc_pages_in_ext(
-#if GNATS110_FIX
+#ifdef GNATS110_FIX
                                       filter,
 #endif
                                       !search_file,
@@ -1573,7 +1573,7 @@ io_m::_alloc_pages_with_vol_mutex(
 #endif
 
                 W_DO(v->alloc_pages_in_ext(
-#if GNATS110_FIX
+#ifdef GNATS110_FIX
                                           filter,
 #endif
                                           !search_file,
@@ -1697,7 +1697,7 @@ io_m::_alloc_pages_with_vol_mutex(
                 is_last_ext_in_store = false;
 
                 W_DO(v->alloc_pages_in_ext(
-#if GNATS110_FIX
+#ifdef GNATS110_FIX
                             filter,
 #endif
                             !search_file, // if !search_file, is append_only
@@ -2011,7 +2011,7 @@ io_m::_alloc_pages_with_vol_mutex(
                 int Pallocated =0;
                 W_COERCE(
                     v->alloc_pages_in_ext(
-#if GNATS110_FIX
+#ifdef GNATS110_FIX
                         filter,
 #endif
                         !search_file, // if !search_file, is append_only

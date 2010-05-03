@@ -31,4 +31,11 @@
 #undef COMMON_GTID_LENGTH
 #undef COMMON_SERVER_HANDLE_LENGTH
 
+/* WARNING: Due to a bug in Sun's preprocessor (can't handle #if
+   inside text passed to macros), this flag is tested by defined-ness
+   rather than truthiness. #define 0 and #define 1 both enable the
+   fix.
+*/
+
+//#undef GNATS110_FIX
 #define GNATS110_FIX 1
