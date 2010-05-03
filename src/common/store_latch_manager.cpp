@@ -89,6 +89,7 @@ latch_t &store_latch_manager::find_latch(stid_t const &store)
             stid_t xxx = pos->first;
             w_assert1(store==xxx);
             latch=pos->second;
+	    return *latch;
         }
     }
     
