@@ -77,7 +77,7 @@ private:
     device_s*    _find(const devid_t& devid);
 
     // table of all devices currently mounted
-    w_list_t<device_s,queue_based_lock_t> _tab;
+    w_list_t<device_s,sm_vol_wlock_t> _tab;
 
     // disabled
     device_m(const device_m&);

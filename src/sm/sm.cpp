@@ -167,7 +167,7 @@ uint4_t        smlevel_0::volume_format_version = VOLUME_FORMAT;
  * TODO NANCY clean this up, document properly
  */
 
-queue_based_lock_t    smlevel_0::_begin_xct_mutex;
+sm_vol_rwlock_t    smlevel_0::_begin_xct_mutex;
 
 smlevel_0::concurrency_t smlevel_0::cc_alg = t_cc_record;
 bool smlevel_0::cc_adaptive = true;
@@ -1696,7 +1696,7 @@ ss_m::mount_dev(const char* device, u_int& vol_cnt, devid_t& devid, vid_t local_
 {
     SM_PROLOGUE_RC(ss_m::mount_dev, not_in_xct, 0);
 
-    CRITICAL_SECTION(cs, _begin_xct_mutex);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
 
     // do the real work of the mount
     W_DO(_mount_dev(device, vol_cnt, local_vid));
@@ -1718,7 +1718,7 @@ ss_m::dismount_dev(const char* device)
 {
     SM_PROLOGUE_RC(ss_m::dismount_dev, not_in_xct, 0);
 
-    CRITICAL_SECTION(cs, _begin_xct_mutex);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
 
     if (xct_t::num_active_xcts())  {
         fprintf(stderr, "Active transactions: %d : cannot dismount %s\n", 
@@ -1746,7 +1746,7 @@ ss_m::dismount_all()
 {
     SM_PROLOGUE_RC(ss_m::dismount_all, not_in_xct, 0);
     
-    CRITICAL_SECTION(cs, _begin_xct_mutex);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
 
     if (xct_t::num_active_xcts())  {
         fprintf(stderr, 
@@ -1828,7 +1828,7 @@ ss_m::create_vol(const char* dev_name, const lvid_t& lvid,
 {
     SM_PROLOGUE_RC(ss_m::create_vol, not_in_xct, 0);
 
-    CRITICAL_SECTION(cs, _begin_xct_mutex);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
 
     // make sure device is already mounted
     if (!io->is_mounted(dev_name)) return RC(eDEVNOTMOUNTED);
@@ -1855,7 +1855,7 @@ ss_m::destroy_vol(const lvid_t& lvid)
 {
     SM_PROLOGUE_RC(ss_m::destroy_vol, not_in_xct, 0);
 
-    CRITICAL_SECTION(cs, _begin_xct_mutex);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
 
     if (xct_t::num_active_xcts())  {
         fprintf(stderr, 
@@ -2176,8 +2176,8 @@ ss_m::_begin_xct(sm_stats_info_t *_stats, tid_t& tid, timeout_in_ms timeout)
 
     xct_t* x;
     {
-      CRITICAL_SECTION(cs, _begin_xct_mutex);
-      x = new xct_t(_stats, timeout);
+        CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
+        x = new xct_t(_stats, timeout);
     }
 
     if (!x) 

@@ -98,6 +98,25 @@ class option_t;
 
 typedef   w_rc_t        rc_t;
 
+
+// This business is to allow us to switch from one kind of
+// lock to another with more ease (controlled by shore.def).
+#if VOLUME_OPS_USE_OCC
+typedef occ_rwlock sm_vol_rwlock_t;
+typedef occ_rwlock::occ_rlock sm_vol_rlock_t;
+typedef occ_rwlock::occ_wlock sm_vol_wlock_t;
+#define SM_VOL_WLOCK(base) (base).write_lock()
+#define SM_VOL_RLOCK(base) (base).read_lock()
+
+#else
+typedef queue_based_lock_t sm_vol_rwlock_t;
+typedef queue_based_lock_t sm_vol_rlock_t;
+typedef queue_based_lock_t sm_vol_wlock_t;
+#define SM_VOL_WLOCK(base) &(base)
+#define SM_VOL_RLOCK(base) &(base)
+#endif
+
+
 /**\cond skip */
 class smlevel_0 : public w_base_t {
 public:
@@ -326,7 +345,7 @@ public:
     static option_t* _backgroundflush;
 
     // Certain operations have to exclude xcts
-    static queue_based_lock_t    _begin_xct_mutex;
+    static sm_vol_rwlock_t    _begin_xct_mutex;
 
     /*
      * Pre-defined store IDs -- see also vol.h

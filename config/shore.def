@@ -39,3 +39,11 @@
 
 //#undef GNATS110_FIX
 #define GNATS110_FIX 1
+
+
+/* Undefine this to fall back to protecting volume operations with a
+   full-blown mutex. This is probably undesirable as it will severely
+   limit scalability, but can be used to debug if bad behavior by
+   "readers" is suspected.
+*/
+#define VOLUME_OPS_USE_OCC 0
