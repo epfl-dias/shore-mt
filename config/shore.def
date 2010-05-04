@@ -46,4 +46,4 @@
    limit scalability, but can be used to debug if bad behavior by
    "readers" is suspected.
 */
-#define VOLUME_OPS_USE_OCC 0
+#define VOLUME_OPS_USE_OCC 1
