@@ -355,7 +355,21 @@ bool smthread_t::_try_initialize_fingerprint()
     for(int i=0; i < FINGER_BITS; i++) {
         _fingerprint_map.set_bit(_fingerprint[i]);
     }
+    
+#warning Bypassing broken fingerprint uniqueness checks
+    /* FRJ: the code below is doubly flawed and is disabled pending a
+       real fix
 
+       Conceptually, if every thread has a unique fingerprint we
+       should simply be using the bitmap as a bitmap (ie each thread
+       gets one bit). Anything more just wastes bits.
+
+       Correctness-wise, the global map is unable to recycle
+       fingerprints, putting a hard limit on the number of threads the
+       system can ever spawn (even if only one exists at a time!).
+     */
+    return false;
+    
     all_fingerprints.lock_for_write();
     atomic_thread_map_t _tmp;
     bool first_time = all_fingerprints.is_empty();
