@@ -797,6 +797,7 @@ xct_impl::commit(uint4_t flags)
          */
         
         // wait for the checkpoint to finish
+	chkpt_serial_m::trx_acquire();
         W_DO(check_one_thread_attached());
 
         // don't allow a chkpt to occur between changing the state and writing

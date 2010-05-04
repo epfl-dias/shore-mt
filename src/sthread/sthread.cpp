@@ -1514,6 +1514,7 @@ occ_rwlock::~occ_rwlock()
 void occ_rwlock::release_read()
 {
     membar_exit();
+    w_assert1(READER <= (int) _active_count);
     unsigned count = atomic_add_32_nv(&_active_count, -READER);
     if(count == WRITER) {
         // wake it up
