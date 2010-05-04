@@ -1531,11 +1531,11 @@ void occ_rwlock::acquire_read()
         {
             CRITICAL_SECTION(cs, _read_write_mutex);
             
-            // watch out for this nasty little race...
+            // nasty race: we could have fooled a writer into sleeping...
             if(count == WRITER)
                 DO_PTHREAD(pthread_cond_signal(&_write_cond));
             
-            while(_active_count & WRITER) {
+            while(*&_active_count & WRITER) {
                 DO_PTHREAD(pthread_cond_wait(&_read_cond, &_read_write_mutex));
             }
         }
@@ -1554,22 +1554,20 @@ void occ_rwlock::release_write()
 
 void occ_rwlock::acquire_write()
 {
-    // only one writer allowed at a time...
+    // only one writer allowed in at a time...
     CRITICAL_SECTION(cs, _read_write_mutex);    
-    while(_active_count & WRITER) {
+    while(*&_active_count & WRITER) {
         DO_PTHREAD(pthread_cond_wait(&_read_cond, &_read_write_mutex));
     }
     
-    // WARNING: a race here, in that two writers could
-    // add in WRITER, and make it look like no writer but
-    // multiple readers.
-    // prevent other writers 
+    // any lurking writers are waiting on the cond var
     int count = atomic_add_32_nv(&_active_count, WRITER);
+    w_assert1(count & WRITER);
 
     // drain readers
-    while(count > WRITER) {
+    while(count != WRITER) {
         DO_PTHREAD(pthread_cond_wait(&_write_cond, &_read_write_mutex));
-        count = _active_count;
+        count = *&_active_count;
     }
 }
 
