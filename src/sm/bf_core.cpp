@@ -403,9 +403,9 @@ struct bf_core_m::init_thread_t : public smthread_t
     }
     
     virtual void run() {
-        const char *_name = name();
+        const char *n = name();
         for(long i=_begin; i < _end; i++) {
-            _bfc->_buftab[i].initialize(_name, _bfc->_bufpool+i,
+            _bfc->_buftab[i].initialize(n, _bfc->_bufpool+i,
                                    htab::HASH_COUNT
                                    );
             _bfc->_unused.release(_bfc->_buftab+i);
@@ -1613,7 +1613,7 @@ bf_core_m::replacement()
                 // hold onto it long enough to do the following check
                 // If the pointer is null, 
                 // it means we don't have the mutex, and auto_release does nothing.
-                auto_release_t<pthread_mutex_t> dummy(page_write_mutex);
+                auto_release_t<pthread_mutex_t> cs(page_write_mutex);
 
                 if(page_write_mutex) // we hold the mutex...
                 {
