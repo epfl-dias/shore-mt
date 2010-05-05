@@ -247,7 +247,6 @@ public:
                                 }
     rc_t                        get_logbuf(logrec_t*&);
     void                        give_logbuf(logrec_t*, const page_p *p = 0);
-    void                        flush_logbuf();
 
     //
     //        Used by I/O layer

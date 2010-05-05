@@ -134,7 +134,6 @@ io_m::leave()
     // this gets done
     // done in stop_crit:
     if(xct()) { xct()->stop_crit(); }
-    if(xct()) { xct()->flush_logbuf(); }
 
 }
 
@@ -172,9 +171,6 @@ io_m::lock_force(
        if(page && page->is_fixed()) {
           page->unfix();
        }
-
-       // flush the log buf to unfix the page
-       me()->xct()->flush_logbuf();
 
        rc = lm->lock_force(n, m, d, timeout,
                 prev_mode, prev_pgmode, nameInLockHead);

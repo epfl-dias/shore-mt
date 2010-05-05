@@ -702,19 +702,6 @@ xct_t::dispose()
 }
 
 
-/*********************************************************************
- *
- *  xct_t::flush_logbuf()
- *
- *  public version of _flush_logbuf()
- *
- *********************************************************************/
-void
-xct_t::flush_logbuf()
-{
-    i_this->flush_logbuf();
-}
-
 rc_t 
 xct_t::get_logbuf(logrec_t*& ret)
 {

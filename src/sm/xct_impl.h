@@ -200,7 +200,6 @@ public:
                     base_stat_t &num);
 
  public:
-    void            flush_logbuf();
     ostream &       dump_locks(ostream &) const;
 
     /////////////////////////////////////////////////////////////////
@@ -254,6 +253,7 @@ public:
 
 private:
     void               _flush_logbuf(bool sync=false);
+    void	       _sync_logbuf();
 
 private: // all data members private
                 // to be manipulated only by smthread funcs

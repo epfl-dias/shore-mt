@@ -414,9 +414,6 @@ lg_tag_indirect_h::truncate(uint4_t num_pages)
                 _iref.indirect_root = 0;
             }
             root.unfix();
-            // TODO: WITHOUT THIS FLUSH AN ASSERT WILL FAIL
-            DBG( << "WITHOUT THIS FLUSH AN ASSERT WILL FAIL" );
-            xct()->flush_logbuf();
             W_DO(smlevel_0::io->free_page(root_pid, false/*checkstore*/));
         }
     }

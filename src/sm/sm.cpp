@@ -1641,7 +1641,6 @@ ss_m::start_log_corruption()
     // flush current log buffer since all future logs will be
     // corrupted.
     errlog->clog << error_prio << "Starting Log Corruption" << flushl;
-    xct()->flush_logbuf();
     log->start_log_corruption();
     return RCOK;
 }

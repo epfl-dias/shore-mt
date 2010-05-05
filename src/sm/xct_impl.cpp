@@ -494,7 +494,6 @@ xct_impl::prepare()
     // just as if we were committing.
     W_DO( ConvertAllLoadStoresToRegularStores() );
 
-    _flush_logbuf();
     w_assert1(_state == xct_active);
 
     // default unless all works ok
@@ -739,9 +738,9 @@ done:
     // We have to force the log record to the log
     // If we're not in a chkpt, we also have to make
     // it durable
-    _flush_logbuf(!in_chkpt);
-
     if( !in_chkpt)  {
+	_sync_logbuf();
+
         // free the mutex that serializes prepares & chkpts
         chkpt_serial_m::trx_release();
     }
@@ -777,7 +776,6 @@ xct_impl::commit(uint4_t flags)
     W_DO( ConvertAllLoadStoresToRegularStores() );
 
     SSMTEST("commit.1");
-    _flush_logbuf();
     
     change_state(flags & xct_t::t_chain ? xct_chaining : xct_committing);
 
@@ -812,9 +810,7 @@ xct_impl::commit(uint4_t flags)
         W_DO(rc);
 
         if (!(flags & xct_t::t_lazy) /* && !_read_only */)  {
-            if (log) {
-                _flush_logbuf(true);
-            }
+            _sync_logbuf();
             // W_COERCE(log->flush_all());        /* sync log */
         }
 #if X_LOG_COMMENT_ON
@@ -863,10 +859,6 @@ xct_impl::commit(uint4_t flags)
         chkpt_serial_m::trx_release();
 
         W_DO(rc);
-
-        if (log)  {                        // not necessary, since
-            _flush_logbuf();                // xct_free_space indicates a complete
-        }                                // xct. this does not need to be forced.
     }  else  {
         change_state(xct_ended);
 
@@ -956,8 +948,6 @@ xct_impl::abort()
 
     w_assert1(1 == atomic_add_nv(_xct_ended, 1));
 
-    _flush_logbuf();
-
     w_assert1(_state == xct_active || _state == xct_prepared);
 
     change_state(xct_aborting);
@@ -994,7 +984,7 @@ xct_impl::abort()
 
         W_DO(rc);
 
-        _flush_logbuf(true);
+        _sync_logbuf();
 #if X_LOG_COMMENT_ON
         {
             w_ostrstream s;
@@ -1031,8 +1021,6 @@ xct_impl::abort()
         chkpt_serial_m::trx_release();
 
         W_DO(rc);
-
-        _flush_logbuf();        // not necessary, see comment in _commit
     }  else  {
         change_state(xct_ended);
 
@@ -1096,7 +1084,6 @@ xct_impl::save_point(lsn_t& lsn)
     // cannot do this with >1 thread attached
     W_DO(check_one_thread_attached());
 
-    _flush_logbuf();
     lsn = _last_lsn;
     return RCOK;
 }
@@ -1124,29 +1111,6 @@ xct_impl::dispose()
     return RCOK;
 }
 
-
-/*********************************************************************
- *
- *  xct_t::flush_logbuf()
- *
- *  public version of _flush_logbuf()
- *
- *********************************************************************/
-void
-xct_impl::flush_logbuf()
-{
-    /*
-    // let only the thread that did the update
-    // do the flushing
-    */
-
-    if(_threads_attached == 1) 
-    {
-        acquire_1thread_log_mutex();
-        _flush_logbuf();
-        release_1thread_log_mutex();
-    }
-}
 
 /*********************************************************************
  *
@@ -1218,12 +1182,25 @@ xct_impl::_flush_logbuf( bool sync )
         }
     }
 
-    if( sync && log ) {
-        W_COERCE( log->flush(_last_lsn) );
+    if( sync ) {
+        _sync_logbuf();
     }
 }
 
-
+/*********************************************************************
+ *
+ *  xct_t::_sync_logbuf()
+ *
+ *  Force log entries up to the most recently written to disk.
+ *
+ *********************************************************************/
+void
+xct_impl::_sync_logbuf()
+{
+    if( log ) {
+        W_COERCE( log->flush(_last_lsn) );
+    }
+}
 
 /*********************************************************************
  *
@@ -1600,13 +1577,6 @@ xct_impl::anchor(bool grabit)
     );
 
 
-    /*
-     * flush in order to make sure that _last_lsn
-     * is what we expect it to be, for the purpose
-     * of getting _anchor, below:
-     */
-    _flush_logbuf();
-
     if(_in_compensated_op == 1 && grabit) {
         // _anchor is set to null when _in_compensated_op goes to 0
         w_assert3(_anchor == lsn_t::null);
@@ -1638,7 +1608,6 @@ xct_impl::compensate_undo(const lsn_t& lsn)
 
     _compensate(lsn, _last_log?_last_log->is_undoable_clr() : false);
 
-    _flush_logbuf();
     release_1thread_log_mutex();
 }
 
@@ -1768,7 +1737,6 @@ xct_impl::rollback(lsn_t save_pt)
             << " save_pt " << save_pt << " anchor " << _anchor);
     _in_compensated_op++;
 
-    _flush_logbuf();
     lsn_t nxt = _undo_nxt;
 
     LOGTRACE( << "abort begins at " << nxt);
@@ -1887,7 +1855,6 @@ xct_impl::rollback(lsn_t save_pt)
 
 done:
 
-    _flush_logbuf();
     DBGX( << " out compensated op");
     _in_compensated_op --;
     w_assert3(_anchor == lsn_t::null ||

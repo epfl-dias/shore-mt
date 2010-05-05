@@ -77,7 +77,6 @@ inline void         pin_i::_set_lsn() {
         // NB: in the case of multi-threaded xcts, this
         // lsn might not be *the* lsn that changed the page -- it
         // could be later
-        xct()->flush_logbuf();
         _hdr_lsn = _hdr_page().lsn();
 }
 #endif

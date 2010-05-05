@@ -226,10 +226,6 @@ prologue_rc_t::prologue_rc_t(
 
 prologue_rc_t::~prologue_rc_t()
 {
-    if (_xct_state == in_xct || _xct_state == abortable_xct) {
-        xct_t& x = *xct();
-        x.flush_logbuf(); // NEEDED?
-    }
 #if W_DEBUG_LEVEL > 2
     me()->check_pin_count(_pin_cnt_change);
     me()->in_sm(false);
