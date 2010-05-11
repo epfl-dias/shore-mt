@@ -137,7 +137,11 @@ ss_m::destroy_file(const stid_t& fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
-                 smsize_t len_hint, const vec_t& data, rid_t& new_rid)
+                 smsize_t len_hint, const vec_t& data, rid_t& new_rid
+#ifdef CFG_DORA
+                 , const bool bIgnoreLocks
+#endif
+                 )
 {
 #if FILE_LOG_COMMENT_ON
     {
@@ -147,7 +151,13 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
     }
 #endif
     SM_PROLOGUE_RC(ss_m::create_rec, in_xct, 0);
-    W_DO(_create_rec(fid, hdr, len_hint, data, new_rid));
+
+    W_DO(_create_rec(fid, hdr, len_hint, data, new_rid
+#ifdef CFG_DORA
+                     , true, bIgnoreLocks
+#endif
+                     ));
+
     return RCOK;
 }
 
@@ -155,11 +165,21 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
  *  ss_m::destroy_rec()                                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::destroy_rec(const rid_t& rid)
+ss_m::destroy_rec(const rid_t& rid
+#ifdef CFG_DORA
+                  , const bool bIgnoreLocks
+#endif
+                  )
 {
     SM_PROLOGUE_RC(ss_m::destroy_rec, in_xct, 0);
     DBG(<<"destroy_rec " <<rid);
-    W_DO(_destroy_rec(rid));
+
+    W_DO(_destroy_rec(rid
+#ifdef CFG_DORA
+                      , bIgnoreLocks
+#endif
+                      ));
+
     return RCOK;
 }
 
@@ -544,17 +564,31 @@ ss_m::_destroy_n_swap_file(const stid_t& old_fid, const stid_t& new_fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint, 
-                 const vec_t& data, rid_t& new_rid,
-                 bool  // TODO NANCY REMOVE
+                  const vec_t& data, rid_t& new_rid,
+                  bool  // TODO NANCY REMOVE
+#ifdef CFG_DORA
+                  /* forward_alloc */
+                  , const bool bIgnoreLocks
+#endif
                  )
 {
     FUNC(ss_m::_create_rec);
     sdesc_t* sd;
-    W_DO( dir->access(fid, sd, IX) );
+
+    lock_mode_t lmode = IX;
+#ifdef CFG_DORA
+    if (bIgnoreLocks) lmode = NL;
+#endif
+
+    W_DO( dir->access(fid, sd, lmode) );
 
     DBG( << "create in fid " << fid << " data.size " << data.size());
 
-    W_DO( fi->create_rec(fid, len_hint, hdr, data, *sd, new_rid) );
+    W_DO( fi->create_rec(fid, len_hint, hdr, data, *sd, new_rid
+#ifdef CFG_DORA
+                         , bIgnoreLocks
+#endif
+                         ) );
 
     // NOTE: new_rid need not be locked, since lock escalation
     // or explicit file/page lock might obviate it.
@@ -568,10 +602,20 @@ ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
  *  ss_m::_destroy_rec()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_destroy_rec(const rid_t& rid)
+ss_m::_destroy_rec(const rid_t& rid
+#ifdef CFG_DORA
+                   , const bool bIgnoreLocks
+#endif
+                   )
 {
     DBG(<<"_destroy_rec " << rid);
-    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+
+    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT
+#ifdef CFG_DORA
+                  , 0, 0, 0, bIgnoreLocks // If set it will cause to bIgnoreParents
+#endif
+                  ));
+
     W_DO(fi->destroy_rec(rid));
     //cout << "sm destroy_rec " << rid << endl;
     return RCOK;
@@ -581,10 +625,19 @@ ss_m::_destroy_rec(const rid_t& rid)
  *  ss_m::_update_rec()                                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data)
+ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data
+#ifdef CFG_DORA
+                  , const bool bIgnoreLocks
+#endif
+                  )
 {
+#ifdef CFG_DORA
+    if (!bIgnoreLocks) W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+    W_DO(fi->update_rec(rid, start, data, bIgnoreLocks));
+#else
     W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
     W_DO(fi->update_rec(rid, start, data));
+#endif
     return RCOK;
 }
 
@@ -592,9 +645,20 @@ ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data)
  *  ss_m::_update_rec_hdr()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr)
+ss_m::_update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr
+#ifdef CFG_DORA
+                      , const bool bIgnoreLocks
+#endif
+                      )
 {
-    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+#ifdef CFG_DORA
+    if (!bIgnoreLocks) {
+#endif
+        W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+#ifdef CFG_DORA
+    }
+#endif
+
     W_DO(fi->splice_hdr(rid, u4i(start), hdr.size(), hdr));
     return RCOK;
 }

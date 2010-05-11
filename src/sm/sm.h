@@ -1552,11 +1552,17 @@ public:
         stid_t                   stid, 
         const vec_t&             key, 
         const vec_t&             el
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
     static rc_t            destroy_assoc(
         stid_t                   stid, 
         const vec_t&             key,
         const vec_t&             el
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
     static rc_t            destroy_all_assoc(
         stid_t                  stid, 
@@ -1569,6 +1575,9 @@ public:
         void*                   el, 
         smsize_t&               elen, 
         bool&                   found
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
 
     //
@@ -1679,6 +1688,9 @@ public:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     ); 
 
     /**\brief Destroy a record.
@@ -1686,7 +1698,11 @@ public:
      * \details
      * @param[in] rid  ID of the record to destroy.
      */
-    static rc_t            destroy_rec(const rid_t& rid);
+    static rc_t            destroy_rec(const rid_t& rid
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+                                       );
 
     /**\brief Modify the body of an existing record.
      * \ingroup SSMFILE
@@ -2018,12 +2034,18 @@ private:
         const stid_t  &        stid, 
         const vec_t&           key, 
         const vec_t&           el
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
 
     static rc_t            _destroy_assoc(
         const stid_t &        stid, 
         const vec_t&          key,
         const vec_t&          el
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
 
     static rc_t            _destroy_all_assoc(
@@ -2037,6 +2059,9 @@ private:
         void*                el, 
         smsize_t&            elen, 
         bool&                found
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
     );
 
     // below method overloaded for rtree
@@ -2113,22 +2138,35 @@ private:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-        bool                    forward_alloc = true); 
+        bool                     forward_alloc = true
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+        ); 
 
     static rc_t            _destroy_rec(
         const rid_t&             rid
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
         );
 
     static rc_t            _update_rec(
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             data
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
         );
 
     static rc_t            _update_rec_hdr(
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             hdr
+#ifdef CFG_DORA
+        , const bool             bIgnoreLocks = false
+#endif
         );
 
     static rc_t            _append_rec(

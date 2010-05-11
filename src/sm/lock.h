@@ -106,7 +106,11 @@ public:
         timeout_in_ms               timeout = WAIT_SPECIFIED_BY_XCT,
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
-        lockid_t**                  nameInLockHead = 0);
+        lockid_t**                  nameInLockHead = 0
+#ifdef CFG_DORA
+        , const bool                bIgnoreParents = false
+#endif
+        );
      
     rc_t                        lock_force(
         const lockid_t&             n,
@@ -115,7 +119,11 @@ public:
         timeout_in_ms               timeout = WAIT_SPECIFIED_BY_XCT,
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
-        lockid_t**                  nameInLockHead = 0);
+        lockid_t**                  nameInLockHead = 0
+#ifdef CFG_DORA
+        , const bool                bIgnoreParents = false
+#endif
+        );
 
     rc_t                        unlock(const lockid_t& n);
 
@@ -157,7 +165,11 @@ private:
         duration_t                   duration,
         timeout_in_ms                timeout,
         bool                         force,
-        lockid_t**                   nameInLockHead);
+        lockid_t**                   nameInLockHead
+#ifdef CFG_DORA
+        , const bool                bIgnoreParents = false
+#endif
+        );
 
     rc_t                        _query_implicit(
         const lockid_t&              n,

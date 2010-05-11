@@ -57,6 +57,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SM_SOURCE
 #define SM_C
 
+#ifdef CFG_DORA
+#warning DORA-related code paths enabled
+#endif
+
 #ifdef __GNUG__
 class prologue_rc_t;
 #pragma implementation "sm.h"

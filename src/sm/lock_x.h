@@ -395,7 +395,12 @@ public:
                         int    & total_SIX, 
                         int & total_extent ) const;
 
+#ifdef CFG_DORA
+    // IP: We use a reduced lock cache size in DORA since locks are not being used
+    enum { lock_cache_size = 3};
+#else
     enum { lock_cache_size = 50};
+#endif
 
     /// ID of the transaction that owns this structure.
     tid_t            tid() const { return _tid; }

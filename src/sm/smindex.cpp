@@ -246,10 +246,17 @@ ss_m::print_md_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
+#ifdef CFG_DORA
+                   , const bool bIgnoreLocks
+#endif
         )
 {
     SM_PROLOGUE_RC(ss_m::create_assoc, in_xct, 0);
-    W_DO(_create_assoc(stid, key, el));
+    W_DO(_create_assoc(stid, key, el
+#ifdef CFG_DORA
+                       , bIgnoreLocks
+#endif
+                       ));
     return RCOK;
 }
 
@@ -258,10 +265,17 @@ ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
  *--------------------------------------------------------------*/
 rc_t
 ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el
-)
+#ifdef CFG_DORA
+                   , const bool bIgnoreLocks
+#endif
+                    )
 {
     SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, 0);
-    W_DO(_destroy_assoc(stid, key, el));
+    W_DO(_destroy_assoc(stid, key, el
+#ifdef CFG_DORA
+                        , bIgnoreLocks
+#endif
+                        ));
     return RCOK;
 }
 
@@ -283,11 +297,18 @@ ss_m::destroy_all_assoc(stid_t stid, const vec_t& key, int& num)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::find_assoc(stid_t stid, const vec_t& key, 
-                    void* el, smsize_t& elen, bool& found
+                 void* el, smsize_t& elen, bool& found
+#ifdef CFG_DORA
+                 , const bool bIgnoreLocks
+#endif
               )
 {
     SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, 0);
-    W_DO(_find_assoc(stid, key, el, elen, found));
+    W_DO(_find_assoc(stid, key, el, elen, found
+#ifdef CFG_DORA
+                     , bIgnoreLocks
+#endif
+                     ));
     return RCOK;
 }
 
@@ -695,6 +716,9 @@ ss_m::_create_assoc(
     const stid_t&        stid, 
     const vec_t&         key, 
     const vec_t&         el
+#ifdef CFG_DORA
+    , const bool bIgnoreLocks
+#endif
 )
 {
     // usually we will do kvl locking and already have an IX lock
@@ -703,6 +727,15 @@ ss_m::_create_assoc(
 
     // determine if we need to change the settins of cc and index_mode
     concurrency_t cc = t_cc_bad;
+
+#ifdef CFG_DORA
+    // IP: DORA inserts using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    } else {
+#endif
+
     xct_t* xd = xct();
     if (xd)  {
         lock_mode_t lock_mode;
@@ -716,6 +749,10 @@ ss_m::_create_assoc(
             index_mode = IX;
         }
     }
+
+#ifdef CFG_DORA
+    }
+#endif
 
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );
@@ -753,12 +790,24 @@ ss_m::_destroy_assoc(
     const stid_t  &      stid, 
     const vec_t&         key, 
     const vec_t&         el
+#ifdef CFG_DORA
+    , const bool bIgnoreLocks
+#endif
     )
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
+
+#ifdef CFG_DORA
+    // IP: DORA deletes using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    }
+    else {
+#endif
 
     // determine if we need to change the settins of cc and index_mode
     xct_t* xd = xct();
@@ -774,6 +823,11 @@ ss_m::_destroy_assoc(
             index_mode = IX;
         }
     }
+
+#ifdef CFG_DORA
+    }
+#endif
+
     DBG(<<"");
 
     sdesc_t* sd;
@@ -856,12 +910,25 @@ ss_m::_find_assoc(
     void*                 el, 
     smsize_t&             elen, 
     bool&                 found
+#ifdef CFG_DORA
+    , const bool bIgnoreLocks
+#endif
     )
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IS lock
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
+
+#ifdef CFG_DORA
+    // IP: DORA does the dir access and the index lookup 
+    //     using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    }
+    else {
+#endif
 
     // determine if we need to change the settins of cc and index_mode
     xct_t* xd = xct();
@@ -879,6 +946,10 @@ ss_m::_find_assoc(
             index_mode = IS;
         }
     }
+
+#ifdef CFG_DORA
+    }
+#endif
 
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );

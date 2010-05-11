@@ -104,7 +104,11 @@ public:
     rc_t                _find_and_lock_free_slot(
         bool                       append_only,
         uint4_t                    space_needed,
-        slotid_t&                  idx);
+        slotid_t&                  idx
+#ifdef CFG_DORA
+        , const bool                bIgnoreParents = false
+#endif
+        );
 
     bool                         is_deadbeef() const; // page freed?
     void                         set_deadbeef(); // page is freed
@@ -207,13 +211,16 @@ public:
     static rc_t create(stid_t stid, lpid_t& first_page);
     
     static rc_t create_rec(
-                        const stid_t&         fid,
+                        const stid_t&    fid,
                         // no page hint
-                        smsize_t        len_hint,
-                        const vec_t&         hdr,
-                        const vec_t&         data,
-                        sdesc_t&        sd,
-                        rid_t&                 rid // output
+                        smsize_t         len_hint,
+                        const vec_t&     hdr,
+                        const vec_t&     data,
+                        sdesc_t&         sd,
+                        rid_t&           rid // output
+#ifdef CFG_DORA
+                        , const bool     bIgnoreParents = false
+#endif
                     );
 
     static rc_t create_rec_at_end(
@@ -246,7 +253,11 @@ public:
     static rc_t destroy_rec(const rid_t& rid);
 
     static rc_t update_rec(const rid_t& rid, uint4_t start,
-                           const vec_t& data);
+                           const vec_t& data
+#ifdef CFG_DORA
+                           , const bool bIgnoreParents = false
+#endif
+                           );
 
     static rc_t append_rec(const rid_t& rid, 
                            const vec_t& data,
@@ -308,8 +319,11 @@ protected:
                                 pg_policy_t     mask,
                                 sdesc_t&        sd,
                                 smsize_t        space_needed, 
-                                file_p&         page,        // output
+                                file_p&         page,       // output
                                 slotid_t&       slot        // output
+#ifdef CFG_DORA
+                                , const bool    bIgnoreParents = false
+#endif
                     );
 
     static rc_t _create_rec(
@@ -321,6 +335,9 @@ protected:
                                 const vec_t&        data,
                                 rid_t&              rid,
                                 file_p&             page        // in-output
+#ifdef CFG_DORA
+                                , const bool        bIgnoreParents = false
+#endif
                     );
 
     static rc_t _create_rec_given_page(

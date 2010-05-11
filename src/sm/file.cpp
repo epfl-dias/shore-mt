@@ -195,7 +195,10 @@ file_m::create_rec(
     sdesc_t&             sd,
     rid_t&               rid // output
     // no forward_alloc
-)
+#ifdef CFG_DORA
+    , const bool bIgnoreParents
+#endif
+    )
 {
     file_p        page;
 
@@ -208,8 +211,12 @@ file_m::create_rec(
     DBG(<<"create_rec store " << fid);
 
     W_DO(_create_rec( fid, pg_policy_t(policy), 
-        len_hint, sd, hdr, data, 
-        rid, page));
+                      len_hint, sd, hdr, data, 
+                      rid, page
+#ifdef CFG_DORA
+                      , bIgnoreParents
+#endif
+                      ));
     DBG(<<"create_rec created " << rid);
     return RCOK;
 }
@@ -253,6 +260,9 @@ file_m::_create_rec(
     const vec_t&          data,
     rid_t&                rid,
     file_p&               page        // in-output
+#ifdef CFG_DORA
+    , const bool          bIgnoreParents
+#endif
 )
 {
     smsize_t        space_needed;
@@ -324,7 +334,11 @@ file_m::_create_rec(
 
         if(!have_page) {
             W_DO(_find_slotted_page_with_space(fid, policy, sd, 
-                space_needed, page, slot));
+                                               space_needed, page, slot
+#ifdef CFG_DORA
+                                               , bIgnoreParents
+#endif
+                                               ));
             hu.replace_page(&page);
         }
 
@@ -369,6 +383,9 @@ file_m::_find_slotted_page_with_space(
     smsize_t            space_needed, 
     file_p&             page,        // output
     slotid_t&           slot        // output
+#ifdef CFG_DORA
+    , const bool bIgnoreParents
+#endif
 )
 {
     uint4_t         policy = uint4_t(mask);
@@ -391,7 +408,12 @@ file_m::_find_slotted_page_with_space(
         while(!found) {
             pginfo_t        info;
             DBG(<<"looking in cache");
-            W_DO(h->find_page(space_needed, found, info, &page, slot));
+            W_DO(h->find_page(space_needed, found, info, &page, slot
+#ifdef CFG_DORA
+                              , bIgnoreParents
+#endif
+                              ));
+
             if(found) {
                 w_assert2(page.is_fixed());
                 DBG(<<"found page " << info.page() 
@@ -753,13 +775,24 @@ file_m::destroy_rec(const rid_t& rid)
 }
 
 rc_t
-file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data)
+file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data
+#ifdef CFG_DORA
+                   , const bool bIgnoreLocks
+#endif
+                   )
 {
     file_p    page;
     record_t*            rec;
 
+    // IP: here we could possibly do the update without LATCH_EX the page 
+    //     however, it is disabled for now, because it is dangerous
+    latch_mode_t page_latch_mode = LATCH_EX;
+#if 0
+    if (bIgnoreLocks) page_latch_mode = LATCH_SH;
+#endif
+
     DBGTHRD(<<"update_rec");
-    W_DO(_locate_page(rid, page, LATCH_EX));
+    W_DO(_locate_page(rid, page, page_latch_mode));
 
     W_DO( page.get_rec(rid.slot, rec) );
 
@@ -2001,7 +2034,11 @@ rc_t
 file_p::_find_and_lock_free_slot(
     bool                     append_only,
     uint4_t                  space_needed,
-    slotid_t&                idx)
+    slotid_t&                idx
+#ifdef CFG_DORA
+    , const bool bIgnoreParents
+#endif
+    )
 {
     FUNC(find_and_lock_free_slot);
     w_assert3(is_file_p());
@@ -2021,7 +2058,14 @@ file_p::_find_and_lock_free_slot(
 
         // try to lock the slot, but do not block
         rid_t rid(pid(), idx);
-        rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE);
+
+        // IP: For DORA it may ignore to acquire other locks than the RID
+	rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE
+#ifdef CFG_DORA
+                      , 0, 0, 0, bIgnoreParents
+#endif
+                      );
+
         if (rc.is_error())  {
             if (rc.err_num() == eLOCKTIMEOUT) {
                 // slot is locked by another transaction, so find

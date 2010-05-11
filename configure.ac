@@ -432,6 +432,8 @@ AH_TEMPLATE(NDEBUG,		[no debug code included])
 AH_TEMPLATE(W_TRACE,		[tracing debugging code included])
 AH_TEMPLATE(W_DEBUG_RC,		[rc-is-checked code included])
 
+AH_TEMPLATE(CFG_DORA,           [DORA-related code included])
+
 ## Check for atomic ops
 AC_CHECK_FUNCS([membar_enter]) 
 AC_CHECK_FUNCS([posix_spawn]) 
@@ -1183,6 +1185,37 @@ AC_ARG_ENABLE([purecov],
  *) AC_MSG_ERROR([bad value ${enableval} for --enable-purecov]) ;;
 esac], [purecov=false])
 AM_CONDITIONAL([PURECOV], [test x$purecov = xtrue])
+
+
+# -------------------------------------------------------------------------
+#
+# Shore-MT new features
+#
+# There are six supported additional options:
+#
+# (1) --enable-dora       : defines CFG_DORA
+# Enables the code paths for Data-oriented Transaction Execution (DORA)
+#
+# -------------------------------------------------------------------------
+AC_MSG_CHECKING(whether to enable DORA-support)
+AC_ARG_ENABLE([dora], 
+[  --enable-dora        default:no   Enable DORA],
+[case "${enableval}" in
+  yes) dora=true ;;
+  no)  dora=false ;;
+  *) dora=true ;;
+esac],[dora=false])
+AM_CONDITIONAL([USE_DORA], [test x$dora = xtrue])
+
+if test "$dora" = true
+then 
+     AC_MSG_RESULT(yes)
+     AC_DEFINE(CFG_DORA)
+else
+     AC_MSG_RESULT(no)
+fi
+# -------------------------------------------------------------------------
+
 
 
 AC_CONFIG_FILES([Makefile])

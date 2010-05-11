@@ -218,7 +218,11 @@ rc_t pin_i::next_bytes(bool& eof)
 }
 
 rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
-                        int* old_value /* temporary: for degugging only */)
+                       int* old_value /* temporary: for degugging only */
+#ifdef CFG_DORA
+                       , const bool bIgnoreLocks
+#endif
+                       )
 {
     bool        was_pinned = pinned(); // must be first due to hp CC bug
     w_rc_t      rc;
@@ -232,8 +236,17 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
             DBG(<<"pinned");
             _check_lsn();
         }
-        W_DO_GOTO(rc, _repin(EX, old_value));
-        w_assert3(_hdr_page().latch_mode() == LATCH_EX && _lmode == EX);
+        W_DO_GOTO(rc, _repin(EX, old_value
+#ifdef CFG_DORA
+                             , bIgnoreLocks
+#endif
+                             ));
+        w_assert3(_hdr_page().latch_mode() == LATCH_EX);
+        w_assert3((_lmode == EX)
+#ifdef CFG_DORA
+                  || bIgnoreLocks // IP: In DORA we disable the second assertion
+#endif
+                  );
 
         //
         // Avoid calling ss_m::_update_rec by just
@@ -250,6 +263,12 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
         W_DO_GOTO(rc, _hdr_page().splice_data(_rid.slot, u4i(start), data.size(), data));
 
     } else {
+
+#ifdef CFG_DORA
+        if (bIgnoreLocks) {
+            W_DO_GOTO(rc, SSM->_update_rec(_rid, start, data, bIgnoreLocks));      
+        } else {
+#endif  
   
         // if !locked, then unpin in case lock req (in update) blocks
         if (was_pinned && _lmode != EX) unpin();
@@ -257,6 +276,11 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
         W_DO_GOTO(rc, SSM->_update_rec(_rid, start, data));
         _lmode = EX;  // record is now EX locked
         if (was_pinned) W_DO_GOTO(rc, _repin(EX));
+
+#ifdef CFG_DORA
+        }
+#endif  
+
     }
 
 // success
@@ -294,7 +318,11 @@ failure:
     return rc;
 }
 
-rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr)
+rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr
+#ifdef CFG_DORA
+                           , const bool bIgnoreLocks
+#endif
+                           )
 {
     bool was_pinned = pinned(); // must be first due to hp CC bug
     rc_t rc;
@@ -304,7 +332,13 @@ rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr)
     }
 
     SM_PROLOGUE_RC(pin_i::update_rec_hdr, in_xct, 0);
-    W_DO_GOTO(rc, _repin(EX));
+
+    lock_mode_t repin_lock_mode = EX;
+#ifdef CFG_DORA
+    if (bIgnoreLocks) repin_lock_mode = SH;
+#endif
+    W_DO_GOTO(rc, _repin(repin_lock_mode));
+
     W_DO_GOTO(rc, _hdr_page().splice_hdr(_rid.slot, u4i(start), hdr.size(), hdr));
 
 // success
@@ -585,7 +619,11 @@ failure:
     return rc;
 }
 
-rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/)
+rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
+#ifdef CFG_DORA
+                   , const bool bIgnoreLocks
+#endif
+                   )
 {
     w_error_t*   err=0;        // must use rather than rc_t due to HP_CC_BUG_2
     rc_t         rc;
@@ -594,7 +632,12 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/)
     // acquire lock if current one is not strong enough
     // TODO: this should probably use the lock supremum table
 
-    if (_lmode < lmode) {
+    if ((_lmode < lmode) 
+#ifdef CFG_DORA
+        && !bIgnoreLocks
+#endif  
+        )
+    {
         DBG(<<"acquiring lock");
         // see if we can get the lock without blocking
         rc = lm->lock(_rid, lmode, t_long, WAIT_IMMEDIATE);
@@ -621,7 +664,11 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/)
 
         if (_hdr_page().latch_mode() != lock_to_latch(_lmode)) {
             w_assert3(_hdr_page().latch_mode() == LATCH_SH);
-            w_assert3(_lmode == EX || _lmode == UD);
+            w_assert3(_lmode == EX || _lmode == UD
+#ifdef CFG_DORA
+                      || bIgnoreLocks
+#endif
+                      );
 
             bool would_block = false;  // was page unpinned during upgrade
             W_DO_GOTO(rc, _hdr_page().upgrade_latch_if_not_block(would_block));

@@ -51,7 +51,10 @@ if COMPILER_IS_GCC
 # might be some cases where the underlying library function
 # or system include file uses long long, in which case we will have to.
 #
-ALWAYS_FLAGS += -Wno-long-long -Wno-ignored-qualifiers -Werror -pthread
+
+ALWAYS_FLAGS += -Wno-long-long -Wno-ignored-qualifiers -pthread
+#ALWAYS_FLAGS += -Wno-long-long -Wno-ignored-qualifiers -Werror -pthread
+
 # NO_INLINE_FLAGS =  -fno-inline
 NO_INLINE_FLAGS =  
 YES_INLINE_FLAGS =  -finline-functions

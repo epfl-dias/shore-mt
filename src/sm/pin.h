@@ -132,7 +132,7 @@ class record_t;
       The pin_i, pin, repin functions all take a lock mode parameter
       that specifies how the record should initially be locked.  The
       options are SH and EX.  EX should be used when
-      the pinned record will be eventually updated (throuh update_rec,
+      the pinned record will be eventually updated (through update_rec,
       unpdate_rec_hdr, append_rec, or truncate_rec).  Using EX in these
       cases will improve performance and reduce the risk of deadlock,
       but is not necessary for correctness.
@@ -345,7 +345,11 @@ public:
      * The portion of the record containing the start byte need not
      * be pinned before this is called.
      */
-    rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0);
+    rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0
+#ifdef CFG_DORA
+                       , const bool bIgnoreLocks = false
+#endif
+                       );
 
     /**\brief Update the pinned record's header.
      * \details
@@ -354,7 +358,11 @@ public:
      * @param[in] hdr A vector containing the data to place in the header
      * at location \e start.
      */
-    rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr);
+    rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr
+#ifdef CFG_DORA
+                           , const bool bIgnoreLocks = false
+#endif 
+                           );
 
     /**\brief Append to a pinned record.
      * \details
@@ -407,7 +415,11 @@ private:
 
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m);
 
-    rc_t        _repin(lock_mode_t lmode, int* old_value = 0);
+    rc_t        _repin(lock_mode_t lmode, int* old_value = 0
+#ifdef CFG_DORA
+                       , const bool bIgnoreLocks = false
+#endif
+                       );
 
     file_p*     _get_hdr_page_no_lsn_check() const {
                         return pinned() ? &_hdr_page() : 0;}

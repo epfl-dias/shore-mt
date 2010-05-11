@@ -227,17 +227,23 @@ public:
     w_rc_t        find_page(
                     smsize_t     space_needed,
                     bool&        found,
-                    pginfo_t&     info, 
-                    file_p*        pagep,
+                    pginfo_t&    info, 
+                    file_p*      pagep,
                     slotid_t&    idx    // output iff found
+#ifdef CFG_DORA
+                    , const bool bIgnoreParents = false
+#endif
             ) const;
     w_rc_t        latch_lock_get_slot(
                     shpid_t&    shpid,
-                    file_p*        pg, 
+                    file_p*     pg, 
                     smsize_t    space_needed,
                     bool        append_only,
-                    bool&        success, // output
-                    slotid_t&    idx // output
+                    bool&       success, // output
+                    slotid_t&   idx // output
+#ifdef CFG_DORA
+                    , const bool bIgnoreParents = false
+#endif
             ) const;
 
     ostream            &print(ostream &) const;
