@@ -1203,7 +1203,7 @@ AC_ARG_ENABLE([dora],
 [case "${enableval}" in
   yes) dora=true ;;
   no)  dora=false ;;
-  *) dora=true ;;
+  *) dora=false ;;
 esac],[dora=false])
 AM_CONDITIONAL([USE_DORA], [test x$dora = xtrue])
 
