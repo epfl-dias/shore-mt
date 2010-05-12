@@ -85,13 +85,7 @@ template class w_auto_delete_array_t<unsigned>;
 
 #if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
 DECLARE_TLS(block_alloc<lock_head_t>, lockHeadPool);
-void lock_head_t::operator delete(void* p) {
-    lockHeadPool->destroy_object((lock_head_t*) p, true);
-}
 DECLARE_TLS(block_alloc<lock_request_t>, lock_request_pool);
-void lock_request_t::operator delete(void* p) {
-    lock_request_pool->destroy_object((lock_request_t*) p, true);
-}
 #endif
 
 /*********************************************************************
@@ -880,7 +874,11 @@ inline void
 lock_core_m::FreeLockHeadToPool(lock_head_t* theLockHead)
 {
     // Called while holding the bucket mutex
-    delete theLockHead; //lockHeadPool->destroy_object(theLockHead);
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
+    lockHeadPool->destroy_object(theLockHead);
+#else
+    delete theLockHead;
+#endif
     //fprintf(stderr, "Releasing lock head 0x%p\n", theLockHead);
 }
 
@@ -1886,7 +1884,11 @@ lock_core_m::close_quark(
 
         w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
         the_xlinfo->quark_marker()->xlink.detach();
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
+	lock_request_pool->destroy_object(the_xlinfo->quark_marker());
+#else
         delete the_xlinfo->quark_marker(); // is a lock_request_t
+#endif
         the_xlinfo->set_quark_marker(NULL);
 
         ATOMIC_DEC(_requests_allocated);
@@ -2138,8 +2140,12 @@ lock_core_m::_check_deadlock(xct_t* self,
             // since I am necessarily acquiring in order (old->young)
             // this should not cause a mutex-mutex deadlock.
             // MUTEX_ACQUIRE(their_lock_info->lock_info_mutex);
-            // The problem  here is that a thread cannot hold 2 of these
+            // NEH: The problem  here is that a thread cannot hold 2 of these
             // mutexes because they use a single TLS qnode for this.
+	    // FRJ: Also note that we indirectly have locked their
+	    // node (we hold the lock head, so they can't free
+	    // it). The critical section is both unnecessary and
+	    // deadlock-prone
             
             // I'm older -- abort other
             INC_TSTAT(lock_dld_victim_other_cnt);

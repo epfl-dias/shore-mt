@@ -27,15 +27,16 @@
 #include <sys/mman.h>
 #include <algorithm>
 #include <cstdlib>
+#include <cassert>
 
 // no system I know of *requires* larger pages than this
-static size_t const MM_PAGE_SIZE = 8192;
+size_t const dynarray::PAGE_SIZE = 8192;
 // most systems can't handle bigger than this, and we need a sanity check
-static size_t const MM_MAX_CAPACITY = MM_PAGE_SIZE*1024*1024*1024;
+static size_t const MM_MAX_CAPACITY = dynarray::PAGE_SIZE*1024*1024*1024;
 
-static size_t mm_page_ceil(size_t bytes) { return (bytes+MM_PAGE_SIZE-1) &~ (MM_PAGE_SIZE-1); }
-static size_t mm_bytes2pages(size_t bytes) { return (bytes+MM_PAGE_SIZE-1)/MM_PAGE_SIZE; }
-static size_t mm_pages2bytes(uint32_t pages) { return pages*MM_PAGE_SIZE; }
+static size_t mm_page_ceil(size_t bytes) { return (bytes+dynarray::PAGE_SIZE-1) &~ (dynarray::PAGE_SIZE-1); }
+static size_t mm_bytes2pages(size_t bytes) { return (bytes+dynarray::PAGE_SIZE-1)/dynarray::PAGE_SIZE; }
+static size_t mm_pages2bytes(uint32_t pages) { return pages*dynarray::PAGE_SIZE; }
 
 int dynarray::init(size_t max_size) {
     // round up to the nearest page boundary
@@ -44,7 +45,7 @@ int dynarray::init(size_t max_size) {
     // validate inputs
     if(max_size > MM_MAX_CAPACITY)
 	return EFBIG;
-    if(MM_PAGE_SIZE > max_size)
+    if(dynarray::PAGE_SIZE > max_size)
 	return EINVAL;
 
     /*
@@ -103,8 +104,8 @@ int dynarray::resize(size_t new_size) {
     static int const PROTS = PROT_READ | PROT_WRITE;
     static int const FLAGS = MAP_FIXED | MAP_ANON | MAP_PRIVATE;
 
-    // remap the new range as RW
-    void* result = mmap(_base, new_size, PROTS, FLAGS, -1, 0);
+    // remap the new range as RW. Don't mess w/ the existing region!!
+    void* result = mmap(_base+_size, new_size-_size, PROTS, FLAGS, -1, 0);
     if(result == MAP_FAILED)
 	return errno;
 

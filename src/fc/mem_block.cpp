@@ -87,6 +87,7 @@ void block_bits::release(size_t index, size_t slot_count) {
 #if I_WISH
     bitmap was_free = __sync_fetch_and_or(&_zombie_slots, to_free);
 #else
+    membar_exit();
     bitmap volatile* ptr = &_zombie_slots;
     bitmap ov = *ptr;
     while(1) {
@@ -120,6 +121,7 @@ void block_bits::recycle() {
 #if I_WISH
     __sync_xor_and_fetch(&_zombie_slots, newly_usable);
 #else
+    membar_exit();
     bitmap volatile* ptr = &_zombie_slots;
     bitmap ov = *ptr;
     while(1) {
@@ -166,6 +168,12 @@ block::block(size_t unit_size, size_t unit_count, size_t block_size)
     char* end_of_block = _get(0, unit_size)-sizeof(this)+block_size;
     char* end_of_slots = _get(unit_count, unit_size);
     assert(end_of_slots <= end_of_block);
+    
+    /* We purposefully don't check alignment here because some parts
+       of the impl cheat for blocks which will never be used to
+       allocate anything (the fake_block being the main culprit).
+       The block_pool does check alignment, though.
+     */
 }
 
 void* block_list::acquire(size_t unit_size, size_t unit_count, size_t block_size)
@@ -332,7 +340,7 @@ struct test_block_pool : block_pool {
 	}
     }
     
-    virtual block* 	_acquire_block(block_list* owner) {
+    virtual block* 	_acquire_block() {
 	if(_freelist.empty())
 	    return 0;
 	

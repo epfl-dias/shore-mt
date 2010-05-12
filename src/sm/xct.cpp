@@ -177,7 +177,7 @@ tid_t                                xct_t::_oldest_tid = tid_t::null;
  *
  *********************************************************************/
 // FRJ: WARNING: xct_impl::commit has some of this code as well
-#define USE_BLOCK_ALLOC_FOR_XCT_IMPL  0
+#define USE_BLOCK_ALLOC_FOR_XCT_IMPL  1
 #if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
 DECLARE_TLS(block_alloc<xct_impl>, xct_impl_pool);
 #endif

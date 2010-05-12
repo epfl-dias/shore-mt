@@ -24,12 +24,14 @@
 #ifndef BLOCK_ALLOC_H
 #define BLOCK_ALLOC_H
 
-#include <atomic_templates.h>
+#include "dynarray.h"
+#include "mem_block.h"
 
 // for placement new support, which users need
 #include <new>
 #include <w.h>
 #include <stdlib.h>
+#include <deque>
 
 template<class T>
 class block_alloc; // forward
@@ -49,223 +51,160 @@ void operator delete(void* ptr, block_alloc<T> &alloc); // forward
  * course).
  * To use: give each thread its own allocator: that provides the thread-safety.
  *
- * The factory goes to the global heap (::malloc(), ::free()) to allocate
- * blocks for itself; each block provides N chips to hand out to 
- * clients. When a block is consumed, another block is taken from the
- * global heap.  
- *
- * Chips can be deallocated by any thread.
- * The entire block is returned to the heap (::free()) when all its
- * chips have been "released" by some client, and the block itself
- * has also been destroyed by the thread allocator that created it.
+ * The factory is backed by a global dynarray which manages
+ * block-level allocation; each block provides N chips to hand out to
+ * clients. The allocator maintains a cache of blocks just large
+ * enough that it can expect to recycle the oldest cached block as
+ * each active block is consumed; the cache can both grow and shrink
+ * to match demand.
  *
  * PROS:
  * - most allocations are extremely cheap -- no malloc(), no atomic ops
  * - deallocations are also cheap -- one atomic op
  * - completely immune to the ABA problem 
- * - releases memory back to the OS after bursts
+ * - memory can be redistributed among threads between bursts
 
- * CONS:   
+ * CONS:
+ *
  * - each thread must have its own allocator, which means managing
  *   thread-local storage (if compilers ever support non-POD __thread
- *   objects, this problem would go away) and introduces a trade-off
- *   between amortizing malloc and wasting space.     
- * - memory leaks are extremly expensive because they keep a whole
- *   block from being freed instead of just one object.
- * - long-held chips are expensive (even if not leaked) for the same
- *   reason.
+ *   objects, this problem would go away).
+ *
+ * - though threads attempt to keep their caches reasonably-sized,
+ *   they will only do so at allocation or thread destruction time,
+ *   leading to potential hoarding
+ *
+ * - memory leaks (or unexpectedly long-lived objects) are extremly
+ *   expensive because they keep a whole block from being freed
+ *   instead of just one object. However, the remaining chips of each
+ *   block are at least available for reuse. 
  */
 
-
-template<class T>
-class block_alloc 
+template<class T, class Owner=T>
+class block_pool 
 {
-private:
-  enum { ALLOCATOR=1, LIVE_OBJECT=2 };
+    typedef memory_block::meta_block_size<sizeof(T)> BlockSize;
+    enum { BLOCK_SIZE = BlockSize::BYTES };
+    enum { UNIT_COUNT = BlockSize::COUNT };
+    enum { UNIT_SIZE = sizeof(T) };
 
-  /// a "chunk" or block of chips taken from the global heap
-  struct block 
-  {
-    // only deal with integer multiples of sizeof(block_alloc**) bytes
-    enum { ROUNDED_TSIZE=sizeof(T) + 2*sizeof(block**) - sizeof(T)%sizeof(block**) };
-    enum { UNIT_SIZE=sizeof(block**) + ROUNDED_TSIZE};
+    // use functions because dbx can't see enums...
+#define TEMPLATE_ARGS unit_size(), unit_count(), block_size()
+    static size_t block_size() { return BLOCK_SIZE; }
+    static size_t unit_count() { return UNIT_COUNT; }
+    static size_t unit_size() { return UNIT_SIZE; }
 
-    char* pos;
-    unsigned int locks; // ALLOCATOR + n*LIVE_OBJECT
-    unsigned int count; // debug/assert only
-    char data[0];
+    struct block : memory_block::block {
+	char	_filler[BLOCK_SIZE-sizeof(memory_block::block)];
+	block() : memory_block::block(TEMPLATE_ARGS) { }
+    };
     
-    block(unsigned n, unsigned asize)
-      : pos(data+asize), locks(ALLOCATOR + n*LIVE_OBJECT), count(n)
-    {
+    struct pool : memory_block::block_pool {
+	dynvector<block, BLOCK_SIZE> 	_blocks;
+	std::deque<block*> 		_free_list;
+	pthread_mutex_t			_lock;
+
+	pool() {
+	    pthread_mutex_init(&_lock, 0);
+	    int err = _blocks.init(1024*1024);
+	    if(err) throw std::bad_alloc();
+	}
+	~pool() {
+	    _blocks.fini();
+	}
+	
+	virtual block* _acquire_block() {
+	    block* rval;
+	    pthread_mutex_lock(&_lock);
+	    if(_free_list.empty()) {
+		int err = _blocks.resize(_blocks.size()+1);
+		if(err) throw std::bad_alloc();
+		rval = &_blocks.back();
+	    }
+	    else {
+		rval = _free_list.front();
+		_free_list.pop_front();
+	    }
+	    pthread_mutex_unlock(&_lock);
+	    
+	    return rval;
+	}
+
+	virtual void _release_block(memory_block::block* b) {
+	    pthread_mutex_lock(&_lock);
+	    _free_list.push_back((block*) b);
+	    pthread_mutex_unlock(&_lock);
+	}
+
+	virtual bool validate_pointer(void* ptr) {
+	    // no need for the mutex... dynarray only grows
+	    union { void* v; size_t n; } u={ptr}, v={&_blocks[0]};
+	    u.n -= v.n;
+	    return u.n < _blocks.size()*sizeof(block);
+	}
+    };
+    static pool* get_pool() {
+	static pool p;
+	return &p;
     }
     
-    /// Carve out a chip from this block.
-    void* alloc(int &n) 
-    {
-      // nothing left
-      if(pos == data) {
-        n = count;
-        (void) report_release(ALLOCATOR);
-        return 0;
-      }
-
-      // carve out a chunk for ourselves, initialize it, and return it
-      pos -= UNIT_SIZE;
-      union { void* v; block** p; } u = {pos};
-      *u.p = this;
-      return u.p + 1;
-    }
-    
-    /** Report to this block that we gave back a chip.
-     * This just updates a count, and if all have been given back,
-     * it gives this block back to the global heap.
-     *
-     * We have to be careful here... the block should be freed once all
-     * n objects have been handed out and released, *and* after whoever
-     * allocated the block_alloc knows there are none left. Whoever
-     * turns this shared counter to zero is responsible to release its
-     * memory.
-     * \attention NOTE the implicit assumption that the thread that allocated is still
-     * around until all items have been freed.
-     */
-    bool report_release(int who) 
-    {
-      membar_exit();
-      if(!atomic_add_int_nv(&locks, -who)) {
-        ::free(this);
-        return true;
-      }
-      return false;
-    }
-
-  }; // block
-
-  /// The current block from which we are carving out chips.
-  /// We never put chips back.
-  block* _block;
+    memory_block::block_list _blist;
 
 public:
   
-  block_alloc(int count=256)
-    : _block(create_block(count))
-  {
-  }
-  
-  /** \brief Pseudo-free any unallocated units. 
-    * \details
-    * Pseudo-free any unallocated units so that it looks like
-    * they were allocated and freed, faking this into freeing the
-    * entire block with ::free.
-    * If there are any outstanding allocated units, we can't free this
-    * _block, and that means something's been allocated but not freed
-    * by our client (mem lk) OR it's still in use in something like
-    * the lock manager or xcts.  
-    * The problem is that those data structures can be allocated by one
-    * thread and deallocated by any thread.  
-    * As long as they are deallocated with destroy_object, 
-    * AND the originating thread has not disappeared,
-    * it's ok,
-    * they'll end up on the right block. 
-    * But there is the possibility
-    *  \bug This is not entirely correct (GNATS 42). The problem is
-    * that the thread that allocated the allocator must still be around.
-    * of destroying the block_alloc before some of the items have been
-    * reported released, because the thread can go away before the objects
-    * are released.
-    * 
-    * What we need to do is delegate the freeing to the main thread
-    * somehow, so that everything gets freed when the last
-    * smthread goes away (preferably when the sm shuts down).
-    */
-  ~block_alloc() {
-    int remaining = (_block->pos - _block->data)/block::UNIT_SIZE;
-    if(remaining) {
-      bool freed = _block->report_release(ALLOCATOR + remaining*LIVE_OBJECT);
-      w_assert1(freed);
+    block_pool()
+	: _blist(get_pool(), TEMPLATE_ARGS)
+    {
     }
-  }
-  
-  /// Retrieve the owning block and verify that it owns this object.
-  // Then report the chip released if argument \e destruct is \e true.
-  static void destroy_object(T* ptr, bool destruct=true) 
-  {
-    union { T* t; block** p; char* c; } u = {ptr};
-
-    block* owner = u.p[-1];
-
-    w_assert1(owner->data < u.c && u.c < owner->data + block::UNIT_SIZE*owner->count);
-
-    // destroy the object
-    if(destruct)
-        u.t->~T();
-
-    // let the owner know we've released an object
-    (void) owner->report_release(LIVE_OBJECT);
-  }
-  
-private:
-  // let operator new access alloc()
-  friend void* operator new<>(size_t, block_alloc<T> &);
-  friend void  operator delete<>(void*, block_alloc<T> &);
-  
-  /// Create a new block with given number of chips.
-  static block* create_block(unsigned count) 
-  {
-    int asize = count * block::UNIT_SIZE;
-    void *buf = ::malloc(sizeof(block)+asize); // 8-byte aligned by default
-    if(!buf) throw std::bad_alloc();
-    return  new(buf) block(count, asize);
-  }
-
-  /// Allocate a chip.
-  void* alloc() 
-  {
-    int count=0;
-    void* rval = _block->alloc(count); // returns count
-    if(!rval) {
-      _block = create_block(count);
-      rval = _block->alloc(count);
+    
+    void* acquire() { return _blist.acquire(TEMPLATE_ARGS); }
+    
+    /* Verify that we own the object then find its block and report it
+       as released. If \e destruct is \e true then call the object's
+       desctructor also.
+     */
+    static
+    void release(void* ptr) {
+	assert(get_pool()->validate_pointer(ptr));
+	block::release(ptr, TEMPLATE_ARGS);
     }
-
-    union { void* v; block** p; } u = {rval};
-    w_assert1( u.p[-1] ==  _block );
-
-    return rval;
-  }
-  
 };
 
 template<class T>
-inline void* operator new(size_t nbytes, block_alloc<T> &alloc) 
-{
-  w_assert1(nbytes == sizeof(T));
-  return alloc.alloc();
-}
+struct block_alloc {
+    void destroy_object(T* ptr) {
+	ptr->~T();
+	_pool.release(ptr);
+    }
+    
+private:
+    block_pool<T, block_alloc<T> > _pool;
+    
+    // let operator new/delete access alloc()
+    friend void* operator new<>(size_t, block_alloc<T> &);
+    friend void  operator delete<>(void*, block_alloc<T> &);
+};
 
 template<class T>
-inline void operator delete(void* ptr, block_alloc<T> &alloc) 
+inline
+void* operator new(size_t nbytes, block_alloc<T> &alloc) 
 {
-  /* According to FRJ this template exists to handle the case
-   * when the constructor throws and we have to delete; at that
-   * point, the same alloc._block exists (it would have to be a
-   * pretty bad race for it not to exist
-   * Nevertheless, the asserts handle the most general case.
-   */
-  w_assert1(alloc._block->locks > block_alloc<T>::ALLOCATOR);
-
-  /* even if it's empty we can safely access _block directly because
-     our caller doesn't know yet and won't have released it.
-   */
-  // w_assert1(alloc._block->locks & block_alloc<T>::ALLOCATOR);
-  // (void) alloc._block->report_release(block_alloc<T>::LIVE_OBJECT);
-
-  // by calling destroy_object, we should get the correct owning block,
-  // just in case this gets called somewhere besides in the case mentioned
-  // above
-  destroy_object( dynamic_cast<T*>(ptr), false/* don't destruct*/);
-
-  w_assert2(0); // let a debug version catch this.
+  w_assert1(nbytes == sizeof(T));
+  return alloc._pool.acquire();
 }
+
+/* No, this isn't a way to do "placement delete" (if only the language
+   allowed that symmetry)... this operator is only called -- by the
+   compiler -- if T's constructor throws
+ */
+template<class T>
+inline
+void operator delete(void* ptr, block_alloc<T> &alloc) 
+{
+    alloc._pool.release(ptr);
+    w_assert2(0); // let a debug version catch this.
+}
+
+#undef TEMPLATE_ARGS
 
 #endif

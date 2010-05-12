@@ -50,7 +50,8 @@
 
  */
 struct dynarray {
-
+    static size_t const PAGE_SIZE;
+    
     /* Attempts to initialize the array with a capacity of /max_size/ bytes
        of address space and /size()/ zero.
 
@@ -103,17 +104,45 @@ private:
     size_t _capacity;
 };
 
+/* A compile-time predicate.
+
+   Compilation will fail for B=false because only B=true has a definition
+*/
+template<bool B>
+struct dy_fail_unless;
+
+template<>
+struct dy_fail_unless<true> {
+    static bool valid() { return true; }
+};
+
+
+
+
 /* Think std::vector except backed by a dynarray.
 
  */
-template<typename T>
-struct dynvector {
+template<typename T, size_t Align=__alignof__(T)>
+struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
+    enum { ALIGN = (Align < __alignof__(T))? __alignof__(T) : Align };
+    
     /* Initialize an empty dynvector with /limit() == max_count/
 
        @return 0 on success or an appropriate errno
      */
     int init(size_t max_count) {
-	return _arr.init(count2bytes(max_count));
+	/* if we for some reason need coarser-than-page alignment
+	   we'll allocate an extra align-block worth of space and then
+	   use black magic to find the lowest alignment boundary not
+	   lower than the start of our underlying dynarray.
+	 */
+	size_t align_extra = (ALIGN > dynarray::PAGE_SIZE)? ALIGN : 0;
+	int err = _arr.init(count2bytes(max_count)+align_extra);
+	union { char* c; long n; } u = {_arr};
+	u.n += ALIGN-1;
+	u.n &= -long(ALIGN);
+	_align_offset = u.c - _arr;
+	return err;
     }
 
     /* Destroy all contained objects and deallocate memory, returning
@@ -123,7 +152,8 @@ struct dynvector {
      */
     int fini() {
 	for(size_t i=0; i < _size; i++)
-	    _destruct_at(i);
+	    (*this)[i].~T();
+
 	_size = 0;
 	return _arr.fini();
     }
@@ -171,7 +201,7 @@ struct dynvector {
 	    return err;
 
 	for(size_t i=size(); i < new_size; i++)
-	    _construct_at(i, T());
+	    new (_at(i)) T;
 	
 	_size = new_size;
 	return 0;
@@ -186,46 +216,48 @@ struct dynvector {
 	if(int err=_maybe_grow(new_size))
 	    return err;
 
-	_construct_at(_size, obj);
+	new (_at(_size)) T(obj);
 	_size = new_size;
 	return 0;
     }
 
+    T &back() { return this->operator[](size()-1); }
+    T const &back() const { return this->operator[](size()-1); }
+
     /* Returns the ith element of the array; it is the caller's
        responsibility to ensure the index is in bounds.
      */
-    T &operator[](size_t i) { return *(T*) &_arr[count2bytes(i)]; }
-    T const &operator[](size_t i) const { return *(T const*) &_arr[count2bytes(i)]; }
+    T &operator[](size_t i) { return *(T*) _at(i); }
+    T const &operator[](size_t i) const { return *(T const*) _at(i); }
 
-    dynvector() : _size(0) { }
+    dynvector() : _size(0), _align_offset(0) { }
     
 private:
     static size_t count2bytes(size_t count) { return count*sizeof(T); }
     static size_t bytes2count(size_t bytes) { return bytes/sizeof(T); }
 
     int _maybe_grow(size_t new_count) {
-	size_t new_bytes  = count2bytes(new_count);
+	static size_t const MIN_SIZE = 64;
+	size_t new_bytes  = std::max(MIN_SIZE, count2bytes(new_count));
 	int err = 0;
-	if(new_bytes > _arr.size()) {
-	    size_t double_bytes = std::max(count2bytes(64), 2*_arr.size());
-	    err = _arr.resize(double_bytes);
-	    // did we reach limit?
-	    if(err == EFBIG)
+	if(_arr.size() < new_bytes) {
+	    size_t next_size = std::max(new_bytes, 2*_arr.size());
+	    err = _arr.resize(next_size);
+	
+	    // did we reach a limit?
+	    if(err == EFBIG) 
 		err = _arr.resize(new_bytes);
 	}
 	return err;
     }
 
-    void _destruct_at(size_t idx) {
-	this->operator[](idx).~T();
-    }
-    
-    void _construct_at(size_t idx, T const &obj) {
-	new (&this->operator[](idx)) T(obj);
+    void* _at(size_t idx) const {
+	return (void*) &_arr[_align_offset + count2bytes(idx)];
     }
     
     dynarray _arr;
     size_t _size; // element count, not bytes!!
+    size_t _align_offset;
 };
 
 

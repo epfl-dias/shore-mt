@@ -182,7 +182,7 @@ static __thread queue_based_lock_t::ext_qnode _1thread_xct_me = EXT_QNODE_INITIA
  */
 static __thread queue_based_lock_t::ext_qnode _1thread_log_me = EXT_QNODE_INITIALIZER;
 
-#define USE_BLOCK_ALLOC_FOR_LOGREC 0
+#define USE_BLOCK_ALLOC_FOR_LOGREC 1
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
 DECLARE_TLS(block_alloc<logrec_t>, logrec_pool);
 #endif

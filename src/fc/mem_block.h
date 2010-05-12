@@ -3,6 +3,7 @@
 #define __MEM_BLOCK_H
 
 #include <stddef.h>
+#include <cassert>
 
 #define NORET
 
@@ -132,7 +133,7 @@ struct block_pool {
     block*		acquire_block(block_list* owner);
     block*		release_block(block* b);
     
-    virtual block* 	_acquire_block(block_list* owner)=0;
+    virtual block* 	_acquire_block()=0;
     // takes back b, then returns b->_next
     virtual void 	_release_block(block* b)=0;
 
@@ -165,7 +166,7 @@ struct block_list {
 
 inline
 block* block_pool::acquire_block(block_list* owner) {
-    block* b = _acquire_block(owner);
+    block* b = _acquire_block();
     b->_owner = owner;
     b->_next = 0;
     b->_bits.recycle();
@@ -174,6 +175,7 @@ block* block_pool::acquire_block(block_list* owner) {
 
 inline
 block* block_pool::release_block(block* b) {
+    assert(validate_pointer(b));
     block* next = b->_next;
     b->_next = 0;
     b->_owner = 0;
@@ -241,7 +243,7 @@ struct meta_min {
    which is a power of two and utilizes 50% < util <= 100% of a
    block_bit's slots. 
  */
-template<int UnitSize, int OverheadBytes, int MaxSlots=block_bits::MAX_SLOTS>
+template<int UnitSize, int OverheadBytes=sizeof(memory_block::block), int MaxSlots=block_bits::MAX_SLOTS>
 struct meta_block_size : fail_unless<(UnitSize > 0 && OverheadBytes >= 0)> {
     enum { UNIT_SIZE	= UnitSize };
     enum { OVERHEAD 	= OverheadBytes };

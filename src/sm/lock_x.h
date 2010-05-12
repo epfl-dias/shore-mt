@@ -208,10 +208,7 @@ public:
     //   queue
     void                   set_status(status_t s) { _state = s; }
 
-#define USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 0
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-    void                   operator delete(void* p); // allows use of block allocator
-#endif
+#define USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 1
 
     NORET             lock_request_t(
                           xct_t*        x,
@@ -593,9 +590,6 @@ public:
     };
     my_lock             head_mutex;        // serialize access to lock_head_t
 
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-    void             operator delete(void* p); // allows use of block allocator
-#endif
     NORET            lock_head_t(
         const lockid_t&         name, 
         lmode_t                 mode);
