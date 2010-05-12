@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <algorithm>
+#include <cstdlib>
 
 // no system I know of *requires* larger pages than this
 static size_t const MM_PAGE_SIZE = 8192;
@@ -77,7 +78,7 @@ int dynarray::init(dynarray const &to_copy, size_t max_size) {
     if(int err=init(max_size))
 	return err;
 
-    memmove(_base, to_copy._base, to_copy.size());
+    std::memmove(_base, to_copy._base, to_copy.size());
     return 0;
 }
 

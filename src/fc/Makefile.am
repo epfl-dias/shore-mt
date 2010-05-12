@@ -3,6 +3,21 @@ SUBDIRS = tests
 include $(top_srcdir)/Makefile.generic
 EXTRA_DIST = fc_error.dat
 
+test_me: $(FC_ERROR_GENFILES_H) test_dynarray test_mem_block
+	./test_dynarray
+	./test_mem_block
+
+TEST_CXXFLAGS = $(PEDANTIC)  $(TUNE_FLAGS) -DTEST_ME
+TEST_CXXFLAGS += -g $(GENERIC_YESDEBUG_FLAGS) $(W_WARNINGS) $(PURE_CXXFLAGS)
+TEST_CXXFLAGS += $(ALWAYS_FLAGS) $(TEMPLATEFLAGS) 
+
+bin_PROGRAMS = test_dynarray test_mem_block
+test_dynarray_SOURCES = dynarray.cpp
+test_dynarray_CXXFLAGS = $(TEST_CXXFLAGS)
+
+test_mem_block_SOURCES = mem_block.cpp
+test_mem_block_CXXFLAGS = $(TEST_CXXFLAGS)
+
 lib_LIBRARIES     = libfc.a
 
 FC_ERROR_GENFILES_H  = fc_errmsg_gen.h \
@@ -23,6 +38,8 @@ include_HEADERS = \
     largefile_aware.h \
     nbox.h \
     os_types.h \
+    dynarray.h \
+    mem_block.h \
     rand48.h \
     stime.h \
     tls.h \
@@ -45,6 +62,8 @@ include_HEADERS = \
 
 libfc_a_SOURCES      = \
         rand48.cpp \
+	dynarray.cpp \
+	mem_block.cpp \
         gethrtime.cpp \
         w_compat_strstream.cpp \
         w_form.cpp w_form_base.cpp \

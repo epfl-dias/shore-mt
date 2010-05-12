@@ -27,6 +27,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <errno.h>
+#include <algorithm>
 
 /* A memory-mapped array which exploits the capabilities provided by
    mmap in order to grow dynamically without moving existing data or
