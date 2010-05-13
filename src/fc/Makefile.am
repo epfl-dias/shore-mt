@@ -64,6 +64,7 @@ libfc_a_SOURCES      = \
         rand48.cpp \
 	dynarray.cpp \
 	mem_block.cpp \
+	block_alloc.cpp \
         gethrtime.cpp \
         w_compat_strstream.cpp \
         w_form.cpp w_form_base.cpp \

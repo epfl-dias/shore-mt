@@ -33,12 +33,53 @@
 #include <stdlib.h>
 #include <deque>
 
-template<class T>
-class block_alloc; // forward
-template<class T>
-inline void* operator new(size_t nbytes, block_alloc<T> &alloc); // forward
-template<class T>
-void operator delete(void* ptr, block_alloc<T> &alloc); // forward
+/* Forward decls so we can do proper friend declarations later
+ */
+template<class T, size_t MaxBytes>
+class block_alloc;
+
+template<class T, size_t MaxBytes>
+inline
+void* operator new(size_t nbytes, block_alloc<T, MaxBytes> &alloc);
+
+template<class T, size_t MaxBytes>
+inline
+void operator delete(void* ptr, block_alloc<T, MaxBytes> &alloc);
+
+// a basic block_pool backed by a dynarray
+struct dynpool : memory_block::block_pool {
+    typedef memory_block::block mblock;
+    pthread_mutex_t	_lock;
+    dynarray 		_arr;
+    std::deque<mblock*>	_free_list;
+    size_t		_chip_size;
+    size_t		_chip_count;
+    size_t		_log2_block_size;
+    size_t		_arr_end;
+
+    NORET 		dynpool(size_t chip_size, size_t chip_count,
+				size_t log2_block_size, size_t max_bytes);
+    
+    virtual
+    NORET		~dynpool();
+    
+    virtual
+    bool 		validate_pointer(void* ptr);
+
+protected:
+
+    size_t		_size() const;
+
+    mblock*		_at(size_t i);
+    
+    virtual
+    mblock* 		_acquire_block();
+
+    virtual
+    void 		_release_block(mblock* b);
+    
+};
+
 
 /** \brief A factory for speedier allocation from the heap.
  *
@@ -80,71 +121,22 @@ void operator delete(void* ptr, block_alloc<T> &alloc); // forward
  *   block are at least available for reuse. 
  */
 
-template<class T, class Owner=T>
+template<class T, class Pool=dynpool, size_t MaxBytes=0>
 class block_pool 
 {
     typedef memory_block::meta_block_size<sizeof(T)> BlockSize;
-    enum { BLOCK_SIZE = BlockSize::BYTES };
-    enum { UNIT_COUNT = BlockSize::COUNT };
-    enum { UNIT_SIZE = sizeof(T) };
 
-    // use functions because dbx can't see enums...
-#define TEMPLATE_ARGS unit_size(), unit_count(), block_size()
-    static size_t block_size() { return BLOCK_SIZE; }
-    static size_t unit_count() { return UNIT_COUNT; }
-    static size_t unit_size() { return UNIT_SIZE; }
+    // use functions because dbx can't see enums very well
+    static size_t block_size() { return BlockSize::BYTES; }
+    static size_t chip_count() { return BlockSize::COUNT; }
+    static size_t chip_size()  { return sizeof(T); }
 
-    struct block : memory_block::block {
-	char	_filler[BLOCK_SIZE-sizeof(memory_block::block)];
-	block() : memory_block::block(TEMPLATE_ARGS) { }
-    };
-    
-    struct pool : memory_block::block_pool {
-	dynvector<block, BLOCK_SIZE> 	_blocks;
-	std::deque<block*> 		_free_list;
-	pthread_mutex_t			_lock;
+    // gets old typing this over and over...
+#define TEMPLATE_ARGS chip_size(), chip_count(), block_size()
 
-	pool() {
-	    pthread_mutex_init(&_lock, 0);
-	    int err = _blocks.init(1024*1024);
-	    if(err) throw std::bad_alloc();
-	}
-	~pool() {
-	    _blocks.fini();
-	}
-	
-	virtual block* _acquire_block() {
-	    block* rval;
-	    pthread_mutex_lock(&_lock);
-	    if(_free_list.empty()) {
-		int err = _blocks.resize(_blocks.size()+1);
-		if(err) throw std::bad_alloc();
-		rval = &_blocks.back();
-	    }
-	    else {
-		rval = _free_list.front();
-		_free_list.pop_front();
-	    }
-	    pthread_mutex_unlock(&_lock);
-	    
-	    return rval;
-	}
-
-	virtual void _release_block(memory_block::block* b) {
-	    pthread_mutex_lock(&_lock);
-	    _free_list.push_back((block*) b);
-	    pthread_mutex_unlock(&_lock);
-	}
-
-	virtual bool validate_pointer(void* ptr) {
-	    // no need for the mutex... dynarray only grows
-	    union { void* v; size_t n; } u={ptr}, v={&_blocks[0]};
-	    u.n -= v.n;
-	    return u.n < _blocks.size()*sizeof(block);
-	}
-    };
-    static pool* get_pool() {
-	static pool p;
+    static Pool* get_pool() {
+	static Pool p(chip_size(), chip_count(), BlockSize::LOG2,
+		      MaxBytes? MaxBytes : 1024*1024*1024);
 	return &p;
     }
     
@@ -156,8 +148,12 @@ public:
 	: _blist(get_pool(), TEMPLATE_ARGS)
     {
     }
-    
-    void* acquire() { return _blist.acquire(TEMPLATE_ARGS); }
+
+    /* Acquire one object from the pool.
+     */
+    void* acquire() {
+	return _blist.acquire(TEMPLATE_ARGS);
+    }
     
     /* Verify that we own the object then find its block and report it
        as released. If \e destruct is \e true then call the object's
@@ -166,28 +162,32 @@ public:
     static
     void release(void* ptr) {
 	assert(get_pool()->validate_pointer(ptr));
-	block::release(ptr, TEMPLATE_ARGS);
+	memory_block::block::release(ptr, TEMPLATE_ARGS);
     }
 };
 
-template<class T>
+template<class T, size_t MaxBytes=0>
 struct block_alloc {
+    
+    typedef block_pool<T, dynpool, MaxBytes> Pool;
+
+    static
     void destroy_object(T* ptr) {
 	ptr->~T();
-	_pool.release(ptr);
+	Pool::release(ptr); 
     }
     
 private:
-    block_pool<T, block_alloc<T> > _pool;
+    Pool _pool;
     
     // let operator new/delete access alloc()
-    friend void* operator new<>(size_t, block_alloc<T> &);
-    friend void  operator delete<>(void*, block_alloc<T> &);
+    friend void* operator new<>(size_t, block_alloc<T,MaxBytes> &);
+    friend void  operator delete<>(void*, block_alloc<T,MaxBytes> &);
 };
 
-template<class T>
+template<class T, size_t MaxBytes>
 inline
-void* operator new(size_t nbytes, block_alloc<T> &alloc) 
+void* operator new(size_t nbytes, block_alloc<T,MaxBytes> &alloc) 
 {
   w_assert1(nbytes == sizeof(T));
   return alloc._pool.acquire();
@@ -197,14 +197,116 @@ void* operator new(size_t nbytes, block_alloc<T> &alloc)
    allowed that symmetry)... this operator is only called -- by the
    compiler -- if T's constructor throws
  */
-template<class T>
+template<class T, size_t MaxBytes>
 inline
-void operator delete(void* ptr, block_alloc<T> &alloc) 
+void operator delete(void* ptr, block_alloc<T,MaxBytes> &alloc) 
 {
-    alloc._pool.release(ptr);
+    block_alloc<T,MaxBytes>::Pool::release(ptr);
     w_assert2(0); // let a debug version catch this.
 }
 
+inline
+size_t dynpool::_size() const {
+    return _arr_end >> _log2_block_size;
+}
+
+inline
+dynpool::mblock* dynpool::_at(size_t i) {
+    size_t offset = i << _log2_block_size;
+    union { char* c; mblock* b; } u = {_arr+offset};
+    return u.b;
+}
+
+
+
 #undef TEMPLATE_ARGS
+
+// prototype for the object cache TFactory...
+template<class T>
+struct object_cache_default_factory {
+    T* operator()(void* ptr) const { return new (ptr) T; }
+};
+
+template <class T, class TFactory=object_cache_default_factory<T>, size_t MaxBytes=0>
+class object_cache {
+
+    object_cache()
+	: _factory(TFactory())
+    {
+    }
+    
+    object_cache(TFactory const &factory)
+	: _factory(factory)
+    {
+    }
+    
+    struct cache_pool : dynpool {
+
+	// just a pass-thru...
+	NORET cache_pool(size_t cs, size_t cc, size_t l2bs, size_t mb)
+	    : dynpool(cs, cc, l2bs, mb)
+	{
+	}
+	
+	/* tag the block's owner with a sentinel value so we can
+	   distinguish newly-allocated blocks (which we need to
+	   initialize) from recycled ones (which we should not touch).
+	 */
+	virtual
+	void _release_block(mblock* b) {
+	    union { cache_pool* cp; block_list* bl; } u={this};
+	    b->_owner = u.bl;
+	    dynpool::_release_block(b);
+	}
+	
+	/* Intercept untagged (= newly-allocated) blocks in order to
+	   construct the objects they contain.
+	 */
+	virtual
+	mblock* _acquire_block() {
+	    mblock* b = dynpool::_acquire_block();
+	    if(this != b->_owner) {
+		// new block -- initialize its objects
+		for(size_t j=0; j < chip_count(); j++) 
+		    _factory(b->_get(j, chip_size()));
+		b->_owner = 0;
+	    }
+	    return b;
+	}
+
+	/* Destruct all cached objects before going down
+	 */
+	virtual
+	NORET ~cache_pool() {
+	    size_t size = _size();
+	    for(size_t i=0; i < size; i++) {
+		mblock* b = _at(i);
+		for(size_t j=0; j < chip_count(); j++) {
+		    union { char* c; T* t; } u = {b->_get(j, chip_size())};
+		    u.t->~T();
+		}
+	    }
+	}
+    };
+
+    typedef block_pool<T, cache_pool, MaxBytes> Pool;
+    
+    Pool _pool;
+    TFactory _factory;
+
+public:
+    
+    T* acquire() {
+	// constructed when its block was allocated...
+	union { void* v; T* t; } u = {_pool.acquire()};
+	return u.t;
+    }
+
+    static
+    void release(T* obj) {
+	Pool::release(obj);
+    }
+    
+};
 
 #endif

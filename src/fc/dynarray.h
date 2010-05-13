@@ -50,14 +50,16 @@
 
  */
 struct dynarray {
-    static size_t const PAGE_SIZE;
     
     /* Attempts to initialize the array with a capacity of /max_size/ bytes
        of address space and /size()/ zero.
 
+       If /align/ is a non-zero power of two, the resulting memory
+       will be aligned as requested.
+
        @return 0 on success, appropriate errno on failure
      */
-    int init(size_t max_size);
+    int init(size_t max_size, size_t align=0);
 
     /* Attempts to make a deep copy of /to_copy/, setting my capacity
        to the larger of /to_copy.capacity()/ and /max_size/
@@ -76,12 +78,25 @@ struct dynarray {
      */
     size_t capacity() const { return _capacity; }
 
-    /* Ensures that at least /new_size/ bytes (<= /capacity/) are
-       mapped and available for use.
+    /* Maps in memory to bring the total to /new_size/ bytes. 
 
        @return 0, or an appropriate errno on failure
+       EINVAL - new_size < size()
      */
     int resize(size_t new_size);
+
+    /* Ensures that at least /new_size/ bytes are ready to use.
+
+       In order to ensure array management is O(1) work per insertion,
+       this function will always at least double the size of the array
+       if /new_size > size()/.
+
+       Unlike /resize/ this function accepts any value of /new_size/
+       (doing nothing if the array is already big enough).
+
+       @return 0 or an errno.
+     */
+    int ensure_capacity(size_t min_size);
 
     /* The currently available size. Assuming sufficient memory is
        available the array can grow to /capacity()/ bytes -- using
@@ -104,45 +119,20 @@ private:
     size_t _capacity;
 };
 
-/* A compile-time predicate.
-
-   Compilation will fail for B=false because only B=true has a definition
-*/
-template<bool B>
-struct dy_fail_unless;
-
-template<>
-struct dy_fail_unless<true> {
-    static bool valid() { return true; }
-};
-
-
 
 
 /* Think std::vector except backed by a dynarray.
 
  */
-template<typename T, size_t Align=__alignof__(T)>
-struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
-    enum { ALIGN = (Align < __alignof__(T))? __alignof__(T) : Align };
+template<typename T>
+struct dynvector {
     
     /* Initialize an empty dynvector with /limit() == max_count/
 
        @return 0 on success or an appropriate errno
      */
     int init(size_t max_count) {
-	/* if we for some reason need coarser-than-page alignment
-	   we'll allocate an extra align-block worth of space and then
-	   use black magic to find the lowest alignment boundary not
-	   lower than the start of our underlying dynarray.
-	 */
-	size_t align_extra = (ALIGN > dynarray::PAGE_SIZE)? ALIGN : 0;
-	int err = _arr.init(count2bytes(max_count)+align_extra);
-	union { char* c; long n; } u = {_arr};
-	u.n += ALIGN-1;
-	u.n &= -long(ALIGN);
-	_align_offset = u.c - _arr;
-	return err;
+	return _arr.init(count2bytes(max_count));
     }
 
     /* Destroy all contained objects and deallocate memory, returning
@@ -189,7 +179,7 @@ struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
        @return 0 on success or an appropriate errno
     */
     int reserve(size_t new_capacity) {
-	return _arr.resize(count2bytes(new_capacity));
+	return _arr.ensure_capacity(count2bytes(new_capacity));
     }
 
     /* Default-construct objects at-end (if needed) to make /size() == new_size/
@@ -197,11 +187,11 @@ struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
        @return 0 on success or an appropriate errno
      */
     int resize(size_t new_size) {
-	if(int err=_maybe_grow(new_size))
+	if(int err=reserve(new_size))
 	    return err;
 
 	for(size_t i=size(); i < new_size; i++)
-	    new (_at(i)) T;
+	    new (_at(i).c) T;
 	
 	_size = new_size;
 	return 0;
@@ -213,10 +203,10 @@ struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
      */
     int push_back(T const &obj) {
 	size_t new_size = _size+1;
-	if(int err=_maybe_grow(new_size))
+	if(int err=reserve(new_size))
 	    return err;
 
-	new (_at(_size)) T(obj);
+	new (_at(_size).c) T(obj);
 	_size = new_size;
 	return 0;
     }
@@ -227,32 +217,19 @@ struct dynvector : dy_fail_unless<((Align &-Align) == Align)> {
     /* Returns the ith element of the array; it is the caller's
        responsibility to ensure the index is in bounds.
      */
-    T &operator[](size_t i) { return *(T*) _at(i); }
-    T const &operator[](size_t i) const { return *(T const*) _at(i); }
+    T &operator[](size_t i) { return *_at(i).t; }
+    T const &operator[](size_t i) const { return *_at(i).tc; }
 
     dynvector() : _size(0), _align_offset(0) { }
     
 private:
+    union ptr { char const* cc; T const* tc; char* c; T* t; };
     static size_t count2bytes(size_t count) { return count*sizeof(T); }
     static size_t bytes2count(size_t bytes) { return bytes/sizeof(T); }
 
-    int _maybe_grow(size_t new_count) {
-	static size_t const MIN_SIZE = 64;
-	size_t new_bytes  = std::max(MIN_SIZE, count2bytes(new_count));
-	int err = 0;
-	if(_arr.size() < new_bytes) {
-	    size_t next_size = std::max(new_bytes, 2*_arr.size());
-	    err = _arr.resize(next_size);
-	
-	    // did we reach a limit?
-	    if(err == EFBIG) 
-		err = _arr.resize(new_bytes);
-	}
-	return err;
-    }
-
-    void* _at(size_t idx) const {
-	return (void*) &_arr[_align_offset + count2bytes(idx)];
+    ptr _at(size_t idx) const {
+	ptr rval = {_arr + count2bytes(idx)};
+	return rval;
     }
     
     dynarray _arr;

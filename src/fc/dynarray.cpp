@@ -28,24 +28,28 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cassert>
+#include <cstring>
 
 // no system I know of *requires* larger pages than this
-size_t const dynarray::PAGE_SIZE = 8192;
+static size_t const MM_PAGE_SIZE = 8192;
 // most systems can't handle bigger than this, and we need a sanity check
-static size_t const MM_MAX_CAPACITY = dynarray::PAGE_SIZE*1024*1024*1024;
+static size_t const MM_MAX_CAPACITY = MM_PAGE_SIZE*1024*1024*1024;
 
-static size_t mm_page_ceil(size_t bytes) { return (bytes+dynarray::PAGE_SIZE-1) &~ (dynarray::PAGE_SIZE-1); }
-static size_t mm_bytes2pages(size_t bytes) { return (bytes+dynarray::PAGE_SIZE-1)/dynarray::PAGE_SIZE; }
-static size_t mm_pages2bytes(uint32_t pages) { return pages*dynarray::PAGE_SIZE; }
+static size_t align_up(size_t bytes, size_t align) {
+    size_t mask = align - 1;
+    return (bytes+mask) &~ mask;
+}
 
-int dynarray::init(size_t max_size) {
+int dynarray::init(size_t max_size, size_t align) {
     // round up to the nearest page boundary
-    max_size = mm_page_ceil(max_size);
+    max_size = align_up(max_size, MM_PAGE_SIZE);
     
     // validate inputs
     if(max_size > MM_MAX_CAPACITY)
 	return EFBIG;
-    if(dynarray::PAGE_SIZE > max_size)
+    if(MM_PAGE_SIZE > max_size)
+	return EINVAL;
+    if((align & -align) != align)
 	return EINVAL;
 
     /*
@@ -62,13 +66,47 @@ int dynarray::init(size_t max_size) {
 
       Tested on both Linux-2.6.18/x86 and Solaris-10/Sparc.
     */
+
     static int const PROTS = PROT_NONE;
     static int const FLAGS = MAP_NORESERVE | MAP_ANON | MAP_PRIVATE;
-    void* result = mmap(0, max_size, PROTS, FLAGS, -1, 0);
-    if(result == MAP_FAILED)
+
+    // Allocate extra for forced alignment (no effect for align=0)
+    align = std::max(align, MM_PAGE_SIZE);
+    char* align_arg = (char*) align;
+#if !defined(__SunOS) && !defined(__sun__)
+    align_arg = 0;
+#define MAP_ALIGN 0
+#endif
+    union { void* v; long n; char* c; }
+	u={mmap(align_arg, max_size, PROTS, FLAGS | MAP_ALIGN, -1, 0)};
+	
+    if(u.v == MAP_FAILED)
 	return errno;
 
-    _base = (char*) result;
+    /* Verify alignment...
+
+       This is incredibly annoying: in all probability the system will
+       give us far stronger alignment than we request, but Linux
+       doesn't actually promise anything more strict than
+       page-aligned. Solaris does promise to always do 1MB or 4MB
+       alignment, but it also provides a MAP_ALIGN which moots the
+       whole issue.
+
+       We could request more than needed, then chop off the extra in a
+       way that gives us the desired alignment, but that extra could
+       be the little bit that pushes the system over the edge and
+       gives us ENOMEM.
+       
+       Since this should almost never go wrong, and there's no really
+       good way to deal with it, we'll just punt: unaligned results
+       are summarily rejected with ENOMEM.
+     */
+    if((u.n &- align) != u.n) {
+	munmap(u.c, max_size);
+	return ENOMEM;
+    }
+
+    _base = u.c;
     _capacity = max_size;
     _size = 0;
     return 0;
@@ -95,7 +133,7 @@ int dynarray::fini() {
 
 int dynarray::resize(size_t new_size) {
     // round up to the nearest page boundary
-    new_size = mm_page_ceil(new_size);
+    new_size = align_up(new_size, MM_PAGE_SIZE);
 
     // validate
     if(_size > new_size)
@@ -113,6 +151,20 @@ int dynarray::resize(size_t new_size) {
     return 0;
 }
 
+int dynarray::ensure_capacity(size_t min_size) {
+    min_size  = align_up(min_size, MM_PAGE_SIZE);
+    int err = 0;
+    if(size() < min_size) {
+	size_t next_size = std::max(min_size, 2*size());
+	err = resize(next_size);
+	
+	// did we reach a limit?
+	if(err == EFBIG) 
+	    err = resize(min_size);
+    }
+    return err;
+}
+
 #ifdef TEST_ME
 #include <unistd.h>
 #include <cstdio>
@@ -123,6 +175,8 @@ struct foo {
     foo() : id(++foocount) { std::fprintf(stderr, "foo#%d\n", id); }
     ~foo() { std::fprintf(stderr, "~foo#%d\n", id); }
 };
+
+template struct dynvector<foo>;
 
 int main() {
     {

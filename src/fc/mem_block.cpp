@@ -1,3 +1,26 @@
+/* -*- mode:C++; c-basic-offset:4 -*-
+     Shore-MT -- Multi-threaded port of the SHORE storage manager
+   
+                       Copyright (c) 2007-2009
+      Data Intensive Applications and Systems Labaratory (DIAS)
+               Ecole Polytechnique Federale de Lausanne
+   
+                         All Rights Reserved.
+   
+   Permission to use, copy, modify and distribute this software and
+   its documentation is hereby granted, provided that both the
+   copyright notice and this permission notice appear in all copies of
+   the software, derivative works or modified versions, and any
+   portions thereof, and that both notices appear in supporting
+   documentation.
+   
+   This code is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. THE AUTHORS
+   DISCLAIM ANY LIABILITY OF ANY KIND FOR ANY DAMAGES WHATSOEVER
+   RESULTING FROM THE USE OF THIS SOFTWARE.
+*/
+
 #include "mem_block.h"
 #include "atomic_ops.h"
 
@@ -5,7 +28,7 @@
 #include <cstdlib>
 #include <algorithm>
 
-#define TEMPLATE_ARGS unit_size, unit_count, block_size
+#define TEMPLATE_ARGS chip_size, chip_count, block_size
 
 namespace memory_block {
 #if 0
@@ -31,30 +54,30 @@ size_t		block_bits::_popc(bitmap bm) {
 #ifdef __GNUC__
     
 #ifdef __x86_64
-#warning Using __builtin_popcountll
+#warning "Using __builtin_popcountll"
     return __builtin_popcountll(bm);
     
 #elif defined(__sparcv9)
-#warning Using gcc inline asm to access sparcv9 'popc' instruction
+#warning "Using gcc inline asm to access sparcv9 'popc' instruction"
     long rval;
     __asm__("popc	%[in], %[out]" : [out] "=r"(rval) : [in] "r"(x));
     return rval;
 #endif
     
 #else // !defined(__GNUC__)
-#warning using home-brew popc routine
+#warning "using home-brew popc routine"
     return popc64(bm);
 #endif
 }
 
-block_bits::block_bits(size_t slot_count)
-    : _usable_slots(create_mask(slot_count))
-    , _zombie_slots(0)
+block_bits::block_bits(size_t chip_count)
+    : _usable_chips(create_mask(chip_count))
+    , _zombie_chips(0)
 {
-    assert(slot_count <= 8*sizeof(bitmap));
+    assert(chip_count <= 8*sizeof(bitmap));
 }
 
-size_t block_bits::acquire(size_t slot_count) {
+size_t block_bits::acquire(size_t chip_count) {
     /* find the rightmost set bit.
 
        If the map is smaller than the word size, but logically full we
@@ -64,12 +87,12 @@ size_t block_bits::acquire(size_t slot_count) {
        bits. Therefore the check for full is the same whether the
        bitmap can use all its bits or not.
      */
-    bitmap one_bit = _usable_slots &- _usable_slots;
+    bitmap one_bit = _usable_chips &- _usable_chips;
     size_t index = _popc(one_bit-1);
     if(index < 8*sizeof(bitmap)) {
 	// common case: we have space
-	assert(index < slot_count);
-	_usable_slots ^= one_bit;
+	assert(index < chip_count);
+	_usable_chips ^= one_bit;
     }
     else {
 	// oops... full
@@ -79,16 +102,16 @@ size_t block_bits::acquire(size_t slot_count) {
     return index;
 }
 
-void block_bits::release(size_t index, size_t slot_count) {
-    // assign this slot to the zombie set for later recycling
-    assert(index < slot_count);
+void block_bits::release(size_t index, size_t chip_count) {
+    // assign this chip to the zombie set for later recycling
+    assert(index < chip_count);
     bitmap to_free = bitmap(1) << index;
-    assert(! (to_free & *usable_slots()));
+    assert(! (to_free & *usable_chips()));
 #if I_WISH
-    bitmap was_free = __sync_fetch_and_or(&_zombie_slots, to_free);
+    bitmap was_free = __sync_fetch_and_or(&_zombie_chips, to_free);
 #else
     membar_exit();
-    bitmap volatile* ptr = &_zombie_slots;
+    bitmap volatile* ptr = &_zombie_chips;
     bitmap ov = *ptr;
     while(1) {
 	bitmap nv = ov | to_free;
@@ -116,13 +139,13 @@ void block_bits::recycle() {
        leak bits if a releasing thread races us and adds more bits to the
        zombie set after we read it.
     */
-    bitmap newly_usable = *&_zombie_slots;
-    _usable_slots |= newly_usable;
+    bitmap newly_usable = *&_zombie_chips;
+    _usable_chips |= newly_usable;
 #if I_WISH
-    __sync_xor_and_fetch(&_zombie_slots, newly_usable);
+    __sync_xor_and_fetch(&_zombie_chips, newly_usable);
 #else
     membar_exit();
-    bitmap volatile* ptr = &_zombie_slots;
+    bitmap volatile* ptr = &_zombie_chips;
     bitmap ov = *ptr;
     while(1) {
 	bitmap nv = ov ^ newly_usable;
@@ -134,12 +157,12 @@ void block_bits::recycle() {
 #endif
 }
 
-void* block::acquire(size_t unit_size, size_t unit_count, size_t block_size) {
-    size_t index = _bits.acquire(unit_count);
-    return (index < unit_count)? _get(index, unit_size) : 0;
+void* block::acquire(size_t chip_size, size_t chip_count, size_t block_size) {
+    size_t index = _bits.acquire(chip_count);
+    return (index < chip_count)? _get(index, chip_size) : 0;
 }
 
-void block::release(void* ptr, size_t unit_size, size_t unit_count, size_t block_size)
+void block::release(void* ptr, size_t chip_size, size_t chip_count, size_t block_size)
 {
     /* use pointer arithmetic to find the beginning of our block,
        where the block* lives.
@@ -150,24 +173,24 @@ void block::release(void* ptr, size_t unit_size, size_t unit_count, size_t block
     union { void* v; size_t n; block* b; char* c; } u = {ptr}, v=u;
     u.n &= -block_size;
     size_t offset = v.c - u.b->_data;
-    size_t idx = offset/unit_size;
-    assert(u.b->_data + idx*unit_size == ptr);
-    u.b->_bits.release(idx, unit_count);
+    size_t idx = offset/chip_size;
+    assert(u.b->_data + idx*chip_size == ptr);
+    u.b->_bits.release(idx, chip_count);
 }
 
-char* block::_get(size_t index, size_t unit_size) {
-    return _data + index*unit_size;
+char* block::_get(size_t index, size_t chip_size) {
+    return _data + index*chip_size;
 }
 
-block::block(size_t unit_size, size_t unit_count, size_t block_size)
-    : _bits(unit_count)
+block::block(size_t chip_size, size_t chip_count, size_t block_size)
+    : _bits(chip_count)
     , _owner(0)
     , _next(0)
 {
-    // make sure all the slots actually fit in this block
-    char* end_of_block = _get(0, unit_size)-sizeof(this)+block_size;
-    char* end_of_slots = _get(unit_count, unit_size);
-    assert(end_of_slots <= end_of_block);
+    // make sure all the chips actually fit in this block
+    char* end_of_block = _get(0, chip_size)-sizeof(this)+block_size;
+    char* end_of_chips = _get(chip_count, chip_size);
+    assert(end_of_chips <= end_of_block);
     
     /* We purposefully don't check alignment here because some parts
        of the impl cheat for blocks which will never be used to
@@ -176,7 +199,7 @@ block::block(size_t unit_size, size_t unit_count, size_t block_size)
      */
 }
 
-void* block_list::acquire(size_t unit_size, size_t unit_count, size_t block_size)
+void* block_list::acquire(size_t chip_size, size_t chip_count, size_t block_size)
 {
     if(void* ptr = _tail->acquire(TEMPLATE_ARGS)) {
 	_hit_count++;
@@ -188,7 +211,7 @@ void* block_list::acquire(size_t unit_size, size_t unit_count, size_t block_size
 }
 
 
-block_list::block_list(block_pool* pool, size_t unit_size, size_t unit_count, size_t block_size)
+block_list::block_list(block_pool* pool, size_t chip_size, size_t chip_count, size_t block_size)
     : _fake_block(TEMPLATE_ARGS)
     , _tail(&_fake_block)
     , _pool(pool)
@@ -205,12 +228,12 @@ block_list::block_list(block_pool* pool, size_t unit_size, size_t unit_count, si
        This trick lets us minimize the number of branches required by
        the fast path acquire.
      */
-    _fake_block._bits._usable_slots = 0;
-    _fake_block._bits._zombie_slots = 0;
+    _fake_block._bits._usable_chips = 0;
+    _fake_block._bits._zombie_chips = 0;
 }
 
 
-void* block_list::_slow_acquire(size_t unit_size, size_t unit_count, size_t block_size)
+void* block_list::_slow_acquire(size_t chip_size, size_t chip_count, size_t block_size)
 {
     _change_blocks(TEMPLATE_ARGS);
     return acquire(TEMPLATE_ARGS);
@@ -223,7 +246,7 @@ block* block_list::acquire_block(size_t block_size)
     return u.b;
     
 }
-void block_list::_change_blocks(size_t unit_size, size_t unit_count, size_t block_size)
+void block_list::_change_blocks(size_t chip_size, size_t chip_count, size_t block_size)
 {
     // first time through?
     if(_tail == &_fake_block) {
@@ -247,9 +270,9 @@ void block_list::_change_blocks(size_t unit_size, size_t unit_count, size_t bloc
     */
     static double const	decay_rate = 1./5; // consider (roughly) the last 5 blocks
     // too few around suggests we should unload some extra blocks 
-    size_t const max_available = unit_count - std::max((int)(.1*unit_count), 1);
+    size_t const max_available = chip_count - std::max((int)(.1*chip_count), 1);
     // more than 50% in-use suggests we've got too few blocks
-    size_t const min_allocated = (unit_count+1)/2;
+    size_t const min_allocated = (chip_count+1)/2;
     
     _avg_hit_rate = _hit_count*(1-decay_rate) + _avg_hit_rate*decay_rate;
     if(_hit_count < min_allocated && _avg_hit_rate < min_allocated) {
@@ -320,7 +343,7 @@ block_list::~block_list() {
 using namespace memory_block;
 
 struct test_block_pool : block_pool {
-    NORET		test_block_pool(size_t unit_size, size_t unit_count,
+    NORET		test_block_pool(size_t chip_size, size_t chip_count,
 					size_t block_size, size_t block_count)
 	: _data(block_size*(block_count+1)) // one extra for alignment
 	, _acquire_count(0)
@@ -371,8 +394,8 @@ struct test_block_pool : block_pool {
 };
 
 void test_block_list() {
-    static size_t const unit_size = sizeof(int);
-    static size_t const unit_count = 4;
+    static size_t const chip_size = sizeof(int);
+    static size_t const chip_count = 4;
     static size_t const block_size = 512;
     static size_t const block_count = 4;
     
@@ -391,7 +414,7 @@ void test_block_list() {
 	assert(tbp._freelist.size() == block_count-1);
 
 	// pretend we acquired and released everything in the block
-	bl._hit_count = unit_count;
+	bl._hit_count = chip_count;
 	
 	// ... and ask for a new block
 	bl._change_blocks(TEMPLATE_ARGS);
@@ -400,17 +423,17 @@ void test_block_list() {
 
 	// repeat, but with a too-full block
 	{
-	    void* ptrs[unit_count-1];
+	    void* ptrs[chip_count-1];
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		ptrs[i] = bl.acquire(TEMPLATE_ARGS);
-	    while(bl._avg_hit_rate >= (unit_count+1)/2) // matches min_allocated in _change_blocks
+	    while(bl._avg_hit_rate >= (chip_count+1)/2) // matches min_allocated in _change_blocks
 		bl._change_blocks(TEMPLATE_ARGS);
 	
 	    assert(tbp._freelist.size() == block_count-2);
 	    assert(bl._tail == bl._tail->_next->_next);
 	
 	    // now free all those pointers to create a run
-	    bl._hit_count = unit_count;
+	    bl._hit_count = chip_count;
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		block::release(ptrs[i], TEMPLATE_ARGS);
 	    bl._change_blocks(TEMPLATE_ARGS);
@@ -421,7 +444,7 @@ void test_block_list() {
 	// run of three?
 	{
 	    // acquire two full runs worth of objects
-	    void* ptrs[2*unit_count];
+	    void* ptrs[2*chip_count];
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		ptrs[i] = bl.acquire(TEMPLATE_ARGS);
 	    
@@ -433,7 +456,7 @@ void test_block_list() {
 	    assert(bl._tail == bl._tail->_next->_next->_next);
 	
 	    // now free all those pointers to create a run
-	    bl._hit_count = unit_count;
+	    bl._hit_count = chip_count;
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		block::release(ptrs[i], TEMPLATE_ARGS);
 	    bl._change_blocks(TEMPLATE_ARGS);
@@ -444,7 +467,7 @@ void test_block_list() {
 	// run of two in list of three?
 	{
 	    // acquire two full runs worth of objects
-	    void* ptrs[2*unit_count];
+	    void* ptrs[2*chip_count];
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		ptrs[i] = bl.acquire(TEMPLATE_ARGS);
 	    
@@ -455,7 +478,7 @@ void test_block_list() {
 	    assert(bl._tail == bl._tail->_next->_next->_next);
 	
 	    // now free all those pointers to create a run
-	    bl._hit_count = unit_count;
+	    bl._hit_count = chip_count;
 	    for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++)
 		block::release(ptrs[i], TEMPLATE_ARGS);
 	    bl._change_blocks(TEMPLATE_ARGS);
@@ -480,7 +503,7 @@ void test_block_list() {
     // spill over but with the first block having space
     {
 	block_list bl(&tbp, TEMPLATE_ARGS);
-	for(size_t i=0; i < unit_count+1; i++) {
+	for(size_t i=0; i < chip_count+1; i++) {
 	    ptr = bl.acquire(TEMPLATE_ARGS);
 	    assert(ptr);
 	    block::release(ptr, TEMPLATE_ARGS);
@@ -492,7 +515,7 @@ void test_block_list() {
     // request a second block
     {
 	block_list bl(&tbp, TEMPLATE_ARGS);
-	void* ptrs[unit_count+1];
+	void* ptrs[chip_count+1];
 	for(size_t i=0; i < sizeof(ptrs)/sizeof(ptrs[0]); i++) {
 	    ptrs[i] = bl.acquire(TEMPLATE_ARGS);
 	    assert(ptrs[i]);
@@ -509,8 +532,8 @@ void test_block_list() {
 
 template<class T>
 static void print_info() {
-    printf("UnitSize: %zd   Overhead: %zd   block: %d       units: %d\n",
-	   T::UNIT_SIZE, T::OVERHEAD, T::BYTES, T::COUNT);
+    printf("ChipSize: %zd   Overhead: %zd   block: %d       chips: %d\n",
+	   T::CHIP_SIZE, T::OVERHEAD, T::BYTES, T::COUNT);
 }
 
 void test_helper_templates() {
@@ -565,10 +588,10 @@ void test_helper_templates() {
 }
 
 void test_block() {
-    static size_t const max_bits = block_bits::MAX_SLOTS;
-    static size_t const unit_size = sizeof(int);
-    static size_t const unit_count = max_bits-(sizeof(block)+unit_size-1)/unit_size;
-    static size_t const block_size = unit_size*max_bits;
+    static size_t const max_bits = block_bits::MAX_CHIPS;
+    static size_t const chip_size = sizeof(int);
+    static size_t const chip_count = max_bits-(sizeof(block)+chip_size-1)/chip_size;
+    static size_t const block_size = chip_size*max_bits;
     
     // n-bit bitmap can't fit n+1 bits
     EXPECT_ASSERT(block(sizeof(int),max_bits+1,512));
@@ -577,15 +600,15 @@ void test_block() {
     // but n - sizeof(block)/sizeof(int) should work
 #if I_WISH
     block __attribute__((aligned(8*sizeof(block_bits::bitmap)*sizeof(int))))
-	b(unit_size,unit_count, block_size);
+	b(chip_size,chip_count, block_size);
 #else
     block* bptr = new (memalign(8*sizeof(block_bits::bitmap)*sizeof(int), block_size))
-	block(unit_size, unit_count, block_size);
+	block(chip_size, chip_count, block_size);
     block &b = *bptr;
 #endif
     
     // try to acquire too many times
-    for(size_t i=0; i < unit_count; i++) {
+    for(size_t i=0; i < chip_count; i++) {
 	void* ptr = b.acquire(TEMPLATE_ARGS);
 	assert(0 != ptr);
 	block::release(ptr, TEMPLATE_ARGS);
@@ -593,18 +616,18 @@ void test_block() {
     assert(0 == b.acquire(TEMPLATE_ARGS));
     
     // double free
-    EXPECT_ASSERT(block::release(b._get(0, unit_size), TEMPLATE_ARGS));
+    EXPECT_ASSERT(block::release(b._get(0, chip_size), TEMPLATE_ARGS));
     // release non-aligned ptr
-    EXPECT_ASSERT(block::release(b._get(1, unit_size/2), TEMPLATE_ARGS));    
+    EXPECT_ASSERT(block::release(b._get(1, chip_size/2), TEMPLATE_ARGS));    
 
     // test full recycling
     b.recycle();
-    assert(b._bits.usable_count() == unit_count);
+    assert(b._bits.usable_count() == chip_count);
     assert(b._bits.zombie_count() == 0);
 
     // partial recycling
     size_t release_count = 8;
-    for(size_t i=release_count; i < unit_count; i++) {
+    for(size_t i=release_count; i < chip_count; i++) {
 	void* ptr = b.acquire(TEMPLATE_ARGS);
 	if(! (i%2)) {
 	    release_count++;
@@ -616,9 +639,9 @@ void test_block() {
     assert(b._bits.zombie_count() == 0);
 
     // release after recycling
-    for(size_t i=0; i < unit_count-release_count; i++) {
+    for(size_t i=0; i < chip_count-release_count; i++) {
 	if(i % 2) {
-	    void* ptr = b._get(i, unit_size);
+	    void* ptr = b._get(i, chip_size);
 	    block::release(ptr, TEMPLATE_ARGS);
 	}
     }
