@@ -23,12 +23,18 @@
 
 #include "dynarray.h"
 
+#include "shore-config.h"
+
 #include <errno.h>
 #include <sys/mman.h>
 #include <algorithm>
 #include <cstdlib>
 #include <cassert>
 #include <cstring>
+
+#ifdef TEST_ME
+#include <cstdio>
+#endif
 
 // no system I know of *requires* larger pages than this
 static size_t const MM_PAGE_SIZE = 8192;
@@ -39,6 +45,10 @@ static size_t align_up(size_t bytes, size_t align) {
     size_t mask = align - 1;
     return (bytes+mask) &~ mask;
 }
+
+#if HAVE_DECL_MAP_ALIGN && !defined(TEST_ME)
+#define USE_MAP_ALIGN 1
+#endif
 
 int dynarray::init(size_t max_size, size_t align) {
     // round up to the nearest page boundary
@@ -68,21 +78,25 @@ int dynarray::init(size_t max_size, size_t align) {
     */
 
     static int const PROTS = PROT_NONE;
-    static int const FLAGS = MAP_NORESERVE | MAP_ANON | MAP_PRIVATE;
+    int flags = MAP_NORESERVE | MAP_ANON | MAP_PRIVATE;
 
     // Allocate extra for forced alignment (no effect for align=0)
     align = std::max(align, MM_PAGE_SIZE);
+#if USE_MAP_ALIGN
     char* align_arg = (char*) align;
-#if !defined(__SunOS) && !defined(__sun__)
-    align_arg = 0;
-#define MAP_ALIGN 0
+    size_t align_extra = 0;
+    flags |= MAP_ALIGN;
+#else
+    char* align_arg = 0;
+    size_t align_extra = align - MM_PAGE_SIZE;
 #endif
     union { void* v; uintptr_t n; char* c; }
-	u={mmap(align_arg, max_size, PROTS, FLAGS | MAP_ALIGN, -1, 0)};
-	
+    	u={mmap(align_arg, max_size+align_extra, PROTS, flags, -1, 0)};
+
     if(u.v == MAP_FAILED)
 	return errno;
 
+#if !USE_MAP_ALIGN
     /* Verify alignment...
 
        This is incredibly annoying: in all probability the system will
@@ -92,19 +106,32 @@ int dynarray::init(size_t max_size, size_t align) {
        alignment, but it also provides a MAP_ALIGN which moots the
        whole issue.
 
-       We could request more than needed, then chop off the extra in a
-       way that gives us the desired alignment, but that extra could
-       be the little bit that pushes the system over the edge and
-       gives us ENOMEM.
-       
-       Since this should almost never go wrong, and there's no really
-       good way to deal with it, we'll just punt: unaligned results
-       are summarily rejected with ENOMEM.
+       Unfortunately Linux insists on not being helpful, so we have to
+       request more than needed, then chop off the extra in a way that
+       gives us the desired alignment. That extra could be the
+       little bit that pushes the system over the edge and gives us
+       ENOMEM, but we're kind of stuck.
      */
-    if((u.n &- align) != u.n) {
-	munmap(u.c, max_size);
-	return ENOMEM;
+#ifdef TEST_ME
+    std::fprintf(stderr, "start: %p	end:%p\n", u.c, u.c+max_size+align_extra);
+#endif
+    long aligned_base = align_up(u.n, align);
+    if(long extra=aligned_base-u.n) {
+#ifdef TEST_ME
+	std::fprintf(stderr, "chopping off %zx bytes of prefix for start: %zx\n",
+		extra, aligned_base);
+#endif
+	munmap(u.c, extra);
+	u.n = aligned_base;
+	align_extra -= extra;
     }
+    if(align_extra > 0) {
+#ifdef TEST_ME
+	std::fprintf(stderr, "chopping %zx bytes of postfix for end: %p\n", align_extra, u.c+max_size);
+#endif
+	munmap(u.c+max_size, align_extra);
+    }
+#endif
 
     _base = u.c;
     _capacity = max_size;
@@ -190,6 +217,13 @@ int main() {
 	err = mm.resize(100000);
 	err = mm.resize(1000000);
 	err = mm.fini();
+    }
+    {
+	// test alignment
+	dynarray mm;
+	int err;
+	
+	err = mm.init(5l*1024*1024*1024, 1024*1024*1024);
     }
 
     {
