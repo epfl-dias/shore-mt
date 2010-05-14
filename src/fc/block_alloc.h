@@ -189,8 +189,9 @@ template<class T, size_t MaxBytes>
 inline
 void* operator new(size_t nbytes, block_alloc<T,MaxBytes> &alloc) 
 {
-  w_assert1(nbytes == sizeof(T));
-  return alloc._pool.acquire();
+    (void) nbytes; // keep gcc happy
+    w_assert1(nbytes == sizeof(T));
+    return alloc._pool.acquire();
 }
 
 /* No, this isn't a way to do "placement delete" (if only the language
@@ -248,45 +249,9 @@ class object_cache {
 	{
 	}
 	
-	/* tag the block's owner with a sentinel value so we can
-	   distinguish newly-allocated blocks (which we need to
-	   initialize) from recycled ones (which we should not touch).
-	 */
-	virtual
-	void _release_block(mblock* b) {
-	    union { cache_pool* cp; block_list* bl; } u={this};
-	    b->_owner = u.bl;
-	    dynpool::_release_block(b);
-	}
-	
-	/* Intercept untagged (= newly-allocated) blocks in order to
-	   construct the objects they contain.
-	 */
-	virtual
-	mblock* _acquire_block() {
-	    mblock* b = dynpool::_acquire_block();
-	    if(this != b->_owner) {
-		// new block -- initialize its objects
-		for(size_t j=0; j < chip_count(); j++) 
-		    _factory(b->_get(j, chip_size()));
-		b->_owner = 0;
-	    }
-	    return b;
-	}
-
-	/* Destruct all cached objects before going down
-	 */
-	virtual
-	NORET ~cache_pool() {
-	    size_t size = _size();
-	    for(size_t i=0; i < size; i++) {
-		mblock* b = _at(i);
-		for(size_t j=0; j < chip_count(); j++) {
-		    union { char* c; T* t; } u = {b->_get(j, chip_size())};
-		    u.t->~T();
-		}
-	    }
-	}
+	virtual void _release_block(mblock* b);
+	virtual mblock* _acquire_block();
+	virtual NORET ~cache_pool();
     };
 
     typedef block_pool<T, cache_pool, MaxBytes> Pool;
@@ -308,5 +273,44 @@ public:
     }
     
 };
+
+template <class T, class TF, size_t M>
+inline
+void object_cache<T,TF,M>::cache_pool::_release_block(mblock* b) {
+    union { cache_pool* cp; memory_block::block_list* bl; } u={this};
+    b->_owner = u.bl;
+    dynpool::_release_block(b);
+}
+	
+/* Intercept untagged (= newly-allocated) blocks in order to
+   construct the objects they contain.
+*/
+template <class T, class TF, size_t M>
+inline
+dynpool::mblock* object_cache<T,TF,M>::cache_pool::_acquire_block() {
+    dynpool::mblock* b = dynpool::_acquire_block();
+    if(this != b->_owner) {
+	// new block -- initialize its objects
+	for(size_t j=0; j < Pool::chip_count(); j++) 
+	    _factory(b->_get(j, Pool::chip_size()));
+	b->_owner = 0;
+    }
+    return b;
+}
+
+/* Destruct all cached objects before going down
+ */
+template <class T, class TF, size_t M>
+inline
+NORET object_cache<T,TF,M>::cache_pool::~cache_pool() {
+    size_t size = _size();
+    for(size_t i=0; i < size; i++) {
+	mblock* b = _at(i);
+	for(size_t j=0; j < Pool::chip_count(); j++) {
+	    union { char* c; T* t; } u = {b->_get(j, Pool::chip_size())};
+	    u.t->~T();
+	}
+    }
+}
 
 #endif

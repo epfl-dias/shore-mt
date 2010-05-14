@@ -308,7 +308,7 @@ AC_CHECK_HEADERS([sys/socket.h])
 ## used in error log and w_form
 AC_FUNC_VPRINTF 
 
-AC_CHECK_TYPES([ptrdiff_t, uchar_t, ushort_t, ulong_t]) 
+AC_CHECK_TYPES([ptrdiff_t, uchar_t, ushort_t, ulong_t, char_t, short_t, long_t]) 
 ## these are not available in autoconf 2.59
 ## AC_TYPE_INT8_T 
 ## AC_TYPE_INT16_T

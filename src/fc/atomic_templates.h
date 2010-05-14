@@ -7,24 +7,7 @@
 #ifndef ATOMIC_TEMPLATES_H
 #define ATOMIC_TEMPLATES_H
 
-#ifndef HAVE_UCHAR_T
-typedef unsigned char uchar_t;
-#endif
-#ifndef HAVE_USHORT_T
-typedef unsigned short ushort_t;
-#endif
-#ifndef HAVE_UINT_T
-typedef unsigned int   uint_t;
-#endif
-#ifndef HAVE_ULONG_T
-typedef unsigned long   ulong_t;
-#endif
-
-#ifdef HAVE_ATOMIC_H
-#include <atomic.h>
-#else
-#include <atomic_ops.h>
-#endif
+#include "atomic_ops.h"
 
 template<class T>
 void atomic_add(T volatile &val, int delta);
