@@ -208,16 +208,18 @@ public:
     //   queue
     void                   set_status(status_t s) { _state = s; }
 
-#define USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 1
-
-    NORET             lock_request_t(
+    NORET	      lock_request_t();
+    
+    void              init(
                           xct_t*        x,
                           lmode_t        m,
                           duration_t    d);
 
-    NORET             lock_request_t(
+    void              init(
                           xct_t*        x,
                           bool        is_quark_marker);
+
+    void	      reset();
 
     NORET            ~lock_request_t(); // inlined below because of fwd ref
 

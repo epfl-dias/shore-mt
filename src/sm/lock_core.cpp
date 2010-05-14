@@ -83,10 +83,9 @@ template class w_auto_delete_array_t<unsigned>;
 #define ATOMIC_INC(x) atomic_add(x, 1)
 #define ATOMIC_DEC(x) atomic_add(x, -1)
 
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
 DECLARE_TLS(block_alloc<lock_head_t>, lockHeadPool);
-DECLARE_TLS(block_alloc<lock_request_t>, lock_request_pool);
-#endif
+typedef object_cache<lock_request_t, object_cache_initializing_factory<lock_request_t> > lock_request_cache_t;
+DECLARE_TLS(lock_request_cache_t, lock_request_pool);
 
 /*********************************************************************
  *
@@ -734,26 +733,51 @@ lock_head_t::find_lock_request(const xct_lock_info_t* xdli)
 }
 
 
+NORET
+lock_request_t::lock_request_t()
+{
+    reset();
+}
+
 /*********************************************************************
  *
- *  lock_request_t::lock_request_t(xct, mode, duration)
+ *  lock_request_t::reset()
  *
- *  Create a lock request for transaction "xct" with "mode" and on
+ *  Clear a lock request's internal state (marking it not-used).
+ *
+ *********************************************************************/
+inline void
+lock_request_t::reset() {
+    // very strict: if they gave it back they better really be done with it
+    w_assert1(rlink.member_of() == 0);
+    w_assert1(xlink.member_of() == 0);
+    
+    _state = lock_m::t_no_status;
+    _mode = NL;
+    _convert_mode = NL;
+    _lock_info = 0;
+    _thread = 0;
+    _count = 0;
+    _duration = t_long; // have to assign it something...
+    _num_children = 0;
+}
+
+/*********************************************************************
+ *
+ *  lock_request_t::init(xct, mode, duration)
+ *
+ *  Set up a lock request for transaction "xct" with "mode" and on
  *  "duration".
  *
  *********************************************************************/
-inline NORET
-lock_request_t::lock_request_t(xct_t* x, lmode_t m, duration_t d)
-:
-    _state(lock_m::t_no_status),
-    _mode(m),
-    _convert_mode(NL),
-    _lock_info(x->lock_info()),
-    _thread(0),
-    _count(0),
-    _duration(d),
-    _num_children(0)
+inline void
+lock_request_t::init(xct_t* x, lmode_t m, duration_t d)
 {
+    w_assert1(!_lock_info);
+    _mode = m;
+    _lock_info = x->lock_info();
+    _duration = d;
+	
     INC_TSTAT(lock_request_t_cnt);
 
     // since d is unsigned, the >= comparison must be split to avoid
@@ -780,38 +804,21 @@ lock_request_t::lock_request_t(xct_t* x, lmode_t m, duration_t d)
 
 /*********************************************************************
  * 
- *  special constructor to make a marker for open quarks
+ *  special initializer to make a marker for open quarks
  *
  *********************************************************************/
-lock_request_t::lock_request_t(xct_t* x, 
+void
+lock_request_t::init(xct_t* x, 
         bool W_IFDEBUG9(quark_marker))
-    : _state(lock_m::t_no_status), 
-      _mode(NL), 
-      _convert_mode(NL),
-      _lock_info(x->lock_info()),
-      _thread(NULL),
-      _count(0), 
-      _duration(t_short),
-      _num_children(0)
 {
     FUNC(lock_request_t::lock_request_t(make marker));
+    init(x, NL, t_short);
+    
     // since the only purpose of this constructor is to make a quark
     // marker, is_quark_marker should be true
-    w_assert2(is_quark_marker());
+    w_assert2(is_quark_marker() == quark_marker);
 
     // a quark marker simply has an empty rlink 
-
-#ifdef W_TRACE
-    {
-        lock_head_t*lock = this->get_lock_head();
-        DBGTHRD(<<"pushing lock request "
-                << lock->name
-                << " on _my_req_list[" << int(_duration)
-                <<"] : " << *this);
-    }
-#endif
-    // protected by the lock_info() mutex, acquired by caller
-    x->lock_info()->_my_req_list[_duration].push(this);
 }
 
 
@@ -1193,11 +1200,8 @@ lock_core_m::acquire(
             // now that we know we actually need a request...
             w_assert2(MUTEX_IS_MINE(xd->lock_info()->lock_info_mutex));
 
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-            req = new(*lock_request_pool) lock_request_t(xd, mode, duration);
-#else
-            req = new lock_request_t(xd, mode, duration);
-#endif
+            req = lock_request_pool->acquire(xd, mode, duration);
+
             ATOMIC_INC(_requests_allocated);
             DBG(<< "appending request " << req << " to lock " << lock
                     << " lock name=" << lock->name);
@@ -1367,11 +1371,7 @@ lock_core_m::acquire(
                 w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
                 req->xlink.detach();
                 req->rlink.detach();
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-                lock_request_pool->destroy_object(req);
-#else
-                delete req; 
-#endif
+                lock_request_pool->release(req);
                 ATOMIC_DEC(_requests_allocated);
                 req = 0;
             }
@@ -1591,11 +1591,7 @@ lock_core_m::_release(lock_request_t* request, bool force)
     request->rlink.detach();
     w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
     request->xlink.detach();
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-    lock_request_pool->destroy_object(request);
-#else
-    delete request; 
-#endif
+    lock_request_pool->release(request);
 
     ATOMIC_DEC(_requests_allocated);
     _update_cache(the_xlinfo, lock->name, NL);
@@ -1784,11 +1780,7 @@ lock_core_m::release_duration(
                 DBG(<<"popped request "  << request << "==" << *request);
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-                    lock_request_pool->destroy_object(request);
-#else
-                    delete request; 
-#endif
+                    lock_request_pool->release(request);
                     ATOMIC_DEC(_requests_allocated);
                     continue;
                 }
@@ -1800,11 +1792,7 @@ lock_core_m::release_duration(
                 DBG(<<"popped request "  << request << "==" << *request);
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-                    lock_request_pool->destroy_object(request);
-#else
-                    delete request; 
-#endif
+                    lock_request_pool->release(request);
                     ATOMIC_DEC(_requests_allocated);
                     continue;
                 }
@@ -1848,12 +1836,7 @@ lock_core_m::open_quark(
     }
     MUTEX_ACQUIRE(xd->lock_info()->lock_info_mutex);
 
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-    xd->lock_info()->set_quark_marker (new(*lock_request_pool) lock_request_t(xd, 
-            true /*is marker*/));
-#else
-    xd->lock_info()->set_quark_marker ( new lock_request_t(xd, true /*is marker*/));
-#endif
+    xd->lock_info()->set_quark_marker (lock_request_pool->acquire(xd, true));
     MUTEX_RELEASE(xd->lock_info()->lock_info_mutex);
 
     ATOMIC_INC(_requests_allocated);
@@ -1884,11 +1867,7 @@ lock_core_m::close_quark(
 
         w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
         the_xlinfo->quark_marker()->xlink.detach();
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-	lock_request_pool->destroy_object(the_xlinfo->quark_marker());
-#else
-        delete the_xlinfo->quark_marker(); // is a lock_request_t
-#endif
+	lock_request_pool->release(the_xlinfo->quark_marker());
         the_xlinfo->set_quark_marker(NULL);
 
         ATOMIC_DEC(_requests_allocated);
@@ -1911,11 +1890,7 @@ lock_core_m::close_quark(
             request->xlink.detach();
             DBGTHRD(<<"detached lock request in close_quark");
             the_xlinfo->set_quark_marker(NULL);
-#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
-            lock_request_pool->destroy_object(request);
-#else
-            delete request; 
-#endif
+            lock_request_pool->release(request);
             ATOMIC_DEC(_requests_allocated);
             found_marker = true;
             break;  // finished
