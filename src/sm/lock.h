@@ -107,7 +107,7 @@ public:
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
         lockid_t**                  nameInLockHead = 0
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool                bIgnoreParents = false
 #endif
         );
@@ -120,7 +120,7 @@ public:
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
         lockid_t**                  nameInLockHead = 0
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool                bIgnoreParents = false
 #endif
         );
@@ -166,7 +166,7 @@ private:
         timeout_in_ms                timeout,
         bool                         force,
         lockid_t**                   nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool                bIgnoreParents = false
 #endif
         );

@@ -47,7 +47,7 @@
  */
 struct atomic_preallocated_pool : protected atomic_container 
 {
-    atomic_preallocated_pool(int nbytes, long seed=128)
+    atomic_preallocated_pool(uint nbytes, long seed=128)
         : atomic_container(-sizeof(ptr)), _nbytes(nbytes+sizeof(ptr))
     {
         // start with a non-empty pool so threads don't race at the beginning
@@ -81,7 +81,7 @@ struct atomic_preallocated_pool : protected atomic_container
         }
     }
     
-    int const _nbytes;
+    uint const _nbytes;
 };
 
 // forward decls...
@@ -140,7 +140,7 @@ struct atomic_class_pool : protected atomic_preallocated_pool {
 
     /** \brief Return the object size given to the constructor.
      */
-    int nbytes() { return _nbytes; }
+    uint nbytes() { return _nbytes; }
     
     // these guys need to access the underlying preallocated stack
     friend void* operator new<>(size_t, atomic_class_pool<T> &);
@@ -157,7 +157,7 @@ struct atomic_class_pool : protected atomic_preallocated_pool {
 
 template<class T>
 inline void* operator new(size_t nbytes, atomic_class_pool<T>& pool) {
-    assert(pool._nbytes >= nbytes);
+    assert(pool.nbytes() >= nbytes);
     return pool.alloc();
 }
 

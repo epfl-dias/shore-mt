@@ -138,7 +138,7 @@ ss_m::destroy_file(const stid_t& fid)
 rc_t
 ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
                  smsize_t len_hint, const vec_t& data, rid_t& new_rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                  , const bool bIgnoreLocks
 #endif
                  )
@@ -153,7 +153,7 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
     SM_PROLOGUE_RC(ss_m::create_rec, in_xct, 0);
 
     W_DO(_create_rec(fid, hdr, len_hint, data, new_rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                      , true, bIgnoreLocks
 #endif
                      ));
@@ -166,7 +166,7 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::destroy_rec(const rid_t& rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                   , const bool bIgnoreLocks
 #endif
                   )
@@ -175,7 +175,7 @@ ss_m::destroy_rec(const rid_t& rid
     DBG(<<"destroy_rec " <<rid);
 
     W_DO(_destroy_rec(rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                       , bIgnoreLocks
 #endif
                       ));
@@ -566,7 +566,7 @@ rc_t
 ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint, 
                   const vec_t& data, rid_t& new_rid,
                   bool  // TODO NANCY REMOVE
-#ifdef CFG_DORA
+#ifdef SM_DORA
                   /* forward_alloc */
                   , const bool bIgnoreLocks
 #endif
@@ -576,7 +576,7 @@ ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
     sdesc_t* sd;
 
     lock_mode_t lmode = IX;
-#ifdef CFG_DORA
+#ifdef SM_DORA
     if (bIgnoreLocks) lmode = NL;
 #endif
 
@@ -585,7 +585,7 @@ ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
     DBG( << "create in fid " << fid << " data.size " << data.size());
 
     W_DO( fi->create_rec(fid, len_hint, hdr, data, *sd, new_rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                          , bIgnoreLocks
 #endif
                          ) );
@@ -603,7 +603,7 @@ ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_destroy_rec(const rid_t& rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
                    , const bool bIgnoreLocks
 #endif
                    )
@@ -611,7 +611,7 @@ ss_m::_destroy_rec(const rid_t& rid
     DBG(<<"_destroy_rec " << rid);
 
     W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT
-#ifdef CFG_DORA
+#ifdef SM_DORA
                   , 0, 0, 0, bIgnoreLocks // If set it will cause to bIgnoreParents
 #endif
                   ));
@@ -626,12 +626,12 @@ ss_m::_destroy_rec(const rid_t& rid
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data
-#ifdef CFG_DORA
+#ifdef SM_DORA
                   , const bool bIgnoreLocks
 #endif
                   )
 {
-#ifdef CFG_DORA
+#ifdef SM_DORA
     if (!bIgnoreLocks) W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
     W_DO(fi->update_rec(rid, start, data, bIgnoreLocks));
 #else
@@ -646,16 +646,16 @@ ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr
-#ifdef CFG_DORA
+#ifdef SM_DORA
                       , const bool bIgnoreLocks
 #endif
                       )
 {
-#ifdef CFG_DORA
+#ifdef SM_DORA
     if (!bIgnoreLocks) {
 #endif
         W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
-#ifdef CFG_DORA
+#ifdef SM_DORA
     }
 #endif
 

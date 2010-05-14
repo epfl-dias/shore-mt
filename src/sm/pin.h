@@ -346,7 +346,7 @@ public:
      * be pinned before this is called.
      */
     rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0
-#ifdef CFG_DORA
+#ifdef SM_DORA
                        , const bool bIgnoreLocks = false
 #endif
                        );
@@ -359,7 +359,7 @@ public:
      * at location \e start.
      */
     rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr
-#ifdef CFG_DORA
+#ifdef SM_DORA
                            , const bool bIgnoreLocks = false
 #endif 
                            );
@@ -416,7 +416,7 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m);
 
     rc_t        _repin(lock_mode_t lmode, int* old_value = 0
-#ifdef CFG_DORA
+#ifdef SM_DORA
                        , const bool bIgnoreLocks = false
 #endif
                        );

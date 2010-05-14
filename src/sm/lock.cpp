@@ -381,7 +381,7 @@ lock_m::_lock(
     timeout_in_ms           timeout, 
     bool                    force,
     lockid_t**              nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
     )
@@ -488,7 +488,7 @@ lock_m::_lock(
         // of the ancestors.
         int i = 1;
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
         if (!bIgnoreParents) {
 #endif
 
@@ -564,7 +564,7 @@ lock_m::_lock(
             }
         }
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
         }
 #endif
 
@@ -878,7 +878,7 @@ lock_m::lock(
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
     lockid_t**           nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
     )
@@ -891,7 +891,7 @@ lock_m::lock(
     lmode_t _prev_pgmode;
 
     rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, false, nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
                     , bIgnoreParents
 #endif
                     );
@@ -912,7 +912,7 @@ lock_m::lock_force(
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
     lockid_t**           nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
     )
@@ -921,7 +921,7 @@ lock_m::lock_force(
     lmode_t _prev_pgmode;
 
     rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, true, nameInLockHead
-#ifdef CFG_DORA
+#ifdef SM_DORA
                     , bIgnoreParents
 #endif
                     );

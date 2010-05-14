@@ -117,8 +117,9 @@ scan_index_i::scan_index_i(
     const cvec_t&         bound1_, 
     cmp_t                 c2, 
     const cvec_t&         bound2_, 
-    bool                include_nulls,
-    concurrency_t         cc
+    bool                  include_nulls,
+    concurrency_t         cc,
+    lock_mode_t           mode
     ) 
 : xct_dependent_t(xct()),
   _stid(stid_),
@@ -131,7 +132,7 @@ scan_index_i::scan_index_i(
 {
     INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, 1);
 
-    _init(c1, bound1_, c2, bound2_);
+    _init(c1, bound1_, c2, bound2_, mode);
 }
 
 

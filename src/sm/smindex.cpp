@@ -246,14 +246,14 @@ ss_m::print_md_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
-#ifdef CFG_DORA
+#ifdef SM_DORA
                    , const bool bIgnoreLocks
 #endif
         )
 {
     SM_PROLOGUE_RC(ss_m::create_assoc, in_xct, 0);
     W_DO(_create_assoc(stid, key, el
-#ifdef CFG_DORA
+#ifdef SM_DORA
                        , bIgnoreLocks
 #endif
                        ));
@@ -265,14 +265,14 @@ ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
  *--------------------------------------------------------------*/
 rc_t
 ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el
-#ifdef CFG_DORA
+#ifdef SM_DORA
                    , const bool bIgnoreLocks
 #endif
                     )
 {
     SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, 0);
     W_DO(_destroy_assoc(stid, key, el
-#ifdef CFG_DORA
+#ifdef SM_DORA
                         , bIgnoreLocks
 #endif
                         ));
@@ -298,14 +298,14 @@ ss_m::destroy_all_assoc(stid_t stid, const vec_t& key, int& num)
 rc_t
 ss_m::find_assoc(stid_t stid, const vec_t& key, 
                  void* el, smsize_t& elen, bool& found
-#ifdef CFG_DORA
+#ifdef SM_DORA
                  , const bool bIgnoreLocks
 #endif
               )
 {
     SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, 0);
     W_DO(_find_assoc(stid, key, el, elen, found
-#ifdef CFG_DORA
+#ifdef SM_DORA
                      , bIgnoreLocks
 #endif
                      ));
@@ -716,7 +716,7 @@ ss_m::_create_assoc(
     const stid_t&        stid, 
     const vec_t&         key, 
     const vec_t&         el
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreLocks
 #endif
 )
@@ -728,7 +728,7 @@ ss_m::_create_assoc(
     // determine if we need to change the settins of cc and index_mode
     concurrency_t cc = t_cc_bad;
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     // IP: DORA inserts using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
       cc = t_cc_none;
@@ -750,7 +750,7 @@ ss_m::_create_assoc(
         }
     }
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     }
 #endif
 
@@ -790,7 +790,7 @@ ss_m::_destroy_assoc(
     const stid_t  &      stid, 
     const vec_t&         key, 
     const vec_t&         el
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreLocks
 #endif
     )
@@ -800,7 +800,7 @@ ss_m::_destroy_assoc(
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     // IP: DORA deletes using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
       cc = t_cc_none;
@@ -824,7 +824,7 @@ ss_m::_destroy_assoc(
         }
     }
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     }
 #endif
 
@@ -910,7 +910,7 @@ ss_m::_find_assoc(
     void*                 el, 
     smsize_t&             elen, 
     bool&                 found
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreLocks
 #endif
     )
@@ -920,7 +920,7 @@ ss_m::_find_assoc(
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     // IP: DORA does the dir access and the index lookup 
     //     using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
@@ -947,7 +947,7 @@ ss_m::_find_assoc(
         }
     }
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
     }
 #endif
 

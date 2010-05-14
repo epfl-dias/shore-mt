@@ -230,7 +230,7 @@ public:
                     pginfo_t&    info, 
                     file_p*      pagep,
                     slotid_t&    idx    // output iff found
-#ifdef CFG_DORA
+#ifdef SM_DORA
                     , const bool bIgnoreParents = false
 #endif
             ) const;
@@ -241,7 +241,7 @@ public:
                     bool        append_only,
                     bool&       success, // output
                     slotid_t&   idx // output
-#ifdef CFG_DORA
+#ifdef SM_DORA
                     , const bool bIgnoreParents = false
 #endif
             ) const;

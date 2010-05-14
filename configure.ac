@@ -432,7 +432,7 @@ AH_TEMPLATE(NDEBUG,		[no debug code included])
 AH_TEMPLATE(W_TRACE,		[tracing debugging code included])
 AH_TEMPLATE(W_DEBUG_RC,		[rc-is-checked code included])
 
-AH_TEMPLATE(CFG_DORA,           [DORA-related code included])
+AH_TEMPLATE(SM_DORA,            [DORA-related code included])
 
 ## Check for atomic ops
 AC_CHECK_FUNCS([membar_enter]) 
@@ -1193,7 +1193,7 @@ AM_CONDITIONAL([PURECOV], [test x$purecov = xtrue])
 #
 # There are six supported additional options:
 #
-# (1) --enable-dora       : defines CFG_DORA
+# (1) --enable-dora       : defines SM_DORA
 # Enables the code paths for Data-oriented Transaction Execution (DORA)
 #
 # -------------------------------------------------------------------------
@@ -1210,7 +1210,7 @@ AM_CONDITIONAL([USE_DORA], [test x$dora = xtrue])
 if test "$dora" = true
 then 
      AC_MSG_RESULT(yes)
-     AC_DEFINE(CFG_DORA)
+     AC_DEFINE(SM_DORA)
 else
      AC_MSG_RESULT(no)
 fi

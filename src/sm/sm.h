@@ -1552,7 +1552,7 @@ public:
         stid_t                   stid, 
         const vec_t&             key, 
         const vec_t&             el
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -1560,7 +1560,7 @@ public:
         stid_t                   stid, 
         const vec_t&             key,
         const vec_t&             el
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -1575,7 +1575,7 @@ public:
         void*                   el, 
         smsize_t&               elen, 
         bool&                   found
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -1688,7 +1688,7 @@ public:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     ); 
@@ -1699,7 +1699,7 @@ public:
      * @param[in] rid  ID of the record to destroy.
      */
     static rc_t            destroy_rec(const rid_t& rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
                                        );
@@ -2034,7 +2034,7 @@ private:
         const stid_t  &        stid, 
         const vec_t&           key, 
         const vec_t&           el
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -2043,7 +2043,7 @@ private:
         const stid_t &        stid, 
         const vec_t&          key,
         const vec_t&          el
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -2059,7 +2059,7 @@ private:
         void*                el, 
         smsize_t&            elen, 
         bool&                found
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
     );
@@ -2139,14 +2139,14 @@ private:
         const vec_t&             data, 
         rid_t&                   new_rid,
         bool                     forward_alloc = true
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
         ); 
 
     static rc_t            _destroy_rec(
         const rid_t&             rid
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
         );
@@ -2155,7 +2155,7 @@ private:
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             data
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
         );
@@ -2164,7 +2164,7 @@ private:
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             hdr
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif
         );

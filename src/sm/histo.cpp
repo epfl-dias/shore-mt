@@ -678,7 +678,7 @@ histoid_t::find_page(
     pginfo_t&        info, 
     file_p*          pagep,     // input
     slotid_t&        idx    // output iff found
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool     bIgnoreParents
 #endif
 ) const
@@ -749,7 +749,7 @@ histoid_t::find_page(
                 W_DO(latch_lock_get_slot(pg, pagep, space_needed,
                     false, // not append-only
                     success, idx
-#ifdef CFG_DORA
+#ifdef SM_DORA
                                          , bIgnoreParents
 #endif
                                          ));
@@ -798,7 +798,7 @@ histoid_t::latch_lock_get_slot(
     bool         append_only,
     bool&        success,
     slotid_t&    idx    // only meaningful if success
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
 ) const 
@@ -883,7 +883,7 @@ histoid_t::latch_lock_get_slot(
 
         rc = pagep->_find_and_lock_free_slot(append_only,
                                              space_needed, idx
-#ifdef CFG_DORA
+#ifdef SM_DORA
                                              , bIgnoreParents
 #endif
                                              );

@@ -63,6 +63,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 #include "fc_error_enum_gen.h"
+
+#include "w_base.h"
+
 #include "tls.h"
 
 #define USE_BLOCK_ALLOC_FOR_W_ERROR_T 0

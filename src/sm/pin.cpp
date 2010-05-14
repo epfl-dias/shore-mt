@@ -219,7 +219,7 @@ rc_t pin_i::next_bytes(bool& eof)
 
 rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
                        int* old_value /* temporary: for degugging only */
-#ifdef CFG_DORA
+#ifdef SM_DORA
                        , const bool bIgnoreLocks
 #endif
                        )
@@ -237,13 +237,13 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
             _check_lsn();
         }
         W_DO_GOTO(rc, _repin(EX, old_value
-#ifdef CFG_DORA
+#ifdef SM_DORA
                              , bIgnoreLocks
 #endif
                              ));
         w_assert3(_hdr_page().latch_mode() == LATCH_EX);
         w_assert3((_lmode == EX)
-#ifdef CFG_DORA
+#ifdef SM_DORA
                   || bIgnoreLocks // IP: In DORA we disable the second assertion
 #endif
                   );
@@ -264,7 +264,7 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
 
     } else {
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
         if (bIgnoreLocks) {
             W_DO_GOTO(rc, SSM->_update_rec(_rid, start, data, bIgnoreLocks));      
         } else {
@@ -277,7 +277,7 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
         _lmode = EX;  // record is now EX locked
         if (was_pinned) W_DO_GOTO(rc, _repin(EX));
 
-#ifdef CFG_DORA
+#ifdef SM_DORA
         }
 #endif  
 
@@ -319,7 +319,7 @@ failure:
 }
 
 rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr
-#ifdef CFG_DORA
+#ifdef SM_DORA
                            , const bool bIgnoreLocks
 #endif
                            )
@@ -334,7 +334,7 @@ rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr
     SM_PROLOGUE_RC(pin_i::update_rec_hdr, in_xct, 0);
 
     lock_mode_t repin_lock_mode = EX;
-#ifdef CFG_DORA
+#ifdef SM_DORA
     if (bIgnoreLocks) repin_lock_mode = SH;
 #endif
     W_DO_GOTO(rc, _repin(repin_lock_mode));
@@ -620,7 +620,7 @@ failure:
 }
 
 rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
-#ifdef CFG_DORA
+#ifdef SM_DORA
                    , const bool bIgnoreLocks
 #endif
                    )
@@ -633,7 +633,7 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
     // TODO: this should probably use the lock supremum table
 
     if ((_lmode < lmode) 
-#ifdef CFG_DORA
+#ifdef SM_DORA
         && !bIgnoreLocks
 #endif  
         )
@@ -665,7 +665,7 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
         if (_hdr_page().latch_mode() != lock_to_latch(_lmode)) {
             w_assert3(_hdr_page().latch_mode() == LATCH_SH);
             w_assert3(_lmode == EX || _lmode == UD
-#ifdef CFG_DORA
+#ifdef SM_DORA
                       || bIgnoreLocks
 #endif
                       );

@@ -136,7 +136,8 @@ public:
         cmp_t                     c2,
         const cvec_t&             bound2,
         bool                      include_nulls = false,
-        concurrency_t             cc = t_cc_kvl
+        concurrency_t             cc = t_cc_kvl,
+	lock_mode_t		  mode = SH
         );
 
 

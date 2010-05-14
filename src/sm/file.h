@@ -105,7 +105,7 @@ public:
         bool                       append_only,
         uint4_t                    space_needed,
         slotid_t&                  idx
-#ifdef CFG_DORA
+#ifdef SM_DORA
         , const bool                bIgnoreParents = false
 #endif
         );
@@ -218,7 +218,7 @@ public:
                         const vec_t&     data,
                         sdesc_t&         sd,
                         rid_t&           rid // output
-#ifdef CFG_DORA
+#ifdef SM_DORA
                         , const bool     bIgnoreParents = false
 #endif
                     );
@@ -254,7 +254,7 @@ public:
 
     static rc_t update_rec(const rid_t& rid, uint4_t start,
                            const vec_t& data
-#ifdef CFG_DORA
+#ifdef SM_DORA
                            , const bool bIgnoreParents = false
 #endif
                            );
@@ -321,7 +321,7 @@ protected:
                                 smsize_t        space_needed, 
                                 file_p&         page,       // output
                                 slotid_t&       slot        // output
-#ifdef CFG_DORA
+#ifdef SM_DORA
                                 , const bool    bIgnoreParents = false
 #endif
                     );
@@ -335,7 +335,7 @@ protected:
                                 const vec_t&        data,
                                 rid_t&              rid,
                                 file_p&             page        // in-output
-#ifdef CFG_DORA
+#ifdef SM_DORA
                                 , const bool        bIgnoreParents = false
 #endif
                     );

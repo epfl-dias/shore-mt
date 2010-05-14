@@ -195,7 +195,7 @@ file_m::create_rec(
     sdesc_t&             sd,
     rid_t&               rid // output
     // no forward_alloc
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
     )
@@ -213,7 +213,7 @@ file_m::create_rec(
     W_DO(_create_rec( fid, pg_policy_t(policy), 
                       len_hint, sd, hdr, data, 
                       rid, page
-#ifdef CFG_DORA
+#ifdef SM_DORA
                       , bIgnoreParents
 #endif
                       ));
@@ -260,7 +260,7 @@ file_m::_create_rec(
     const vec_t&          data,
     rid_t&                rid,
     file_p&               page        // in-output
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool          bIgnoreParents
 #endif
 )
@@ -335,7 +335,7 @@ file_m::_create_rec(
         if(!have_page) {
             W_DO(_find_slotted_page_with_space(fid, policy, sd, 
                                                space_needed, page, slot
-#ifdef CFG_DORA
+#ifdef SM_DORA
                                                , bIgnoreParents
 #endif
                                                ));
@@ -383,7 +383,7 @@ file_m::_find_slotted_page_with_space(
     smsize_t            space_needed, 
     file_p&             page,        // output
     slotid_t&           slot        // output
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
 )
@@ -409,7 +409,7 @@ file_m::_find_slotted_page_with_space(
             pginfo_t        info;
             DBG(<<"looking in cache");
             W_DO(h->find_page(space_needed, found, info, &page, slot
-#ifdef CFG_DORA
+#ifdef SM_DORA
                               , bIgnoreParents
 #endif
                               ));
@@ -776,8 +776,8 @@ file_m::destroy_rec(const rid_t& rid)
 
 rc_t
 file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data
-#ifdef CFG_DORA
-                   , const bool bIgnoreLocks
+#ifdef SM_DORA
+                   , const bool /* bIgnoreLocks */
 #endif
                    )
 {
@@ -2035,7 +2035,7 @@ file_p::_find_and_lock_free_slot(
     bool                     append_only,
     uint4_t                  space_needed,
     slotid_t&                idx
-#ifdef CFG_DORA
+#ifdef SM_DORA
     , const bool bIgnoreParents
 #endif
     )
@@ -2061,7 +2061,7 @@ file_p::_find_and_lock_free_slot(
 
         // IP: For DORA it may ignore to acquire other locks than the RID
 	rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE
-#ifdef CFG_DORA
+#ifdef SM_DORA
                       , 0, 0, 0, bIgnoreParents
 #endif
                       );
