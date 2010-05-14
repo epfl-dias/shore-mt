@@ -11,16 +11,12 @@ TEST_CXXFLAGS = $(PEDANTIC)  $(TUNE_FLAGS) -DTEST_ME
 TEST_CXXFLAGS += -g $(GENERIC_YESDEBUG_FLAGS) $(W_WARNINGS) $(PURE_CXXFLAGS)
 TEST_CXXFLAGS += $(ALWAYS_FLAGS) $(TEMPLATEFLAGS) 
 
-TEST_LDADD =  $(top_srcdir)/src/atomic_ops/libatomic_ops.a
-
 bin_PROGRAMS = test_dynarray test_mem_block
 test_dynarray_SOURCES = dynarray.cpp
 test_dynarray_CXXFLAGS = $(TEST_CXXFLAGS)
-test_dynarray_LDADD = $(TEST_LDADD)
 
 test_mem_block_SOURCES = mem_block.cpp
 test_mem_block_CXXFLAGS = $(TEST_CXXFLAGS)
-test_mem_block_LDADD = $(TEST_LDADD)
 
 lib_LIBRARIES     = libfc.a
 

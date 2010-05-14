@@ -1,32 +1,5 @@
 #include "shore-config.h"
 
-#ifndef HAVE_UCHAR_T
-typedef unsigned char uchar_t;
-#endif
-#ifndef HAVE_USHORT_T
-typedef unsigned short ushort_t;
-#endif
-#ifndef HAVE_UINT_T
-typedef unsigned int   uint_t;
-#endif
-#ifndef HAVE_ULONG_T
-typedef unsigned long   ulong_t;
-#endif
-
-#ifndef HAVE_CHAR_T
-typedef char char_t;
-#endif
-#ifndef HAVE_SHORT_T
-typedef short short_t;
-#endif
-#ifndef HAVE_INT_T
-typedef int   int_t;
-#endif
-#ifndef HAVE_LONG_T
-typedef long   long_t;
-#endif
-
-
 #if defined(HAVE_ATOMIC_H) && !defined(HAVE_MEMBAR_ENTER)
 #error  atomic_ops does not include membar_ops
 #endif
