@@ -122,7 +122,7 @@ protected:
  */
 
 template<class T, class Pool=dynpool, size_t MaxBytes=0>
-class block_pool 
+struct block_pool 
 {
     typedef memory_block::meta_block_size<sizeof(T)> BlockSize;
 
@@ -139,10 +139,6 @@ class block_pool
 		      MaxBytes? MaxBytes : 1024*1024*1024);
 	return &p;
     }
-    
-    memory_block::block_list _blist;
-
-public:
   
     block_pool()
 	: _blist(get_pool(), TEMPLATE_ARGS)
@@ -164,6 +160,10 @@ public:
 	assert(get_pool()->validate_pointer(ptr));
 	memory_block::block::release(ptr, TEMPLATE_ARGS);
     }
+    
+private:
+    memory_block::block_list _blist;
+
 };
 
 template<class T, size_t MaxBytes=0>
@@ -225,21 +225,71 @@ dynpool::mblock* dynpool::_at(size_t i) {
 // prototype for the object cache TFactory...
 template<class T>
 struct object_cache_default_factory {
-    T* operator()(void* ptr) const { return new (ptr) T; }
+    // these first three are required... the template args are optional
+    static T*
+    construct(void* ptr) { return new (ptr) T; }
+
+    static void
+    reset(T* t) { /* do nothing */ }
+
+    static T*
+    init(T* t) { /* do nothing */ return t; }
+};
+
+template<class T>
+struct object_cache_initializing_factory {
+    // these first three are required... the template args are optional
+    static T*
+    construct(void* ptr) { return new (ptr) T; }
+    
+    static void
+    reset(T* t) { t->reset(); }
+
+    static T*
+    init(T* t) { t->init(); return t; }
+
+    // matched by object_cache::acquire below, but with the extra first T* arg...
+    template<class Arg1>
+    static T* init(T* t, Arg1 arg1) { t->init(arg1); return t; }
+    template<class Arg1, class Arg2>
+    static T* init(T* t, Arg1 arg1, Arg2 arg2) { t->init(arg1, arg2); return t; }    
+    template<class Arg1, class Arg2, class Arg3>
+    static T* init(T* t, Arg1 arg1, Arg2 arg2, Arg3 arg3) { t->init(arg1, arg2, arg3); return t; }
 };
 
 template <class T, class TFactory=object_cache_default_factory<T>, size_t MaxBytes=0>
-class object_cache {
-
-    object_cache()
-	: _factory(TFactory())
-    {
+struct object_cache {
+    
+    // for convenience... make sure to extend the object_cache_default_factory to match!!!
+    T* acquire() {
+	return TFactory::init(_acquire());
+    }
+    template<class Arg1>
+    T* acquire(Arg1 arg1) {
+	return TFactory::init(_acquire(), arg1);
+    }
+    template<class Arg1, class Arg2>
+    T* acquire(Arg1 arg1, Arg2 arg2) {
+	return TFactory::init(_acquire(), arg1, arg2);
+    }    
+    template<class Arg1, class Arg2, class Arg3>
+    T* acquire(Arg1 arg1, Arg2 arg2, Arg3 arg3) {
+	return TFactory::init(_acquire(), arg1, arg2, arg3);
     }
     
-    object_cache(TFactory const &factory)
-	: _factory(factory)
-    {
+    T* _acquire() {
+	// constructed when its block was allocated...
+	union { void* v; T* t; } u = {_pool.acquire()};
+	return u.t;
     }
+
+    static
+    void release(T* obj) {
+	TFactory::reset(obj);
+	Pool::release(obj);
+    }
+
+private:
     
     struct cache_pool : dynpool {
 
@@ -257,21 +307,7 @@ class object_cache {
     typedef block_pool<T, cache_pool, MaxBytes> Pool;
     
     Pool _pool;
-    TFactory _factory;
 
-public:
-    
-    T* acquire() {
-	// constructed when its block was allocated...
-	union { void* v; T* t; } u = {_pool.acquire()};
-	return u.t;
-    }
-
-    static
-    void release(T* obj) {
-	Pool::release(obj);
-    }
-    
 };
 
 template <class T, class TF, size_t M>
@@ -289,10 +325,11 @@ template <class T, class TF, size_t M>
 inline
 dynpool::mblock* object_cache<T,TF,M>::cache_pool::_acquire_block() {
     dynpool::mblock* b = dynpool::_acquire_block();
-    if(this != b->_owner) {
+    void* me = this;
+    if(me != b->_owner) {
 	// new block -- initialize its objects
 	for(size_t j=0; j < Pool::chip_count(); j++) 
-	    _factory(b->_get(j, Pool::chip_size()));
+	    TF::construct(b->_get(j, Pool::chip_size()));
 	b->_owner = 0;
     }
     return b;
