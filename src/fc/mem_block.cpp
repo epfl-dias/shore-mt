@@ -30,8 +30,6 @@
 
 #ifdef __linux
 #include <malloc.h>
-#else
-using std::memalign
 #endif
 
 #define TEMPLATE_ARGS chip_size, chip_count, block_size
