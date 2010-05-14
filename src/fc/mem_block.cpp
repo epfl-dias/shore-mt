@@ -28,6 +28,12 @@
 #include <cstdlib>
 #include <algorithm>
 
+#ifdef __linux
+#include <malloc.h>
+#else
+using std::memalign
+#endif
+
 #define TEMPLATE_ARGS chip_size, chip_count, block_size
 
 namespace memory_block {
@@ -37,7 +43,8 @@ namespace memory_block {
 
 // adapted from http://chessprogramming.wikispaces.com/Population+Count#SWAR-Popcount
 typedef unsigned long long u64;
-static long popc64(u64 x) {
+static inline
+long popc64(u64 x) {
     u64 k1 = 0x5555555555555555ull;
     u64 k2 = 0x3333333333333333ull;
     u64 k4 = 0x0f0f0f0f0f0f0f0full;
@@ -48,7 +55,6 @@ static long popc64(u64 x) {
     x = (x * kf) >> 56; //returns 8 most significant bits of x + (x<<8) + (x<<16) + (x<<24) + ...
     return x;
 }
-
 
 size_t		block_bits::_popc(bitmap bm) {
 #ifdef __GNUC__
@@ -78,6 +84,8 @@ block_bits::block_bits(size_t chip_count)
 }
 
 size_t block_bits::acquire(size_t chip_count) {
+    (void) chip_count; // make gcc happy...
+    
     /* find the rightmost set bit.
 
        If the map is smaller than the word size, but logically full we
@@ -104,6 +112,7 @@ size_t block_bits::acquire(size_t chip_count) {
 
 void block_bits::release(size_t index, size_t chip_count) {
     // assign this chip to the zombie set for later recycling
+    (void) chip_count; // keep gcc happy
     assert(index < chip_count);
     bitmap to_free = bitmap(1) << index;
     assert(! (to_free & *usable_chips()));
@@ -122,6 +131,7 @@ void block_bits::release(size_t index, size_t chip_count) {
     }
     bitmap was_free = ov;
 #endif
+    (void) was_free; // keep gcc happy
     assert(! (was_free & to_free));
 }
 
@@ -157,7 +167,7 @@ void block_bits::recycle() {
 #endif
 }
 
-void* block::acquire(size_t chip_size, size_t chip_count, size_t block_size) {
+void* block::acquire(size_t chip_size, size_t chip_count, size_t /*block_size*/) {
     size_t index = _bits.acquire(chip_count);
     return (index < chip_count)? _get(index, chip_size) : 0;
 }
@@ -190,6 +200,8 @@ block::block(size_t chip_size, size_t chip_count, size_t block_size)
     // make sure all the chips actually fit in this block
     char* end_of_block = _get(0, chip_size)-sizeof(this)+block_size;
     char* end_of_chips = _get(chip_count, chip_size);
+    (void) end_of_block; // keep gcc happy
+    (void) end_of_chips; // keep gcc happy
     assert(end_of_chips <= end_of_block);
     
     /* We purposefully don't check alignment here because some parts
@@ -241,13 +253,16 @@ void* block_list::_slow_acquire(size_t chip_size, size_t chip_count, size_t bloc
 
 block* block_list::acquire_block(size_t block_size)
 {
-    union { block* b; long n; } u = {_pool->acquire_block(this)};
+    union { block* b; uintptr_t n; } u = {_pool->acquire_block(this)};
+    (void) block_size; // keep gcc happy
     assert((u.n & -block_size) == u.n);
     return u.b;
     
 }
 void block_list::_change_blocks(size_t chip_size, size_t chip_count, size_t block_size)
 {
+    (void) chip_size; // keep gcc happy
+
     // first time through?
     if(_tail == &_fake_block) {
 	_tail = acquire_block(block_size);

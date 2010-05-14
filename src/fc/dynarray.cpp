@@ -77,7 +77,7 @@ int dynarray::init(size_t max_size, size_t align) {
     align_arg = 0;
 #define MAP_ALIGN 0
 #endif
-    union { void* v; long n; char* c; }
+    union { void* v; uintptr_t n; char* c; }
 	u={mmap(align_arg, max_size, PROTS, FLAGS | MAP_ALIGN, -1, 0)};
 	
     if(u.v == MAP_FAILED)
