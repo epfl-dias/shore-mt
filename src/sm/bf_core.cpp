@@ -1325,7 +1325,19 @@ bf_core_m::_remove(bfcb_t*& p)
         dumpthreads();
 #endif 
     }
-
+    
+    /* have to make sure it's not being cleaned. Because we have an
+       EX-latch we only have to worry about a page write that was
+       already in-progress before we latched. Acquiring the page write
+       mutex for this pid will guarantee that any such in-progress
+       write has completed (because the writer will clear the
+       old_rec_lsn before releasing the mutex)
+    */
+    if(p->old_rec_lsn().valid()) {
+	CRITICAL_SECTION(cs, page_write_mutex_t::locate(p->pid()));
+	w_assert0(!p->old_rec_lsn().valid());
+    }
+    
     // fail if the page is pinned more than once, retry if the page
     // got moved while we were acquiring the lock
     {
@@ -1404,18 +1416,18 @@ bool bf_core_m::can_replace(bfcb_t* p, int rounds)
      * latch).
      */
     bool found =false;
+    if(!p->pin_cnt() && !p->old_rec_lsn().valid()) {
     switch(rounds) {
         case 2:
             // Like 1 but will accept dirty pages
-            if(!p->refbit() && !p->hotbit() && !p->pin_cnt()) {
+            if(!p->refbit() && !p->hotbit()) {
                 found=true; 
             }
             break;
 
         case 1:
             // Unpinned, not hot, not dirty, no refbit 
-            if( (!p->dirty()) &&
-                (!p->refbit() && !p->hotbit() && !p->pin_cnt())) {
+            if( !p->dirty() && !p->refbit() && !p->hotbit() ) {
                 found=true; 
             }
             break;
@@ -1428,10 +1440,9 @@ bool bf_core_m::can_replace(bfcb_t* p, int rounds)
 
         default:
             // Anything unpinned is ok. 
-            if(!p->pin_cnt()) {
                 found=true; 
-            }
         break;
+    }
     }
 
     // make sure there is a free in-transit-out slot

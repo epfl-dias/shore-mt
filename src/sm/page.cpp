@@ -623,7 +623,7 @@ void page_s::ntoh(vid_t vid)
 void
 page_p::repair_rec_lsn(bool was_dirty, lsn_t const &new_rlsn) {
     bfcb_t* bp = bf_m::get_cb(_pp);
-    const lsn_t &rec_lsn = bp->safe_rec_lsn();
+    const lsn_t &rec_lsn = bp->curr_rec_lsn();
     if(was_dirty) {
 	// never mind!
 	w_assert0(rec_lsn <= lsn());
