@@ -287,7 +287,8 @@ bfcb_t::print_frame(ostream& o, bool in_htab)
     if (in_htab) {
         o << pid() << '\t'
       << (dirty() ? "X" : " ") << '\t'
-      << rec_lsn() << '\t'
+      << curr_rec_lsn() << '\t'
+      << safe_rec_lsn() << '\t'
       << pin_cnt() << '\t'
       << latch_t::latch_mode_str[latch.mode()] << '\t'
       << latch.latch_cnt() << '\t'
@@ -1206,11 +1207,17 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
             // prevent this, I have inserted flush_all in restart.cpp between
             // the redo_pass and the undo_pass. It should make this case
             // never happen, leaving the assert below valid again.
+	    // 
+	    // 3) Page cleaners cleared the dirty bit and rec_lsn of
+	    // an SH-latched page before writing it out. In this case
+	    // safe_rec_lsn() != curr_rec_lsn() and the former should
+	    // be used. However, either way the relationship with the
+	    // page lsn remains valid.
             //
             // The recovery code is about to see that it gets changed
             // and that the rec_lsn gets "repaired".
             if (( 
-                (p->rec_lsn() <= p->frame()->lsn1) 
+                (p->safe_rec_lsn() <= p->frame()->lsn1) 
                 ||
                 ((p->get_storeflags() & smlevel_0::st_tmp) 
                      == smlevel_0::st_tmp) 
@@ -1222,10 +1229,10 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
                 cerr 
                     << " frame " << (void *)(p->frame()) << endl
                     << " pid " << p->pid() << endl
-                    << " rec_lsn " << p->rec_lsn() << endl
+                    << " rec_lsn " << p->safe_rec_lsn() << endl
                     << " frame lsn " << p->frame()->lsn1 << endl
                     << " (p->rec_lsn <= p->frame->lsn1) "
-                           << int(p->rec_lsn() <= p->frame()->lsn1) << endl
+                           << int(p->safe_rec_lsn() <= p->frame()->lsn1) << endl
                     << " p->frame->store_flags & smlevel_0::st_tmp "
                         << int(p->get_storeflags() & smlevel_0::st_tmp) << endl
                     << " smlevel_0::in_recovery_redo() " <<
@@ -1257,18 +1264,31 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
             // b->rec_lsn = lsn_t::null; 
             // NANCY TODO: document this : inserted this 2nd chance to 
             // fix it but there's still a race...
+	    //
+	    // FRJ: fixed the race by ensuring that page latches are
+	    // released only after unpinning, and also by having
+	    // bf_m::unfix use latch information rather than pin
+	    // counts to decide whether to clear the rec_lsn.
+#if 0
             if(p->pin_cnt() <= 1) {
-                p->clr_rec_lsn();
+                p->mark_clean();
                 INC_TSTAT(bf_core_unpin_cleaned);
             }
-            w_assert1(! p->rec_lsn().valid());
+#endif
+            w_assert1(! p->curr_rec_lsn().valid() );
         }
     }
           
     w_assert1(p->latch.held_by_me()); //NEH: changed to assert1
     p->check();
-    p->latch.latch_release(); // PROTOCOL
+
+    /* FRJ: CLEAN_REC_LSN_RACE arises (at least partly) because we
+       unlatch pages before unpinning. However, we can avoid this
+       unpinning and then unlatching the page -- nobody else will
+       touch the page until they can both pin and latch it.
+     */
     p->unpin_frame(); // atomic decrement
+    p->latch.latch_release(); // PROTOCOL
 
     // prevent future use of p
     p = 0;
@@ -1466,7 +1486,7 @@ bf_core_m::replacement()
     if(p) {
         w_assert2(p->frame() != 0);
         p->clr_old_pid();
-        p->set_dirty_bit(false);
+        p->mark_clean();
         return p;
     }
     

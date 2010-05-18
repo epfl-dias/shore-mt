@@ -214,8 +214,8 @@ cmp_lpid(const void* x, const void* y)
  * Every fix has to set the rec_lsn to indicate a lower bound
  * on recovery for this page.  At fix time, fixes in SH mode
  * won't update the page so they don't affect the rec_lsn,
- * but fixes in EX mode could apply updates; those updates' log
- * records necessarily will be after the tail of the log.
+ * but fixes in EX mode could apply updates; those future updates' log
+ * records necessarily will be after the current tail of the log.
  * (Ok, that is in the forward-processing case.  Redo is
  * different.  The aforementioned comments expound on this.)
  * Multiple EX fixes in a row won't increase the rec_lsn; the
@@ -231,7 +231,46 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
     // Sanity check:
     w_assert1(latch.mode() >= mode);
 
-    if (mode == LATCH_EX && this->rec_lsn() == lsn_t::null)  {
+    if(mode == LATCH_EX && smlevel_0::log && curr_rec_lsn().valid()) {
+	int oldest = smlevel_0::log->global_min_lsn().file();
+	int youngest = smlevel_0::log->curr_lsn().file();
+	int me = this->curr_rec_lsn().file();
+	if(youngest - oldest >= 6 && me == oldest && !old_rec_lsn().valid()) {
+	    /* grab the page lock and make sure we should really do
+	       the I/O... if we can't get it we conclude someone else
+	       is already dealing with the problem and just continue.
+	     */
+	    pthread_mutex_t* pm = page_write_mutex_t::locate(pid());
+	    int rval = pthread_mutex_trylock(pm);
+	    if(rval != EBUSY) {
+		w_assert1(!errno);
+		w_assert0(!old_rec_lsn().valid()); // never set when the mutex is free!
+		oldest = smlevel_0::log->global_min_lsn().file();
+		youngest = smlevel_0::log->curr_lsn().file();
+		if(youngest - oldest >= 6 && me == oldest) {
+		    /* FRJ: We've stumbled across a hot-old-dirty
+		       page. This beast is notorious for preventing the
+		       system from reclaiming log space because all dirty
+		       pages mentioned in a log segment must be written
+		       out before it can be recycled, and this page has
+		       not yet been written out.
+		       
+		       To avoid log-full problems and nasty corner cases
+		       later, we'll just force the page out now.
+		    */
+		    fprintf(stderr, "^*^*^*^*^ Yikes! Y:%d O:%d M:%d -- forced to write out HOD page %d.%d.%d\n",
+			    youngest, oldest, me, _pid.vol().vol, _pid.store(), _pid.page);
+		    W_COERCE(bf_m::_write_out(_frame, 1));
+		    
+		    // these will be set appropriately below (before releasing the latch)
+		    mark_clean();
+		}
+		pthread_mutex_unlock(pm);
+	    }
+	}
+    }
+    
+    if (mode == LATCH_EX && this->curr_rec_lsn() == lsn_t::null)  {
         /*
          *  intent to modify
          *  page would be dirty later than this lsn
@@ -1017,7 +1056,9 @@ bf_m::_fix(
                 vid_t vid = v->pid().vol();
                 activate_background_flushing(&vid);
                 // Grab the page_write_mutex and force the frame to disk.
-                CRITICAL_SECTION(cs, page_write_mutex_t::locate(v->pid())); 
+                CRITICAL_SECTION(cs, page_write_mutex_t::locate(v->pid()));
+		w_assert0(!v->old_rec_lsn().valid()); // never set when the mutex is free!
+
                 W_COERCE(_replace_out(v));
             } else {
                INC_TSTAT(bf_replaced_clean);
@@ -1335,6 +1376,7 @@ bf_m::upgrade_latch(page_s*& buf, latch_mode_t        m)
         w_assert9(!b->latch.is_mine());
         const lpid_t&       pid = buf->pid;
         uint2_t                     tag = buf->tag;
+	lsn_t old_page_lsn = buf->lsn1;
         unfix(buf, false, 1);
 
         // this can actually happen, but we can't safely continue
@@ -1346,6 +1388,10 @@ bf_m::upgrade_latch(page_s*& buf, latch_mode_t        m)
         store_flag_t        store_flags;
         W_COERCE(fix(buf, pid, tag, m, false, store_flags, false));
         w_assert9(b->latch.mode() == m);
+	if(buf->lsn1 != old_page_lsn) {
+	    INC_TSTAT(bf_upgrade_latch_changed);
+	}
+	    
     }
     w_assert9(b->latch.mode() >= m);
 
@@ -1462,7 +1508,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
     // after some logging, which should have set the lsns on the pages.
     if (dirty)  {
         if(! b->dirty())  {
-            b->set_dirty_bit(true);
+            b->set_dirty_bit();
             int ndirty = atomic_add_nv(bf_cleaner_thread_t::_ndirty, 1);
             if(ndirty > bf_cleaner_thread_t::_dirty_threshhold) {
               /* no need to activate with every page, even if we are
@@ -1488,35 +1534,32 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
          */
         if (! b->dirty()) {
             /*
-             * Don't clear the lsn if we're not unfixing for
-             * the last time.
+             * Don't clear the lsn if we're not unfixing for the last
+             * time. Note that we don't care about pin count so much
+             * as latch count -- threads waiting on the latch will
+             * have pinned the page but should not be allowed to
+             * impact our decision now.
              */
-            /* If this thread "owns" the page, i.e., has it
-             * latched exclusively, then all other pins belong
-             * to this thread, and one of them could have set the
+            /* Even if this thread "owns" the page, i.e., has it
+             * latched exclusively, it could have pinned the page 
+             * multiple times, and one of the others could have set the
              * rec_lsn and will unfix with dirty=true. We mustn't
-             * clobber that rec_lsn.
+             * clobber that rec_lsn unless we are the last release.
              *
-             * If two or more threads have it pinned, they
+             * If two or more threads have it latched, they
              * all have it in shared mode, and then it should already 
              * have a null lsn anyway.
-             *
-             * Note: there's yet another scenario, which is that
-             * pin_cnt > 1 because another thread has pinned it and is
-             * waiting for the latch which we have in EX mode,
-             * or has unlatched it (SH) and hasn't
-             * yet updated the pin count.
-             * So there's a race here, in which we find the pin count > 1
-             * even though it's about to become 1, in which case,
-             * we miss a chance to clean the page, but a page cleaner
-             * will eventually take care of that.
-             * CLEAN_REC_LSN_RACE.  See note with this keyword in bf_core.cpp.
+	     *
+	     * FRJ NOTE: Checking latches instead of pin counts avoids
+	     * the CLEAN_REC_LSN_RACE mentioned in bf_core.cpp because
+	     * the check depends only on the calling thread and
+	     * therefore can't race.
              */
-            if(b->pin_cnt() <= 1) {
+            if(b->latch.is_mine() && b->latch.held_by_me() == 1) {
                 // If dirty should be fixed in EX mode.
                 { w_assert0(dirty ? b->latch.is_mine(): true); }
                 
-                b->clr_rec_lsn();
+                b->mark_clean();
                 INC_TSTAT(bf_unfix_cleaned);
             }
         }
@@ -1563,8 +1606,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
             // control block.
             if(b->pin_cnt() <= 1) {
                 // Make it clean.
-                b->set_dirty_bit(false);
-                b->clr_rec_lsn();
+                b->mark_clean();
                 // If dirty should be fixed in EX mode.
                 { w_assert0(dirty ? b->latch.is_mine(): true); }
             }
@@ -1576,8 +1618,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
                     // cerr << "tmp page " << b->pid() << endl;
                 } else {
                     // cerr << "cleaning page " << b->pid() << endl;
-                    b->set_dirty_bit(false);
-                    b->clr_rec_lsn();
+                    b->mark_clean();
                 }
             } else {
                 if(log) w_assert9( (b->get_storeflags() & smlevel_0::st_tmp) );
@@ -1786,288 +1827,6 @@ bf_m::_clean_buf(
     return pwc->thread_rc;
 }
 
-/*
- * From FRJ:
- * The gotcha that kept me away from cleaning as soon as
- * we copy is checkpointing and reclamation. 
- * If you mark the page clean before it hits disk, 
- * have the bad luck to hit a checkpoint during the wait, 
- * have the further bad luck to reclaim the log 
- * segment that page was in, 
- * and finally have the abysmal luck to crash afterward 
- * (but still before the page gets written) 
- * then AFAIK there's unrecoverable data loss.
-
- * So we have to go to the trouble of relatching the
- * page, checking its LSN for updates before cleaning it.
- * Complications are several:
- * - st_tmp pages don't get modified lsns.  We choose
- *   to treat them as follows: clean them when the write
- *   is done - don't try to get it right.  This is
- *   because they don't get recovered or rolled back 
- *   anyway.  If a temp page changes status from
- *   st_tmp to st_regular during our write, or v.v.,
- *   its lsn will be different and it will not get
- *   cleaned.
- * - we might not be able to re-latch the page w/o losing
- *   the page writer mutexen.  In that case, another
- *   page cleaner can slip in; so could a write_out or
- *   a replace_out or a replacement(), thus,
- *   the page might no longer be in the
- *   hash table, or it might have moved, so to find
- *   its (possibly different) bfcb_t, we must resort to
- *   grab()
- *
- * TODO NANCY: make this method part of bf when you are satisfied
- * with it. (trythis)
- */
-void 
-determine_rec_lsn(bfcb_t *bp, const page_s *ps)
-{
-    // We have an EX latch on the page now...
-    // ps->lsn1 is the lsn on the page copy that
-    // we just wrote, that is, the durable lsn from this
-    // write. It's possible that the true durable lsn is
-    // later due to a slipped-in write_out or replace_out. 
-    // What we do know is that our _write_out finished before
-    // we released the page_write_mutex
-    w_assert0(bp->latch.is_mine()); 
-
-    // NOTE: It's also the case that by grabbing an EX latch,
-    // if the page was cleaned between our copying and grabbing
-    // this latch, we have a new and possibly later rec_lsn in the 
-    // bfcb_t, even though we don't intend to update the page.
-    // Thus, we can NOT expect
-    //   rec_lsn <= page lsn  to hold here
-    // because we could have increased rec_lsn with this EX-latch
-    //
-
-    /* Page could have been cleaned by another thread while we
-     * were away. Avoid the possibly expensive work below.
-     */
-    if(bp->dirty()==false) {
-        // We will have set the rec_lsn with this fix.
-        // Let our unfix clear the rec_lsn, or, better yet,
-        // clean it now.
-        INC_TSTAT(bf_dirty_page_cleaned);
-        bp->clr_rec_lsn();
-        bp->set_dirty_bit(false);
-        return;
-    }
-
-    // For debugging
-    if(bp->get_storeflags_nocheck() != ps->get_page_storeflags()) {
-        fprintf(stderr, 
-        "GGGGGGGGGGGGGGGGGGGGGGGGGGGG gap: store flags changed from 0x%x to 0x%x!\n",
-        bp->get_storeflags(), ps->get_page_storeflags());
-        // TODO: what to do with this, if anything?
-        w_assert0(ps->lsn1 != bp->frame()->lsn1) ;
-    }
-
-    const int WAS_SHIFT=8;
-    const int NOW_SHIFT=16;
-#undef NOW
-#define NOW(x) ((x) << NOW_SHIFT)
-#undef WAS
-#define WAS(x) ((x) << WAS_SHIFT)
-    const int MATCH = 1;
-    const int MISMATCH = 0;
-
-    /* Cases: 
-     *        "was": at the time of copy
-     *        "now": after refix.
-     *        "gap": time between releasing the page writer mutexen and the
-     *               refix
-     * 1) was st_regular, now st_tmp
-     *    Page must have been reformatted, so its lsn will be different.
-     *    (why? because for it to be reformatted as a different type of page,
-     *    some sort of logging had to go on to destroy the file or deallocate the
-     *    extent, or something... and the newly formatted page gets either lsn_t(0,1)
-     *    or the log tail.)
-     *
-     *    1a) page lsn different
-     *      It can't possibly be clean (unless another thread cleaned it,
-     *      in which case, that thread takes responsibility for marking it 
-     *      clean)
-     *      Leave it alone.
-     *
-     *    1b) page lsn not changed:
-     *       not possible: error
-     *
-     * 2) was st_regular, now st_regular
-     *    2a) page lsn different
-     *      Page has been dirtied by another thread. Could have been cleaned
-     *      by another thread after it was dirtied. 
-     *      Either we make its rec_lsn be the now-durable lsn or
-     *      we leave it alone.  If we find it was cleaned
-     *      by another thread, we should leave it alone. That is handled
-     *      above.
-     *
-     *    2b) page lsn unchanged
-     *      Page could have been cleaned by another thread; if we re-clean
-     *      it, it's not a problem. Page cannot have been dirtied by
-     *      another thread. 
-     *      Mark it clean.
-     *
-     * 3) was st_tmp, now st_regular
-     *    3a) page lsn different
-     *      Page was reformatted.  The formatting of the page will give
-     *      it an lsn of the format log record.
-     *      Leave it alone.
-     *
-     *    3b) page lsn unchanged
-     *      Transaction committed, changing the file to regular,
-     *      discarding the page, and our grab re-read it as regular.
-     *      Our read made it clean; our unfix will mark it clean.
-     *      Leave it alone. 
-     *
-     * 4) was st_tmp, now st_tmp
-     *    4a) page lsn is different
-     *      Page must have been reformatted with some intervening
-     *      logging.
-     *      Leave it alone. 
-     *
-     *    4b) page lsn is unchanged
-     *      Page not reformatted, so it's still in the same file or
-     *      it has been discarded (file has been destroyed).
-     *
-     *      Page might have been updated, however.  We need to protect
-     *      against discard of re-dirtied page. 
-     *
-     *      We need a way to tell if the page was updated since our
-     *      copy. 
-     *      Before complaining about  diffing the page against the copy 
-     *      consider this:
-     *
-     *      - Any timestep we use doesn't have to survive 
-     *        dismount/mount/restart.
-     *      - It must not be reset or wrap all the way around in 
-     *        one storage manager session. This suggests we use lsns. 
-     *      - We cannot use the log's tail for the current timestamp
-     *        because where temp pages are concerned, the tail of the log
-     *        might never move even though we dirty many pages.
-     *      - We cannot put an lsn in the page's lsn1/lsn2, or we'll
-     *        mess up recovery. 
-     *      - This suggests that when we copy the page, we also have to
-     *        copy the timestamp for comparison purposes.
-     *
-     *      - We cannot use the rec_lsn for a timestamp or we'll mess up the
-     *        invariants, most likely the one(s) involving the 
-     *        rec_lsn being <= page lsn for dirty pages, and
-     *        page_lsn <= rec_lsn <= tail of log in update_rec_lsn (page fix)
-     *      - So we must add a different timestamp to the bfcb_t. 
-     *
-     *     I'm resorting to doing a diff.
-     */
-
-    const int both = (smlevel_0::st_tmp|smlevel_0::st_regular);
-    int was = WAS(ps->get_page_storeflags() & both);
-    int now = NOW(bp->get_storeflags()      & both);
-    int lsns_match = (ps->lsn1 == bp->frame()->lsn1) ? MATCH : MISMATCH;
-
-    // Can't have both - ever
-    w_assert2(was != WAS(both));
-    w_assert2(now != NOW(both));
-
-    switch( was + now + lsns_match ) 
-    {
-
-        // case case1b:
-        case WAS(smlevel_0::st_regular) + NOW(smlevel_0::st_tmp) +  MATCH:
-            /* case unaccounted-for
-             * While you can change a file from regular to 
-             * insert_file, this applies only to newly-formatted pages, 
-             * which means they get a new lsn and a 
-             * log record to go with it.
-             */
-            /* error */
-            W_FATAL_MSG(fcINTERNAL, 
-                    <<"Page was regular, now tmp, matching lsns!");
-            break;
-
-        // page is not part of a store
-        case WAS(smlevel_0::st_bad) + NOW(smlevel_0::st_bad) +  MATCH:
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_tmp) == 0);
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_regular) == 0);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_tmp) == 0);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_regular) == 0);
-            w_assert2(ps->lsn1 == bp->frame()->lsn1);
-            INC_TSTAT(bf_cleaned_other_page);
-            /* mark it clean */
-            w_assert3(ps->lsn1 == bp->frame()->lsn1);
-            bp->clr_rec_lsn();
-            bp->set_dirty_bit(false);
-            break;
-
-        // case case2b:
-        case WAS(smlevel_0::st_regular) + NOW(smlevel_0::st_regular) +  MATCH:
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_tmp) == 0);
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_regular) ==
-                        smlevel_0::st_regular);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_tmp) == 0);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_regular) == 
-                        smlevel_0::st_regular);
-            w_assert2(ps->lsn1 == bp->frame()->lsn1);
-
-            INC_TSTAT(bf_cleaned_reg_page);
-            /* mark it clean */
-            w_assert3(ps->lsn1 == bp->frame()->lsn1);
-            bp->clr_rec_lsn();
-            bp->set_dirty_bit(false);
-            break;
-
-        // case case4b:
-        case WAS(smlevel_0::st_tmp) + NOW(smlevel_0::st_tmp) +  MATCH:
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_regular) == 0);
-            w_assert2((ps->get_page_storeflags() & smlevel_0::st_tmp) == 
-                        smlevel_0::st_tmp);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_regular) == 0);
-            w_assert2((bp->get_storeflags() & smlevel_0::st_tmp) == 
-                        smlevel_0::st_tmp);
-            w_assert2(ps->lsn1 == bp->frame()->lsn1);
-
-            INC_TSTAT(bf_diffed_pages);
-            /* do a diff */
-            if(0 == memcmp(ps, bp->frame(), sizeof(*ps))) {
-                /* mark it clean */
-                bp->clr_rec_lsn();
-                bp->set_dirty_bit(false);
-                INC_TSTAT(bf_cleaned_tmp_page);
-            }
-            break;
-
-        case WAS(smlevel_0::st_regular)+ NOW(smlevel_0::st_regular) +  MISMATCH:
-// case2a =  WAS(smlevel_0::st_regular) + NOW(smlevel_0::st_regular) +  MISMATCH;
-                // Set the rec_lsn to that of the durable copy.
-                bp->set_rec_lsn(ps->lsn1);
-                INC_TSTAT(bf_fixed_rec_lsn);
-            break;
-
-// case1a =  WAS(smlevel_0::st_regular) + NOW(smlevel_0::st_tmp) +  MISMATCH;
-// case3a =  WAS(smlevel_0::st_tmp) + NOW(smlevel_0::st_regular) +  MISMATCH;
-// case3b =  WAS(smlevel_0::st_tmp) + NOW(smlevel_0::st_regular) +  MATCH;
-// case4a =  WAS(smlevel_0::st_tmp) + NOW(smlevel_0::st_tmp) +  MISMATCH;
-        case WAS(smlevel_0::st_bad) + NOW(smlevel_0::st_bad) +  MISMATCH:
-            // page is not part of a store: default case
-        default:
-            if(ps->lsn1 == bp->frame()->lsn1) {
-                w_assert2((ps->get_page_storeflags() 
-                            & smlevel_0::st_tmp) == smlevel_0::st_tmp);
-
-                w_assert2((bp->get_storeflags() 
-                            & smlevel_0::st_regular) == smlevel_0::st_regular); 
-            } else {
-            }
-            // hot page.
-            // pages must match. Stores might not.
-            w_assert1(ps->pid.page == bp->frame()->pid.page);
-            w_assert1(ps->pid.page == bp->pid().page);
-            w_assert1(bp->frame()->lsn1.valid());
-            INC_TSTAT(bf_dirty_page_changed);
-            /* leave it alone, dirty or clean */
-            break;
-    }
-}
 
 
 #if W_DEBUG_LEVEL > 1
@@ -2113,6 +1872,25 @@ extern "C" void dumpT()
 #define TRACE(l,i,u,c,p)
 #endif
 
+void  bfcb_t::set_rec_lsn(const lsn_t &what) { 
+    // This assert is clearly not always true but I need to 
+    // identify the cases.
+    w_assert0(latch.is_mine());
+    w_assert0(!what.valid() || !smlevel_0::log
+	      || what > smlevel_0::log->global_min_lsn());
+    _rec_lsn = what;
+}
+
+void  bfcb_t::mark_clean() {
+    // assertions check _dirty first, then _rec_lsn, so update them in
+    // that order! Using 'volatile' forces the compiler to do that
+    // write first, but on machines with weak consistency we still
+    // need a write barrier as well.
+    _dirty =  false;
+    membar_producer();
+    _rec_lsn = lsn_t::null;
+}
+
 /*
  * bf_m::_clean_segment : the workhorse of the page_writer_threads
  *
@@ -2120,24 +1898,28 @@ extern "C" void dumpT()
  * The page cleaners have no business looking at in-transit-* pages: 
  * in-pages are not dirty by definition, and out-pages are currently being 
  * flushed.
-
- * High-level goings-on: In order to make page cleaning as 
- * unobtrusive as possible, the page cleaners latch dirty pages -- one at 
- * a time -- in SH mode just long enough to copy them. 
- * They then write out groups of copied pages without holding any latches. 
- * Once the I/O completes, they go back and latch each page in EX 
- * mode to mark the page clean. If the page was updated in the meantime 
- * (page lsn different than that of the copy), they have to leave 
- * the page marked dirty and update rec_lsn to the copy's page_lsn+1. 
- * The page mutex exists to serialize page flushes, since the page latch 
- * no longer serves that purpose.
-
- * So... if a page cleaner tries to flush an in-transit-out page whose 
- * I/O is nearly complete, the page will be gone by the time the 
- * page cleaner gets back to it, and *boom*...  To deal with that,
- * we made bf_core::replacement() try to grab the page mutex before
- * evicting the page; if we hold that mutex here, it can't evict from
- * under us.
+ *
+ * High-level goings-on: In order to make page cleaning as unobtrusive
+ * as possible, the page cleaners latch dirty pages in SH mode (and
+ * one at a time) just long enough to copy them, set the old_rec_lsn,
+ * and mark them as clean.  They then write out groups of copied pages
+ * without holding any latches.  Once the I/O completes, they go back
+ * and clear the page's old_rec_lsn without latching.
+ *
+ * Yes, this breaks all kinds of rules, with the resulting (potential)
+ * mess handled as follows:
+ *
+ *  - Entities such as checkpoint threads, which need to know what
+ *    rec_lsn really made it to disk last, should call safe_rec_lsn
+ *    rather than curr_rec_lsn to filter out in-progress cleanings.
+ *
+ *  - Threads which modify the page after cleaning has started
+ *    continue updating the rec_lsn as before
+ *
+ *  - Other threads which might write out the page will not do so if
+ *    the old_rec_lsn is set, instead grabbing the corresponding page
+ *    mutex to ensure the in-progress write completes before
+ *    continuing.
  *
  * Callers: page_writer_thread_t::run(), _clean_buf()
  */
@@ -2154,34 +1936,12 @@ bf_m::_clean_segment(
        ) 
 {
     lpid_t           first_pid;
+    bfcb_t*	     bparr[max_many_pages];
     // We grab at most 2 page mutexes; any run of pages is at most
     // max_many_pages long and can therefore require span 2 mutexes at most.
     pthread_mutex_t* page_locks[2] = {NULL,NULL};
 
-    // GNATS_20
-    /* RE: The rec_lsn that we
-     * will stuff into any page that get updated between page-latch/_write_out
-     * and re-latch to clean the page: it will be the lsn on the
-     * copy of the page that we just made durable.
-     *
-     * In non-recovery case, we are concerned about being able to
-     * reclaim log partitions, and if we can't mark the page clean
-     * because an intervening thread updated the page (its update
-     * didn't change the rec_lsn in this case), the page will
-     * remain an impediment to reclaiming its log partition until it
-     * does get cleaned.
-     * (If it's hot ... it might never get flushed and cleaned by 
-     * a page cleaner.)
-     * So we change the rec_lsn for the page to
-     * the lsn on the page when we copied it.  This works for redo and
-     * forward processing/undo.
-     *
-     * In any case, we will be monotonically increasing the rec_lsn, even
-     * if it's not quite fast enough. 
-     */
     lsn_t   curr_lsn = lsn_t::null;
-
-    CLEART;
 
     // First & 2nd passes : not willing to wait for page latches
     // Third pass:
@@ -2205,7 +1965,6 @@ bf_m::_clean_segment(
             // In all but the last pass, we are not waiting for the SH latches.
             // On the last pass, we will wait.
             lpid_t &p = pids[i];
-TRACE(__LINE__,i,unprocessed, consecutive, p.page);
             bfcb_t* bp;
             rc_t rc = _core->find(bp, p, LATCH_SH, timeout);
 
@@ -2257,8 +2016,14 @@ TRACE(__LINE__,i,unprocessed, consecutive, p.page);
                     }
             
                     // ... copy the whole page
+		    w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
                     w_assert1(consecutive < smlevel_0::max_many_pages);
                     pbuf[consecutive] = *bp->frame();
+		    bparr[consecutive] = bp;
+
+		    // save the rec_lsn and mark the page clean
+		    bp->save_rec_lsn();
+		    bp->mark_clean();
 
                     w_assert2 ( 
                         // st_regular:
@@ -2297,8 +2062,6 @@ TRACE(__LINE__,i,unprocessed, consecutive, p.page);
                 w_assert2(skipped);
             }
 
-TRACE(__LINE__,i,unprocessed, consecutive, p.page);
-    
             // Determine if we need to flush the buffer.
             // We might have consecutive > 0 and still not yet need
             // to flush, so it is possible that we get here with
@@ -2358,10 +2121,9 @@ TRACE(__LINE__,i,unprocessed, consecutive, p.page);
                         // latches and cleaning in reverse order. That
                         // probably doesn't matter.
                         //
-                        page_s* ps = &pbuf[--consecutive];
-
-TRACE(__LINE__,i,unprocessed, consecutive, ps->pid.page);
-
+			consecutive--;
+                        page_s* ps = &pbuf[consecutive];
+			bfcb_t* bp = bparr[consecutive];
                         bool   both(false);
                         pthread_mutex_t* thispagelock = 
                             page_write_mutex_t::locate(ps->pid);
@@ -2369,175 +2131,12 @@ TRACE(__LINE__,i,unprocessed, consecutive, ps->pid.page);
                             w_assert1(thispagelock == page_locks[0]) ;
                             both = true; 
                         }
+			// nobody should have been able to evict the page...
+			w_assert0(ps->pid == bp->pid());
+			w_assert0(bp->old_rec_lsn().valid());
 
-
-                        // Try to acquire the latch
-                        // Use ex-mode so that we are protected when/if we
-                        // update the rec_lsn
-
-                        rc = _core->find(bp, ps->pid, LATCH_EX, WAIT_IMMEDIATE);
-                        // If we couldn't get it,  free the page mutex(es) and
-                        // try again.
-#define WAIT_CLEANER_EX_LATCH  5
-                        /* GNATS_91_FIX :: back-off */
-                        sthread_t::timeout_in_ms backoff = 0;
-
-                        while(rc.err_num() == sthread_t::stTIMEOUT) 
-                        {
-                            // Free up the page mutex(en) and try again
-                            // NOTE: might have to free both - o.w. you
-                            // will be reacquiring in reverse order...
-                            if(page_locks[1] != NULL) {
-                                DO_PTHREAD(pthread_mutex_unlock(page_locks[1]));
-                            }
-
-                            if(thispagelock != page_locks[1]) { 
-                                w_assert1(thispagelock == page_locks[0]) ;
-                                DO_PTHREAD(pthread_mutex_unlock(page_locks[0]));
-                            }
-                            
-                            // This EX latch lines up all future SH latch
-                            // requests behind it, which can be a problem.
-                            // Certainly it is a problem with
-                            // the smsh pin tests, which use sync while holding
-                            // SH latches.    The pin code covers latches
-                            // with locks and goes to some
-                            // trouble to turn latch-lock deadlocks into 
-                            // lock-lock deadlocks.
-                            // Thus, any poorly-behaved pin client *should*
-                            // be caught by the deadlock detector, except
-                            // for this:  since SH/SH are compatible, but
-                            // this lines up SH requests behind it....
-                            // SO: let's do this with timeouts, exponentially
-                            // longer.  Well, linearly -- this way we can tell
-                            // in the debugger how many times we have done this.
-                            // We have to sleep here because latches only
-                            // recognize WAIT_IMMEDIATE and everything else
-                            // is treated as WAIT_FOREVER.
-                            backoff += WAIT_CLEANER_EX_LATCH;
-                            // check for rollover
-                            if(backoff < 0) backoff = 0; // WAIT_IMMEDIATE
-                            INC_TSTAT(bf_backoff);
-                            me()->sleep(backoff);
-#if W_DEBUG_LEVEL >= 0
-                            if(backoff > 10000) // 10 sec
-                            {
-                                fprintf(stderr, "backoff %d\n", backoff);
-                            }
-#endif
-
-                            rc = _core->find(bp, ps->pid, LATCH_EX, 
-                                    WAIT_IMMEDIATE); 
-
-                            // reacquire in any case.
-                            if(both) {
-                                DO_PTHREAD(pthread_mutex_lock(page_locks[0]));
-                            }
-                            if(page_locks[1]) {
-                                DO_PTHREAD(pthread_mutex_lock(page_locks[1]));
-                            }
-
-                        }
-
-                        /* There are four possibilities :
-                         * 1) page not found - it got evicted and was
-                         *    written out already (and possibly cleaned)
-                         * 2) couldn't get the latch (if WAIT_IMMEDIATE)
-                         *    because someone else has it in EX mode, in which
-                         *    case, the page is likely to be dirtied anyway,
-                         *    so don't bother cleaning it  : similar to
-                         *    case 4 below
-                         * 3) got the latch and the lsn hasn't changed :
-                         *    mark it clean, clear rec_lsn
-                         * 4) got the latch and the lsn HAS changed or
-                         *    the st_tmp page was dirtied again.
-                         *    leave it alone
-                         *  NOTE: While we left it unlatched, the page could
-                         *  have changed from regular to tmp or from tmp to regular, alas.
-                         */
-                        if(rc.is_error()) 
-                        {
-                            if(rc.err_num() == eFRAMENOTFOUND) 
-                            {
-                                // I've run into this with file scan, where the
-                                // cleaner thread is here, but the page is on
-                                // the transit list because it was evicted by
-                                // an insert.  The find() call above does not
-                                // look on the transit list.  
-                                // To fix this, in bf_core::replacement(), 
-                                // we acquired the page mutex while the
-                                // replacement is going on; since we
-                                // have to acquire the page mutex here,
-                                // that page mutex prevented this
-                                // race from happening.  However, now
-                                // we free up the page mutex here, so the
-                                // race is back (and we can forget about
-                                // the mod to bf_core, however it's probably
-                                // not a bad idea to avoid evicting something
-                                // if you can't grab its page mutex).
-                                // I think this is a benign situation
-                                // because if it got evicted and was dirty,
-                                // See notes re: GNATS 23
-                                // it just gets double-written.
-                                INC_TSTAT(bf_dirty_page_evicted);
-                            } else if(rc.err_num() == sthread_t::stTIMEOUT) {
-                                INC_TSTAT(bf_dirty_page_latched);
-                            }
-                            else
-                            {
-                                W_FATAL_MSG(rc.err_num(), 
-                                    << "Race: unexpected error " 
-                                    << ps->pid << " not be  latched " << rc  );
-                            }
-                        } // error case
-                        else 
-                        {
-#define TRYTHIS 1
-#if TRYTHIS
-                            determine_rec_lsn(bp, ps);
-#else
-                            // We have an EX latch on the page now...
-                            // ps->lsn1 is the lsn on the page copy,
-                            // that is, the durable lsn.
-
-                            if(ps->lsn1 == bp->frame()->lsn1) {
-                                // nobody modified the page while we were gone. 
-                                // mark it as clean
-                                bp->clr_rec_lsn();
-                                bp->set_dirty_bit(false);
-                            }
-                            else
-                            {
-                                INC_TSTAT(bf_dirty_page_changed);
-
-                                // the "real" page was updated while 
-                                // we were flushing the copy.
-                                // Don't clean it, but give it a safely
-                                // larger lsn than what it had.
-                                // See comments at the top of this method
-                                // regarding why we do this.
-                                w_assert1(bp->frame()->lsn1.valid());
-                                // If the above assert fails, look at the
-                                // XXXYYY comments elsewhere to figure out
-                                // what to do
-                                w_assert1(ps->pid.page == bp->frame()->pid.page);
-                                w_assert1(ps->pid.page == bp->pid().page);
-                            
-                                // If it were equal we'd have taken
-                                // the branch above.
-                                // If it's later, something's really fish
-                                // because we should have flushed out only 
-                                // dirty pages.
-                                w_assert1(ps->lsn1 < bp->frame()->lsn1);
-
-                                // Its rec_lsn is now the lsn of the
-                                // durable copy.
-                                bp->set_rec_lsn(ps->lsn1);
-                            }
-#endif /*TRYTHIS*/
-                            _core->unpin(bp);
-                        } // non-error case
-TRACE(__LINE__,i,unprocessed, consecutive, ps->pid.page);
+			// mark the page as no longer being written out
+			bp->clr_old_rec_lsn();
                     } // while consecutive>0
 
                     // Free the page locks  
@@ -2734,8 +2333,7 @@ bf_m::_replace_out(bfcb_t* b)
 
     // Clear dirty flag and rec_lsn for the new page
     // that we're about to read in to this frame...
-    b->set_dirty_bit(false);
-    b->clr_rec_lsn();
+    b->mark_clean();
 
     return RCOK;
 }
@@ -2946,10 +2544,16 @@ bf_m::get_rec_lsn(int &start, int &count, lpid_t pid[], lsn_t rec_lsn[],
              * assertion.
              *
              * Avoid checkpointing temp pages.
+	     *
+	     * NOTE: page cleaners break several rules as they write
+	     * out dirty pages (see comments for
+	     * bf_m::_clean_segment), and using safe_rec_lsn() deals with
+	     * the problem.
              */
-            if(_core->_buftab[start].rec_lsn() != lsn_t::null) {
+	    lsn_t rlsn = _core->_buftab[start].safe_rec_lsn();
+            if(rlsn != lsn_t::null) {
                 pid[i] = _core->_buftab[start].pid();
-                rec_lsn[i] = _core->_buftab[start].rec_lsn();
+                rec_lsn[i] = rlsn;
                 // BUG_CHKPT_MIN_REC_LSN_FIX
                 if(min_rec_lsn > rec_lsn[i]) min_rec_lsn = rec_lsn[i];
                 i++;
@@ -2976,9 +2580,10 @@ bf_m::min_rec_lsn()
 {
     lsn_t lsn = lsn_t::max;
     for (int i = 0; i < npages(); i++)  {
+	lsn_t rec_lsn = _core->_buftab[i].safe_rec_lsn();
         if (_core->_buftab[i].dirty() && _core->_buftab[i].pid().page &&
-                                        _core->_buftab[i].rec_lsn() < lsn)
-            lsn = _core->_buftab[i].rec_lsn();
+                                        rec_lsn < lsn)
+            lsn = rec_lsn;
     }
     return lsn;
 }
@@ -3372,6 +2977,7 @@ bf_m::_scan(const bf_filter_t& filter, bool write_dirty, bool discard)
                 }
 #endif
                 CRITICAL_SECTION(cs, page_write_mutex_t::locate(b->pid())); 
+		w_assert0(!b->old_rec_lsn().valid()); // never set when the mutex is free!
                 rc_t rc = _write_out(b->frame(), 1);
                 if(rc.is_error()) {
                     // we should not get here, because
@@ -3382,8 +2988,7 @@ bf_m::_scan(const bf_filter_t& filter, bool write_dirty, bool discard)
                 }
                 
                 w_assert0(b->latch.is_mine());
-                b->set_dirty_bit(false);
-                b->clr_rec_lsn();
+                b->mark_clean();
             }
 
             w_assert2(filter.is_good(*b));
@@ -3431,7 +3036,7 @@ bf_m::set_dirty(const page_s* buf)
     }
     w_assert1(b->frame() == buf);
     if( !b->dirty() ) {
-        b->set_dirty_bit(true);
+        b->set_dirty_bit();
 
         w_assert2( _core->latch_mode(b) == LATCH_EX );
 
@@ -3606,7 +3211,7 @@ bool bf_filter_sweep_old_t::is_good(const bfcb_t& p) const
 {
     if( p.pid()._stid.vol != _vol)       return false;
     if( ! p.pid().page)                  return false;
-    if( ! p.rec_lsn().hi() == _segment ) return false;
+    if( ! p.curr_rec_lsn().hi() == _segment ) return false;
 
     if( p.hotbit() ) {
         // skip hot pages even if they are dirty.
@@ -3645,9 +3250,9 @@ bf_filter_lsn_t::is_good(const bfcb_t& p) const
 
     // This includes determination of st_tmp pages:
     return 
-        p.rec_lsn().valid()  
+        p.curr_rec_lsn().valid()  
         && 
-        (p.rec_lsn() <= _lsn);
+        (p.curr_rec_lsn() <= _lsn);
 }
 
 
@@ -3683,7 +3288,7 @@ bf_m::check_lsn_invariant(const bfcb_t *b)
 
     bool dirty = b->dirty();
     bool is_tmp = (b->get_storeflags() & st_tmp) == st_tmp;
-    lsn_t rec_lsn = b->rec_lsn();
+    lsn_t rec_lsn = b->curr_rec_lsn();
     lsn_t page_lsn = b->frame()->lsn1;
 
     if(rec_lsn.valid()) {

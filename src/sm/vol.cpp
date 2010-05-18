@@ -359,6 +359,7 @@ extlink_i::update_pbucketmap(extnum_t idx,
    page_p::logical_operation how)
 
 {
+    bool was_dirty = _page.is_dirty();
     xct_log_switch_t toggle(smlevel_0::OFF);
 
     slotid_t slot = (slotid_t) (idx % extlink_p::max);
@@ -373,8 +374,14 @@ extlink_i::update_pbucketmap(extnum_t idx,
        rec_lsn (through fix in EX mode), 
        leading to mass confusion when the page cleaner sees a
        rec_lsn (often significantly) greater than the page's lsn.
+
+       This only happens if the page changed from clean to dirty
+       because of this unlogged action (else the rec_lsn was already
+       set properly and remains valid). In our case we just pretend it
+       didn't get dirtied at all ("it doesn't have to be kept
+       accurate", right?)
      */
-    _page.repair_rec_lsn(false);
+    _page.repair_rec_lsn(was_dirty, lsn_t::null);
 }
 
 /*********************************************************************

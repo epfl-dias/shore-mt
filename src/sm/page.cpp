@@ -616,27 +616,28 @@ void page_s::ntoh(vid_t vid)
  *  made and the page is unfixed.  Now the rec_lsn reflects the tail
  *  end of the log but the lsn on the page reflects something earlier.
  *  In this case, the page IS dirty.
+ *
+ *  FRJ: I don't see any evidence that this function is actually
+ *  called because of (3) above...
  *--------------------------------------------------------------*/
 void
-page_p::repair_rec_lsn(bool check_dirty) {
+page_p::repair_rec_lsn(bool was_dirty, lsn_t const &new_rlsn) {
     bfcb_t* bp = bf_m::get_cb(_pp);
-    const lsn_t &rec_lsn = bp->rec_lsn();
-
-    /* We need to change rec_lsn if the page lsn is
-     * earlier than the rec_lsn
-     * OR
-     * page is dirty and has a valid lsn and we were asked to
-     * check for this case. (restart.cpp)
-     */
-    bool needs_repair = _pp->lsn1 < rec_lsn;
-    if(check_dirty && bp->dirty() && rec_lsn.valid())
-        needs_repair = true;
-    if(needs_repair) {
-        DBG(<<"repairing rec_lsn: " << rec_lsn
-                << " changed to lsn on page: " << _pp->lsn1);
-
-        bp->set_rec_lsn(_pp->lsn1);
-        w_assert1(bp->rec_lsn() >= _pp->lsn1);
+    const lsn_t &rec_lsn = bp->safe_rec_lsn();
+    if(was_dirty) {
+	// never mind!
+	w_assert0(rec_lsn <= lsn());
+    }
+    else {
+	w_assert0(rec_lsn > lsn());
+	if(new_rlsn.valid()) {
+	    w_assert0(new_rlsn <= lsn());
+	    w_assert2(bp->dirty());
+	    bp->set_rec_lsn(new_rlsn);
+	}
+	else {
+	    bp->mark_clean();
+	}
     }
 }
 

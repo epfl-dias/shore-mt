@@ -109,6 +109,7 @@ private:
 
     bool        _dirty;          // true if page is dirty
     lsn_t       _rec_lsn;        // recovery lsn
+    lsn_t	_old_rec_lsn;	 // valid if the page is currently being written out
 
     bfcb_t*     _next_free;    // used by the (singly-linked) freelist
 
@@ -148,15 +149,29 @@ public:
     void  set_old_pid() { _old_pid = pid();  _old_pid_valid=true; }
 
     bool  dirty() const  { return _dirty;  }
-    void  set_dirty_bit(bool tf) { _dirty = tf;  }
+    void  set_dirty_bit() { _dirty = true;  }
 
-    const lsn_t&  rec_lsn() const  { return _rec_lsn;  }
-    void  set_rec_lsn(const lsn_t &what) { 
-        // This assert is clearly not always true but I need to 
-        // identify the cases.
-                          w_assert0(latch.is_mine()); 
-                        _rec_lsn = what;  }
-    void  clr_rec_lsn() { _rec_lsn = lsn_t::null;  }
+    lsn_t const &safe_rec_lsn() const {
+	/* Work with a copy of _old_rec_lsn in case the original gets
+	   cleared while we're deciding whether to return it.
+
+	   We don't care if we get a stale rec_lsn (recovery would
+	   just take slightly longer that way), but we can't afford to
+	   return lsn_t::null if _rec_lsn is valid.
+	 */
+	lsn_t old = _old_rec_lsn;
+	return old.valid()? old : _rec_lsn;
+    }
+    
+    const lsn_t&  curr_rec_lsn() const  { return _rec_lsn;  }
+    const lsn_t&  old_rec_lsn() const { return _old_rec_lsn; }
+    void  set_rec_lsn(const lsn_t &what);
+    void  save_rec_lsn() { _old_rec_lsn = _rec_lsn; }
+    void clr_old_rec_lsn() { _old_rec_lsn = lsn_t::null; }
+
+    // clears the dirty bit and the rec_lsn
+    // NOTE: it must happen in that order to avoid races!
+    void  mark_clean();
 
 
     int4_t      refbit() const { return _refbit; }

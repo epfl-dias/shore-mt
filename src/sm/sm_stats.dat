@@ -106,6 +106,8 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bf_prefetches  	Prefetches performed
 
     u_long bf_upgrade_latch_race  	Dropped and reqacquired latch to upgrade
+    u_long bf_upgrade_latch_changed	A page changed during a latch upgrade race
+    u_long bf_repair_rec_lsn		Cleared rec_lsn on a page dirtied by unlogged changes
 
     // Operations on local data volumes
     u_long vol_reads		Data volume read requests (from disk)

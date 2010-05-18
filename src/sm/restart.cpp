@@ -983,6 +983,7 @@ restart_m::redo_pass(
                          *  Perform the redo. Do not generate log.
                          */
                         {
+			    bool was_dirty = page.is_dirty();
                             redone = true;
                             // remember the tid for space resv hack.
                             _redo_tid = r.tid();
@@ -1012,8 +1013,13 @@ restart_m::redo_pass(
                                and recovery/redo, tmp-page and other unlogged-
                                update cases have to expend a little more
                                effort to keep the rec_lsn accurate.
+			       
+			       FRJ: in our case the correct rec_lsn is
+			       anything not later than the new
+			       page_lsn (as if it had just been logged
+			       the first time, back in the past)
                              */
-                            page.repair_rec_lsn(true);
+			    page.repair_rec_lsn(was_dirty, lsn);
                         }
                             
                         if (xd) me()->detach_xct(xd);

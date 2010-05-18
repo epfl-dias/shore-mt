@@ -153,7 +153,7 @@ public:
     
     const lsn_t&                lsn() const;
     void                        set_lsns(const lsn_t& lsn);
-    void                        repair_rec_lsn(bool check_dirty);
+    void                        repair_rec_lsn(bool was_dirty, lsn_t const &new_rlsn);
     
     shpid_t                     next() const;
     shpid_t                     prev() const;
