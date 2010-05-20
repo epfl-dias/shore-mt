@@ -68,6 +68,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bf_cleaned_tmp_page  	Marked t_tmp page clean
     u_long bf_cleaned_reg_page  	Marked t_regular page clean
     u_long bf_cleaned_other_page  	Marked other page clean (not store-member pages)
+    u_long bf_flushed_OHD_page		Non-cleaner thread had to flush an old-hot-dirty page synchronously
     u_long bf_diffed_pages  	Had to compare t_tmp pages 
     u_long bf_fixed_rec_lsn  	Updated the rec_lsn from the copy
     u_long bf_backoff  	Used backoff trying to EX-latch a page

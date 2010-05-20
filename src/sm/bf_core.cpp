@@ -993,7 +993,9 @@ bf_core_m::publish_partial(bfcb_t* p, bool discard)
 
     // The next assertion is not valid if pages can be pinned w/o being
     // latched. For now, it is ok in the case of page-level locking only.
-    w_assert2(!p->latch.is_latched()); 
+    // FRJ: to cover a couple of races we need to latch now...
+    //w_assert2(!p->latch.is_latched());
+    w_assert2(p->latch.is_mine());
     w_assert2(p->old_pid_valid());
 
     /*
@@ -1008,6 +1010,8 @@ bf_core_m::publish_partial(bfcb_t* p, bool discard)
     tb.make_not_in_transit_out(pid);
     if(discard)
         _unused.release(p); // put on free list
+
+    p->latch.latch_release();
 }
 
 
@@ -1190,7 +1194,7 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
     // LSN integrity checks (only if really unpinning)
     if(p->pin_cnt() == 1) {
         if(p->dirty()) {
-            w_assert1(p->rec_lsn().valid());
+            w_assert1(p->curr_rec_lsn().valid());
             // We must maintain this invariant else we'll never be
             // able to debug recovery issues.
             // HOWEVER there are some legit exceptions
@@ -1625,8 +1629,8 @@ bf_core_m::replacement()
         {
             CRITICAL_SECTION(bcs, b._lock); // PROTOCOL
             w_assert2(b._lock.is_mine());
-
-            {
+	    w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE); // otherwise who knows what other threads are doing...
+            if(!rc.is_error()) {
                 // I don't like this - other threads hold onto the
                 // page mutex for a long time (_write_out, _replace_out).
                 //
@@ -1665,6 +1669,7 @@ bf_core_m::replacement()
                         return p;
                     }
                 }
+		p->latch.latch_release();
             } // release page mutex if we have it.
         }
         

@@ -243,7 +243,7 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
 	    pthread_mutex_t* pm = page_write_mutex_t::locate(pid());
 	    int rval = pthread_mutex_trylock(pm);
 	    if(rval != EBUSY) {
-		w_assert1(!errno);
+		w_assert1(!rval);
 		w_assert0(!old_rec_lsn().valid()); // never set when the mutex is free!
 		oldest = smlevel_0::log->global_min_lsn().file();
 		youngest = smlevel_0::log->curr_lsn().file();
@@ -258,8 +258,7 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
 		       To avoid log-full problems and nasty corner cases
 		       later, we'll just force the page out now.
 		    */
-		    fprintf(stderr, "^*^*^*^*^ Yikes! Y:%d O:%d M:%d -- forced to write out HOD page %d.%d.%d\n",
-			    youngest, oldest, me, _pid.vol().vol, _pid.store(), _pid.page);
+		    INC_TSTAT(bf_flushed_OHD_page);
 		    W_COERCE(bf_m::_write_out(_frame, 1));
 		    
 		    // these will be set appropriately below (before releasing the latch)
@@ -283,7 +282,7 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
             // should be able to change the frame lsn between
             // the time we grabbed the log's curr lsn and the
             // time we set the rec lsn.  
-            w_assert1(frame()->lsn1 <= rec_lsn());
+            w_assert1(frame()->lsn1 <= curr_rec_lsn());
             // Once we dirty the pages, the rec_lsn() is <= the
             // page/frame lsn until the page is cleaned.
             // The ONLY time the frame lsn1 is < rec_lsn is in these
@@ -1061,6 +1060,11 @@ bf_m::_fix(
 
                 W_COERCE(_replace_out(v));
             } else {
+		if(v->old_rec_lsn().valid()) {
+		    // grab just long enough to make sure no page cleaning is going
+		    CRITICAL_SECTION(cs, page_write_mutex_t::locate(v->pid()));
+		}
+		    
                INC_TSTAT(bf_replaced_clean);
             }
             // Now the frame is cleaned, we can tell the bf_core_m that
@@ -1604,6 +1608,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
             // Thus, we must have the case where the page is not
             // really dirty even though it was marked dirty in the
             // control block.
+	    w_assert0(b->latch.is_mine());
             if(b->pin_cnt() <= 1) {
                 // Make it clean.
                 b->mark_clean();
@@ -1973,6 +1978,7 @@ bf_m::_clean_segment(
                 if( bp->dirty() ) 
                 {
                     skipped = false;
+		    pthread_mutex_t** lock_acquired = 0;
                     if(consecutive == 0) {
                         // First page seen since last run was written. 
                         // Grab the first page mutex.
@@ -1982,6 +1988,8 @@ bf_m::_clean_segment(
                         w_assert2(page_locks[0] == NULL); 
                         DO_PTHREAD(pthread_mutex_lock(page_locks[0] = 
                                 page_write_mutex_t::locate(p))); 
+			lock_acquired = &page_locks[0];
+			
                         // First page - not yet spanning the range of 2
                         // page mutexes.
                         w_assert2(page_locks[1] == NULL); 
@@ -2007,36 +2015,48 @@ bf_m::_clean_segment(
                         w_assert2((page_locks[1] == NULL)
                                 || (page_locks[1] == m2) );
 
-                        if(page_locks[0] != m2 && page_locks[1]==NULL)
+                        if(page_locks[0] != m2 && page_locks[1]==NULL) {
                                 pthread_mutex_lock(page_locks[1] = m2);
+				lock_acquired = &page_locks[1];
+			}
                         // one or the other should match this page's
                         // page_write_mutex
                         w_assert2((page_locks[1] == m2)
                                 || (page_locks[0] == m2) );
                     }
-            
-                    // ... copy the whole page
-		    w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
-                    w_assert1(consecutive < smlevel_0::max_many_pages);
-                    pbuf[consecutive] = *bp->frame();
-		    bparr[consecutive] = bp;
 
-		    // save the rec_lsn and mark the page clean
-		    bp->save_rec_lsn();
-		    bp->mark_clean();
-
-                    w_assert2 ( 
-                        // st_regular:
-                        (bp->rec_lsn() <= bp->frame()->lsn1) ||
-                        // st_tmp
-                        ((bp->get_storeflags() & smlevel_0::st_tmp) 
-                                       == smlevel_0::st_tmp) ||
-                        // in redo, we're not logging, so rec_lsn is
-                        // meaningless.
-                        smlevel_0::in_recovery_redo()
-                        );
-                    consecutive++;
-                    
+		    // check again now that we hold the page write mutex
+		    if(bp->dirty()) {
+                        // ... copy the whole page
+			w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
+		        w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
+                        w_assert1(consecutive < smlevel_0::max_many_pages);
+                        pbuf[consecutive] = *bp->frame();
+		        bparr[consecutive] = bp;
+		        
+		        // save the rec_lsn and mark the page clean
+		        bp->save_rec_lsn();
+		        bp->mark_clean();
+		        
+                        w_assert2 ( 
+                            // st_regular:
+                            (bp->rec_lsn() <= bp->frame()->lsn1) ||
+                            // st_tmp
+                            ((bp->get_storeflags() & smlevel_0::st_tmp) 
+                                           == smlevel_0::st_tmp) ||
+                            // in redo, we're not logging, so rec_lsn is
+                            // meaningless.
+                            smlevel_0::in_recovery_redo()
+                            );
+                        consecutive++;
+		    }
+		    else {
+			// oops... became clean during the gap
+			w_assert0(lock_acquired);
+			pthread_mutex_unlock(*lock_acquired);
+			INC_TSTAT(bf_dirty_page_cleaned);
+			*lock_acquired = NULL;
+		    }			
                 } // o.w. skipped = true
                 _core->unpin(bp); // does latch.release 
             } else {
@@ -2071,11 +2091,16 @@ bf_m::_clean_segment(
             {
                 /* Several reasons why we might need to flush:
 
-                   1. We just examined the last page in the pool
+                   1. We just examined the last page on our list
                    2. The next pid is non-consecutive
                    3. We have max_many_pages consecutive pids
                    4. A consecutive pid was unpinnable or not dirty 
                       after all
+		   5. The next pid would cause page_locks[1] <
+		      page_locks[0] (due to modulo wraparound),
+		      admitting the risk of deadlock
+		   6. timeout=WAIT_FOREVER (risk of deadlock with an
+		      EX-latch holder who decides to clean the page)
 
                    Note that the first three cases can be checked
                    before pinning the page (in the preceding loop
@@ -2088,6 +2113,7 @@ bf_m::_clean_segment(
                         skipped  // case 4
                         || (i+1 == count)  // case 1 last page in bp
                         || (consecutive == max_many_pages) // case 3 above
+		        || (timeout != WAIT_IMMEDIATE) // case 6 above
                         ;
                 // Now check case 2
                 if(!should_flush) 
@@ -2096,9 +2122,15 @@ bf_m::_clean_segment(
                     if(first_pid.page+consecutive != next_pid.page 
                             || first_pid.vol() != next_pid.vol()) 
                     {
-                        // next pid is non-consecutive
+                        // next pid is non-consecutive (case 2 above)
                         should_flush = true;
                     }
+		    else if(page_write_mutex_t::locate(next_pid)
+			    < page_write_mutex_t::locate(first_pid))
+		    {
+			// would break the page_write_mutex protocol (case 5)
+			should_flush = true;
+		    }
                 }
 
                 if(should_flush) 
