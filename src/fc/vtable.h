@@ -333,7 +333,7 @@ public:
         _size = size_t(mx)+1; // leave room for trailing null.
         if(_size < sizeof(double)) _size = sizeof(double);
     }
-    const char *const name(int i) const {
+    char const* name(int i) const {
         return _argv[i];
     }
     void collect_names(vtable_row_t &t) {
