@@ -234,8 +234,8 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
     if(mode == LATCH_EX && smlevel_0::log && curr_rec_lsn().valid()) {
 	int oldest = smlevel_0::log->global_min_lsn().file();
 	int youngest = smlevel_0::log->curr_lsn().file();
-	int me = this->curr_rec_lsn().file();
-	if(youngest - oldest >= 6 && me == oldest && !old_rec_lsn().valid()) {
+	int self = this->curr_rec_lsn().file();
+	if(youngest - oldest >= 6 && self == oldest && !old_rec_lsn().valid()) {
 	    /* grab the page lock and make sure we should really do
 	       the I/O... if we can't get it we conclude someone else
 	       is already dealing with the problem and just continue.
@@ -247,7 +247,7 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
 		w_assert0(!old_rec_lsn().valid()); // never set when the mutex is free!
 		oldest = smlevel_0::log->global_min_lsn().file();
 		youngest = smlevel_0::log->curr_lsn().file();
-		if(youngest - oldest >= 6 && me == oldest) {
+		if(youngest - oldest >= 6 && self == oldest) {
 		    /* FRJ: We've stumbled across a hot-old-dirty
 		       page. This beast is notorious for preventing the
 		       system from reclaiming log space because all dirty
