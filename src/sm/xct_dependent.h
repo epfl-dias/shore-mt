@@ -42,8 +42,18 @@ public:
     smlevel_1::xct_state_t        old_state,
     smlevel_1::xct_state_t        new_state) = 0;
 
+    xct_t*		xd() const { return _xd; }
 protected:
-    NORET            xct_dependent_t(xct_t* xd); 
+    NORET            xct_dependent_t(xct_t* xd);
+
+    /* Our parent class won't be initialized yet at the time our
+       constructor is called, so it's a Very Bad Thing to go adding
+       ourselves to the list. Instead, we require the parent class to
+       call this function after it finishes constructing.
+
+       If they forget to register our destructor will assert.
+     */
+    void		register_me(); // called because our 
 private:
     friend class xct_impl;
     // Must protect the list when detaching; the
@@ -51,6 +61,7 @@ private:
     // we need a ptr to it here:
     xct_t *                _xd;
     w_link_t            _link;
+    bool		_registered;
 };
 
 /*<std-footer incl-file-exclusion='XCT_DEPENDENT_H'>  -- do not edit anything below this line -- */

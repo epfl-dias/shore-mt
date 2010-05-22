@@ -69,7 +69,7 @@ class rangeset_t;
 
 class logrec_t {
 public:
-    friend void xct_t::give_logbuf(logrec_t*, const page_p *);
+    friend rc_t xct_t::give_logbuf(logrec_t*, const page_p *);
 
 #include "logtype_gen.h"
     void             fill(

@@ -338,7 +338,18 @@ rc_t ringbuf_log::insert(logrec_t &rec, lsn_t* rlsn)
         TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
     }
     else {
-        // new partition! need to update next_lsn/new_end to reflect this
+        /* new partition! need to update next_lsn/new_end to reflect this
+
+	   LOG_RESERVATIONS
+
+	   Also, consume whatever (now-unusable) space was left in the
+	   old partition so it doesn't seem to be available.
+	 */
+	long leftovers = _partition_data_size - curr_lsn.lo();
+	w_assert2(leftovers >= 0);
+	if(leftovers && !reserve_space(leftovers))
+	    return RC(eOUTOFLOGSPACE);
+	
         curr_lsn = first_lsn(next_lsn.hi()+1);
         next_lsn = curr_lsn + size;
         long new_base = _cur_epoch.base + _segsize;
@@ -589,9 +600,12 @@ rc_t ringbuf_log::compensate(lsn_t orig_lsn, lsn_t undo_lsn)
 
 log_m::log_m()
     : _min_chkpt_rec_lsn(first_lsn(1)), _space_available(0),
-      _rollback_obligation(0),
-      _partition_size(0), _partition_data_size(0), _log_corruption(false)
+      _space_rsvd_for_chkpt(0),
+      _partition_size(0), _partition_data_size(0), _log_corruption(false),
+      _waiting_for_space(false)
 {
+    pthread_mutex_init(&_space_lock, 0);
+    pthread_cond_init(&_space_cond, 0);
 }
 
 /*********************************************************************
@@ -641,6 +655,22 @@ lsn_t log_m::min_chkpt_rec_lsn() const {
     return _min_chkpt_rec_lsn;
 }
 
+
+/* Compute size of the biggest checkpoint we ever risk having to take...
+ */
+long log_m::max_chkpt_size() const {
+    /* BUG: the number of transactions which might need to be
+       checkpointed is potentially unbounded. However, it's rather
+       unlikely we'll ever see more than 10k at any one time...
+     */
+    static long const GUESS_MAX_XCT_COUNT = 10000;
+    static long const FUDGE = sizeof(logrec_t);
+    long bf_tab_size = bf->npages()*sizeof(chkpt_bf_tab_t::brec_t);
+    long xct_tab_size = GUESS_MAX_XCT_COUNT*sizeof(chkpt_xct_tab_t::xrec_t);
+    return FUDGE + bf_tab_size + xct_tab_size;
+}
+
+
 void ringbuf_log::set_size(fileoff_t size) 
 {
     /* The log consists of PARTITION_COUNT files, each with space for
@@ -667,6 +697,15 @@ void ringbuf_log::set_size(fileoff_t size)
             _partition_size
            );
    */
+    release_space(PARTITION_COUNT*_partition_data_size);
+    if(!verify_chkpt_reservation() || _space_rsvd_for_chkpt > _partition_data_size) {
+	fprintf(stderr,
+		"log partitions too small compared to buffer pool:\n"
+		"	%lld bytes per partition available\n"
+		"	%lld bytes needed for checkpointing dirty pages\n",
+		_partition_data_size, _space_rsvd_for_chkpt);
+	W_FATAL(eOUTOFLOGSPACE);
+    }
 }
 
 
@@ -684,17 +723,81 @@ rc_t        log_m::new_log_m(log_m        *&the_log,
     return rc.reset();
 }
 
-smlevel_0::fileoff_t log_m::space_left() const { return _space_available; }
+smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }
 
-smlevel_0::fileoff_t log_m::check_obligation() const 
-{
-    return space_left() - _rollback_obligation;
+typedef smlevel_0::fileoff_t fileoff_t;
+static fileoff_t take_space(uint64_t volatile* ptr, int amt) {
+    fileoff_t ov = *ptr;
+    while(1) {
+	if(ov < amt)
+	    return 0;
+	fileoff_t nv = ov - amt;
+	fileoff_t cv = atomic_cas_64(ptr, ov, nv);
+	if(ov == cv)
+	    return amt;
+	
+	ov = cv;
+    }
 }
-void log_m::remove_obligation(int l)
-{
-    atomic_add(_rollback_obligation, (smlevel_0::fileoff_t) -l);
+
+fileoff_t log_m::reserve_space(fileoff_t amt) {
+    return (amt > 0)? take_space(&_space_available, amt) : 0;
 }
-void log_m::add_obligation(int l)
-{
-    atomic_add(_rollback_obligation, (smlevel_0::fileoff_t)l);
+
+fileoff_t log_m::consume_chkpt_reservation(fileoff_t amt) {
+    return (amt > 0)? take_space(&_space_rsvd_for_chkpt, amt) : 0;
+}
+
+// make sure we have enough log reservation (conservative)
+bool log_m::verify_chkpt_reservation() {
+    fileoff_t space_needed = max_chkpt_size();
+    while(*&_space_rsvd_for_chkpt < 2*space_needed) {
+	if(reserve_space(space_needed)) {
+	    // abuse take_space...
+	    take_space(&_space_rsvd_for_chkpt, -space_needed);
+	}
+	else if(*&_space_rsvd_for_chkpt < space_needed) {
+	    /* oops...
+
+	       can't even guarantee the minimum of one checkpoint
+	       needed to reclaim log space and solve the problem
+	     */
+	    W_FATAL(eOUTOFLOGSPACE);
+	}
+	else {
+	    // must reclaim a log partition
+	    return false;
+	}
+    }
+    return true;
+}
+
+void log_m::release_space(fileoff_t amt) {
+    w_assert0(amt >= 0);
+    /* NOTE: The use of _waiting_for_space is purposefully racy
+       because we don't want to pay the cost of a mutex for every
+       space release (which should happen every transaction
+       commit...). Instead waiters use a timeout in case they fall
+       through the cracks.
+
+       We broadcast whenever a "significant" amount of space seems to
+       be free.
+     */
+    fileoff_t now_available = atomic_add_long_nv(&_space_available, amt);
+    w_assert0(now_available <= _partition_data_size*PARTITION_COUNT);
+    //    fprintf(stderr, ">*<*><*>< Log space: %ld\n", now_available);
+    if(_waiting_for_space && now_available > 16*sizeof(logrec_t)) {
+	pthread_cond_broadcast(&_space_cond);
+	_waiting_for_space = false;
+    }
+}
+
+void log_m::wait_for_space() {
+    // wait for a signal or 100ms, whichever is longer...
+    pthread_mutex_lock(&_space_lock);
+    struct timespec when;
+    sthread_t::timeout_to_timespec(100, when);
+    _waiting_for_space = true;
+    pthread_cond_timedwait(&_space_cond, &_space_lock, &when);
+    pthread_mutex_unlock(&_space_lock);
 }

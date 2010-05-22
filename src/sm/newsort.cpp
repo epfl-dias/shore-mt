@@ -1922,6 +1922,7 @@ run_mgr::run_mgr(
             << _numslots);
 
     _scratch_space.set_reset_point();
+    register_me();
 }
 
 void

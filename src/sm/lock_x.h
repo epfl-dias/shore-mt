@@ -443,6 +443,8 @@ public:
                         return _lock_cache.put(name, mode, req, victim);
                     }
 
+    void		set_nonblocking();
+    bool		is_nonblocking() const { return _noblock; }
 
 private:
     lock_cache_t<lock_cache_size*3>    _lock_cache;
@@ -479,6 +481,8 @@ private:
     // for implementing quarks
     lock_request_t*           _quark_marker;
 
+    // checkpoint-induced poisoning active?
+    bool 			_noblock;
 
 private:
      /* disabled */

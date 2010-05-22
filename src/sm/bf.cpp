@@ -757,17 +757,15 @@ bf_cleaner_thread_t::run()
 
             // Sort the pages and delegate to slave page cleaners to
             // clean the given pages.
-            W_COERCE( bf_m::_clean_buf( &_pwc, 
+            w_rc_t rc = bf_m::_clean_buf( &_pwc, 
                             // smlevel_0::max_many_pages, 
                             count, 
-                            pids, WAIT_FOREVER, &_retire) );
+                            pids, WAIT_FOREVER, &_retire);
+	    if(rc.is_error()
+	       && rc.err_num() != smlevel_0::eBPFORCEFAILED) {
+		W_COERCE(rc);
+	    }
             atomic_add(_ndirty, -count);
-        }
-
-        if(prioritize_old_pages) {
-            // force a checkpoint and try again -- 
-            // we should have freed up at least one log segment
-            smlevel_1::chkpt->wakeup_and_take();
         }
         
     } // while !_retire
@@ -904,6 +902,10 @@ bf_m::mem_needed(int n)
     return sizeof(page_s) * n;
 }
 
+bool bf_m::force_my_dirty_old_pages(lpid_t const* wal_page) const
+{
+    return _core->force_my_dirty_old_pages(wal_page);
+}
 
 /*********************************************************************
  *
@@ -1256,7 +1258,7 @@ bf_m::_fix(
 
         b->set_pid(pid);
         w_assert2(!b->dirty());                 // dirty flag and rec_lsn are
-        w_assert2(b->rec_lsn() == lsn_t::null);// cleared inside ::_replace_out
+        w_assert2(b->curr_rec_lsn() == lsn_t::null);// cleared inside ::_replace_out
 
         // publish will leave us with the given latch mode,
         // downgrading or releasing the latch as necessary
@@ -1758,11 +1760,11 @@ void page_writer_thread_t::run()
 
         // now do the actual page writes
         rc = smlevel_0::bf->_clean_segment(count, pids, pbuf, 
-                WAIT_FOREVER, &_pwc->cancelslaves );
+                WAIT_IMMEDIATE, &_pwc->cancelslaves );
 
-        // We should have been able to clean all, since we
-        // are willing to wait forever:
-        w_assert0(rc.is_error() == false);
+	// we don't care if cleaning failed for normal reasons
+	w_assert0(!rc.is_error()
+		  || rc.err_num() == smlevel_0::eBPFORCEFAILED);
     }
  done:
     return;
@@ -1934,7 +1936,7 @@ bf_m::_clean_segment(
        lpid_t* pids, //  populated list of 'count' pids, npages() is max size
        page_s* pbuf,  // pre-allocated array for page copies; not populated
                       // and only max_many_pages in size
-       timeout_in_ms last_pass_timeout, // WAIT_IMMEDIATE or WAIT_FOREVER
+       timeout_in_ms timeout, // WAIT_IMMEDIATE or WAIT_FOREVER
        // WAIT_IMMEDIATE is used by the _scan methods to avoid
        // latch-latch deadlocks when they are trying to force_until_lsn.
        bool* cancel_flag // might be null
@@ -1952,13 +1954,8 @@ bf_m::_clean_segment(
     // Third pass:
     // At the end of the loop below, you can see how it checks for
     // last pass and changes the timeout.
-    timeout_in_ms       timeout = WAIT_IMMEDIATE;
-    const int lastnowaitpass (1);
-    const int passlimit (lastnowaitpass+2); // give us 1 willing-to-wait pass
-    int unprocessed = 0;
-    for(int pass=0; pass < passlimit; pass++) 
+    bool force_failed = false;
     {
-        unprocessed = 0;
         int consecutive = 0;
         w_assert1(page_locks[0] == NULL);
         w_assert1(page_locks[1] == NULL);
@@ -1966,9 +1963,6 @@ bf_m::_clean_segment(
         for(int i=0; i < count; i++) 
         {
             bool skipped = true; 
-    
-            // In all but the last pass, we are not waiting for the SH latches.
-            // On the last pass, we will wait.
             lpid_t &p = pids[i];
             bfcb_t* bp;
             rc_t rc = _core->find(bp, p, LATCH_SH, timeout);
@@ -2040,7 +2034,7 @@ bf_m::_clean_segment(
 		        
                         w_assert2 ( 
                             // st_regular:
-                            (bp->rec_lsn() <= bp->frame()->lsn1) ||
+                            (bp->curr_rec_lsn() <= bp->frame()->lsn1) ||
                             // st_tmp
                             ((bp->get_storeflags() & smlevel_0::st_tmp) 
                                            == smlevel_0::st_tmp) ||
@@ -2052,6 +2046,7 @@ bf_m::_clean_segment(
 		    }
 		    else {
 			// oops... became clean during the gap
+			skipped = true;
 			w_assert0(lock_acquired);
 			pthread_mutex_unlock(*lock_acquired);
 			INC_TSTAT(bf_dirty_page_cleaned);
@@ -2067,18 +2062,9 @@ bf_m::_clean_segment(
                     // skip it and don't worry about considering it
                     // unprocessed either.  skipped is true
                 }
-                else 
-                {
-                    // timed out
-                    w_assert1(pass < passlimit); 
-                    // Up to that time, we'll not wait for latches.
-                    // Pack pids we skip into the front of the array
-                    w_assert1(unprocessed <= i);
-                    // don't bother with the copy if it would be a no-op
-                    if(i != unprocessed) pids[unprocessed] = p;
-                    unprocessed++;
-                    // skipped is true
-                }
+		else {
+		    force_failed = true;
+		}
                 w_assert2(skipped);
             }
 
@@ -2195,17 +2181,11 @@ bf_m::_clean_segment(
                     w_assert1(page_locks[1] == NULL);
                 } // should_flush
             } // if consecutive > 0
-        } // for i from 0 to count
+        } 
 
-        // last pass is willing to block so all pages get flushed
-        // except when the timeout passed in is WAIT_IMMEDIATE. In
-        // that case we might not have processed all.
-        w_assert1(pass < passlimit || unprocessed == 0 
-                || timeout == WAIT_IMMEDIATE);
-        count = unprocessed;
-        if(pass == lastnowaitpass) timeout = last_pass_timeout;
+        w_assert1(timeout == WAIT_IMMEDIATE || !force_failed);
     }
-    return unprocessed > 0 ? RC(eBPFORCEFAILED) : RCOK;
+    return force_failed? RC(eBPFORCEFAILED) : RCOK;
 }
 
 
@@ -2757,12 +2737,7 @@ bf_m::force_until_lsn(const lsn_t& lsn, bool flush)
 {
     // GNATS_24: let all _scans do direct, serial
     // scans (don't use page writer threads)
-    rc_t e=_scan(bf_filter_lsn_t(lsn), true, flush);
-    if(e.is_error())
-        return e.reset();
-
-    smlevel_1::chkpt->wakeup_and_take();
-    return RCOK;
+    return _scan(bf_filter_lsn_t(lsn), true, flush);
 }
 
 
@@ -2891,7 +2866,7 @@ bf_m::_scan(const bf_filter_t& filter, bool write_dirty, bool discard)
         // NOTE: this could return in error if it couldn't
         // clean all the buffers
         W_DO(_clean_buf(NULL,
-                    count, pids, WAIT_IMMEDIATE, 0) );
+                    count, pids, WAIT_FOREVER, 0) );
         atomic_add(bf_cleaner_thread_t::_ndirty, -count);
         if (! discard)   {
             return RCOK;        // done 

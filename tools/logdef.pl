@@ -235,15 +235,18 @@ CLASSDEF
 	print STUB ";\n";
 	print STUB "    if (should_log)  {\n";
 	print STUB "        logrec_t* logrec;\n";
-	print STUB "        W_DO( xd->get_logbuf(logrec) ); \n";
+	if ($page eq "page") {
+	    print STUB "        W_DO(xd->get_logbuf(logrec, &page));\n";
+	} else {
+	    print STUB "        W_DO(xd->get_logbuf(logrec));\n";
+	}
         print STUB "        new (logrec) $class($real);\n";	   
 	if ($page eq "page") {
-	    print STUB "        xd->give_logbuf(logrec, &page);\n";
+	    print STUB "        W_DO(xd->give_logbuf(logrec, &page));\n";
 	} else {
-	    print STUB "        xd->give_logbuf(logrec);\n";
+	    print STUB "        W_DO(xd->give_logbuf(logrec));\n";
 	}
 	if ($sync) {
-	    print STUB "        xd->flush_logbuf();\n";
 	    print STUB "        W_COERCE( smlevel_0::log->flush_all() );\n";
 	}
 	print STUB "    }\n";

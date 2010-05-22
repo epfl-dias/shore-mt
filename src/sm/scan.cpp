@@ -133,6 +133,7 @@ scan_index_i::scan_index_i(
     INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, 1);
 
     _init(c1, bound1_, c2, bound2_, mode);
+    register_me();
 }
 
 
@@ -446,6 +447,7 @@ scan_rt_i::scan_rt_i(const stid_t& stid_,
 {
     INIT_SCAN_PROLOGUE_RC(scan_rt_i::scan_rt_i, 1);
     _init(c, qbox);
+    register_me();
 }
 
 
@@ -592,6 +594,7 @@ scan_file_i::scan_file_i(const stid_t& stid_, const rid_t& start,
     (void) _cursor.is_mine(); // Not an assert - just a 
     // consistency check
 #endif
+    register_me();
 }
 
 scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc, 
@@ -611,6 +614,7 @@ scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc,
     (void) _cursor.is_mine(); // Not an assert - just a 
     // consistency check
 #endif
+    register_me();
 }
 
 scan_file_i::~scan_file_i()

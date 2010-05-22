@@ -316,6 +316,12 @@ bf_core_m::latched_by_me( bfcb_t* p) const
     return (p->latch.held_by_me() > 0); 
 }
 
+bool
+bf_core_m::force_my_dirty_old_pages(lpid_t const* wal_page) const {
+#warning TODO: actually look for dirty pages instead of just guessing they exist
+    return false;
+}
+
 /*********************************************************************
  *
  *  bf_core_m::is_mine(p)
@@ -1244,7 +1250,7 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
                     << endl;
             }
             w_assert2 ( 
-                (p->rec_lsn() <= p->frame()->lsn1) ||
+                (p->curr_rec_lsn() <= p->frame()->lsn1) ||
                 ((p->get_storeflags() & smlevel_0::st_tmp) 
                      == smlevel_0::st_tmp) ||
                 smlevel_0::in_recovery_redo()

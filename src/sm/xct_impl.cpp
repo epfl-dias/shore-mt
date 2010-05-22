@@ -209,8 +209,9 @@ xct_impl::xct_impl(xct_t* that)
         _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &_1thread_xct),
         _last_log(0),
         _log_buf(0),
-        _log_bytes_fwd(0),
-        _log_bytes_bwd(0),
+        _log_bytes_rsvd(0),
+        _log_bytes_ready(0),
+	_rolling_back(false),
         _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
         _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
         _in_compensated_op(0),
@@ -268,8 +269,9 @@ xct_impl::xct_impl(xct_t* that,
         _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &_1thread_xct),
         _last_log(0),
         _log_buf(0),
-        _log_bytes_fwd(0),
-        _log_bytes_bwd(0),
+        _log_bytes_rsvd(0),
+        _log_bytes_ready(0),
+	_rolling_back(false),
         _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
         _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
         _in_compensated_op(0),
@@ -303,6 +305,11 @@ xct_impl::xct_impl(xct_t* that,
  *********************************************************************/
 xct_impl::~xct_impl()
 {
+    if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
+	w_assert2(smlevel_0::log);
+	smlevel_0::log->release_space(leftovers);
+    };
+	
     FUNC(xct_t::~xct_t);
     DBGX( << " ended" );
 
@@ -419,6 +426,7 @@ xct_impl::add_dependent(xct_dependent_t* dependent)
     
     w_assert1(is_1thread_xct_mutex_mine());
     _dependent_list.push(dependent);
+    dependent->xct_state_changed(_state, _state);
     release_1thread_xct_mutex();
     return RCOK;
 }
@@ -913,7 +921,6 @@ xct_impl::commit(uint4_t flags)
         _xct_ended = 0;
         _last_log = 0;
         _lock_cache_enable = true;
-        _log_bytes_fwd = _log_bytes_bwd = 0;
 
 
         // should already be out of compensated operation
@@ -1032,12 +1039,6 @@ xct_impl::abort()
 
     me()->detach_xct(_that);        // no transaction for this thread
     INC_TSTAT(abort_xct_cnt);
-
-
-    DBGX(<< "Ratio:"
-        << " bFwd: " << _log_bytes_fwd << " bBwd: " << _log_bytes_bwd
-        << " ratio b/f:" << (((float)_log_bytes_bwd)/_log_bytes_fwd)
-    );
     return RCOK;
 }
 
@@ -1102,7 +1103,6 @@ rc_t
 xct_impl::dispose()
 {
     W_DO(check_one_thread_attached());
-    _flush_logbuf();
     W_COERCE( lm->unlock_duration(t_long, true, true) );
     ClearAllStoresToFree();
     ClearAllLoadStores();
@@ -1120,7 +1120,7 @@ xct_impl::dispose()
  *  If "sync" is true, force it to disk also.
  *
  *********************************************************************/
-void
+w_rc_t
 xct_impl::_flush_logbuf( bool sync )
 {
     // ASSUMES ALREADY PROTECTED BY MUTEX
@@ -1146,45 +1146,46 @@ xct_impl::_flush_logbuf( bool sync )
                 << " prevlsn:" << _last_log->prev() 
                 );
 
-        // This count is advisory - for guessing when we're
-        // dangerously close to running out of log space.
-        // We might be in recovery aborting a tx, but its
-        // state might be active, but the counts will be proper
-        // in that case, since the aborting actions logged will
-        // be redone and undone.
-        if (state()==xct_aborting) {
-                _log_bytes_bwd += _last_log-> length();
-        } else {
-                _log_bytes_fwd += _last_log-> length();
-        }
-        DBG(<< " log bytes fwd " << _log_bytes_fwd );
-        /*
-         *  This log insert must succeed... the operation has already
-         *  been performed. If the log cannot be inserted, the database
-         *  will be corrupted beyond repair.
-         */
-
         LOGTRACE( << setiosflags(ios::right) << _last_lsn
                       << resetiosflags(ios::right) << " I: " << *_last_log 
                       << " ... " );
         {
-            W_COERCE( log->insert(*_last_log, &_last_lsn) ); 
+	    logrec_t* l = _last_log;
+	    _last_log = 0;
+            W_DO( log->insert(*l, &_last_lsn) );
+	    
+	    /* LOG_RESERVATIONS
+
+	       Now that we know the size of the log record which was
+	       generated, charge the bytes to the appropriate location.
+
+	       Normal log inserts consume /length/ available bytes and
+	       reserve an additional /length/ bytes against future
+	       rollbacks; undo records consume /length/ previously
+	       reserved bytes and leave available bytes unchanged..
+	    */
+	    long bytes_used = l->length();
+	    if(_rolling_back || state() != xct_active) {
+		w_assert0(_log_bytes_rsvd >= bytes_used);
+		_log_bytes_rsvd -= bytes_used;
+	    }
+	    else {
+		_log_bytes_ready -= 2*bytes_used;
+		_log_bytes_rsvd += bytes_used;
+	    }
+
             // log insert effectively set_lsn to the lsn of the *next* byte of
             // the log.
             if ( ! _first_lsn.valid())  
                     _first_lsn = _last_lsn;
     
             _undo_nxt = (
-                    _last_log->is_undoable_clr() ? _last_lsn :
-                    _last_log->is_cpsn() ? _last_log->undo_nxt() : _last_lsn);
-            _last_log = 0;
-
+                    l->is_undoable_clr() ? _last_lsn :
+                    l->is_cpsn() ? l->undo_nxt() : _last_lsn);
         }
     }
 
-    if( sync ) {
-        _sync_logbuf();
-    }
+    return sync? _sync_logbuf() : RCOK;
 }
 
 /*********************************************************************
@@ -1194,12 +1195,10 @@ xct_impl::_flush_logbuf( bool sync )
  *  Force log entries up to the most recently written to disk.
  *
  *********************************************************************/
-void
+w_rc_t
 xct_impl::_sync_logbuf()
 {
-    if( log ) {
-        W_COERCE( log->flush(_last_lsn) );
-    }
+    return log? log->flush(_last_lsn) : RCOK;
 }
 
 /*********************************************************************
@@ -1221,7 +1220,7 @@ xct_impl::_sync_logbuf()
  *
  *********************************************************************/
 rc_t 
-xct_impl::get_logbuf(logrec_t*& ret)
+xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 {
     // PROTECT
     ret = 0;
@@ -1243,171 +1242,173 @@ xct_impl::get_logbuf(logrec_t*& ret)
     // and assert here that we've got nothing buffered:
     w_assert1(!_last_log);
 
-// NOTE: logrec_t is 3 pages, even though the real record is shorter.
-#define FUDGE sizeof(logrec_t) 
+    /* LOG_RESERVATIONS
 
-    bool  badnews=false;
-    if (_state == xct_active)  
-    {
-        // for now, assume that the ratio is 1:1 for rollback 
-        
-        w_assert9(_log_bytes_bwd == 0);
+       Make sure we have enough space, both to continue now and to
+       guarantee the ability to roll back should something go wrong
+       later. This means we need to reserve double space for each log
+       record inserted (one for now, one for the potential undo).
 
-        if( log->space_left() - FUDGE < _log_bytes_fwd ) {
+       Unfortunately, we don't actually know the size of the log
+       record to be inserted, so we have to be conservative and assume
+       maximum size. Similarly, we don't know whether we'll eventually
+       abort. We'll deal with the former by adjusting our reservation
+       in _flush_logbuf, where we do know the log record's size; we deal
+       with the undo reservation at commit time, releasing it all en
+       masse.
 
-            log->flush_all();
+       NOTE: during rollback we don't check reservations because undo
+       was already paid-for when the original record was inserted.
 
-            // force it to recompute
-            log->compute_space();
-            // is it still bad news?
-            if( log->space_left() - FUDGE < _log_bytes_fwd ) {
-                DBGX(<< "Out of log space by space_to_abort calculation" );
-                release_1thread_log_mutex();
+       NOTE: we require three logrec_t worth of reservation: one each
+       for forward and undo of the log record we're about to insert,
+       and the third to handle asymmetric log records required to end
+       the transaction, such as the commit/abort record and any
+       top-level actions generated unexpectedly during rollback.
+     */
+    static u_int const MIN_BYTES_READY = 3*sizeof(logrec_t);
+    static u_int const MIN_BYTES_RSVD =  sizeof(logrec_t);
+    if(!_rolling_back && _state == xct_active
+       && _log_bytes_ready < MIN_BYTES_READY) {
+	if(!log->reserve_space(MIN_BYTES_READY)) {
+	    /*
+	       Yikes! Log full!
 
-                w_ostrstream disaster;
+	       In order to reclaim space the oldest log partition must
+	       have no dirty pages or active transactions associated
+	       with it. If we're one of those overly old transactions
+	       we have no choice but to abort.
+	     */
+	    INC_TSTAT(log_full);
+	    bool badnews=false;
+	    if(_first_lsn.valid() && _first_lsn.hi() == log->global_min_lsn().hi()) {
+		INC_TSTAT(log_full_old_xct);
+		badnews = true;
+	    }
 
-                /*
-                disaster << smlevel_0::stats << flushl;
-               */
+	    lpid_t const* pid = p? &p->pid() : 0;
+	    if(!badnews && !bf->force_my_dirty_old_pages(pid)) {
+		/* Dirty pages which I hold EX latches on pose a
+		   significantly thornier question. On the face of it,
+		   the WAL protocol suggests that we can write out any
+		   such page without fear of data corruption in the
+		   event of a crash.
 
-                disaster
-                       << "tid=" << tid() 
-                       << " first_lsn=" << _first_lsn
-                       << " last_lsn=" << _last_lsn 
-                       << endl
-                       << " log space left= " << log->space_left()
-                       << " log space left - FUDGE= " 
-                       << (log->space_left() - FUDGE)
-                       << endl
-                       << " fwd bytes=" << _log_bytes_fwd
-                       << " bwd bytes=" << _log_bytes_bwd
-                       << endl;
+		   However, the page_lsn is set by the WAL operation,
+		   so pages not the subject of this log record are out
+		   right off the bat (we have no way to know if
+		   they've been changed yet).
 
+		   If it's the current page that's the problem, the
+		   only time we'd need to worry is if this and some
+		   previous WAL are somehow intertwined, in the sense
+		   that it's not actually safe to unlatch the page
+		   before the second WAL sticks. This seems like a
+		   supremely Bad Idea that (hopefully) none of our
+		   code relies on...
+		   
+		   So, in the end, we assume we can flush page we're
+		   about to WAL, if it happens to be old-dirty, but
+		   any other old-dirty-EX page we hold will force us
+		   to abort.
 
-                // This is not be thread-safe:
-                ss_m::errlog->clog << error_prio << disaster.c_str() << flushl;
+		   If we decide to play it safe, we just have to send
+		   0 insetead of p to the buffer pool query.
+		 */
+		INC_TSTAT(log_full_old_page);
+		badnews = true;
+	    }
 
-                return RC(eOUTOFLOGSPACE);
-            }
-        }
+	    if(!badnews) {
+		/* Now it's safe to wait for more log space to open up
 
-        /* OK we passed the check above, but now we run a harsher
-         * check: expect always to have at least one partition free
-         * TODO : NANCY Even this isn't very good, since we 
-         * might have very few _log_bytes_fwd
-         */
-        
-        int tries = 3;
-        while(tries-- > 0)
-        {
-            /* Make sure we don't run out of log space.
-
-               It's not enough to ensure we can roll this trx back; we
-               have to leave space for a checkpoint:
-
-               The log fills when log partitions cannot be recycled
-               quickly enough; 
-
-               Partitions cannot be recycled until a checkpoint determines
-               that all dirty pages with lsn in that segment have been
-               flushed from the bpool.
-
-               So, if we find the log is getting too full, the solution is
-               to force a sweep of the buffer pool and clear out all pages
-               associated with the oldest log segment, then force a
-               checkpoint. This process must be triggered while there is
-               still enough log space to make a checkpoint durable.
-
-               For now, if we are using the last available segment we will
-               force a sweep+checkpoint.
-             */
-            badnews=false;
-            unsigned int oldest_segment = log->global_min_lsn().file();
-            int active_segments = log->curr_lsn().file() - oldest_segment + 1;
-            if( active_segments == max_openlog) 
-            {
-                /* stop the world! if we let the last log segement fill
-                   there won't be space to take a checkpoint and we'll be
-                   stuck and unrecoverable.
-                */
-               /*
                    But before we do anything, let's try to grab the
-                   chkpt serial mutex first, so that we'll await the
-                   completion of any ongoing checkpoint before
-                   we go crazy.
+                   chkpt serial mutex so ongoing checkpoint has a
+                   chance to complete before we go crazy.
                 */
                 chkpt_serial_m::trx_acquire();
                 chkpt_serial_m::trx_release();
-            }
 
-            // check again
-            oldest_segment = log->global_min_lsn().file();
-            active_segments = log->curr_lsn().file() - oldest_segment + 1;
-            if( active_segments == max_openlog) 
-            {
                 static queue_based_block_lock_t emergency_log_flush_mutex;
                 CRITICAL_SECTION(cs, emergency_log_flush_mutex);                
-                release_1thread_log_mutex(); // the  checkpoint will acquire this 
-                // again...
-                if(oldest_segment == log->global_min_lsn().file()) 
-                {
-                    // we're the first and must do the job            
-                    {
-                        stringstream tmp;
-                        tmp << "Log too full. me=" << me()->id
-                            << " pthread=" << pthread_self()
-                        << ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
-                        << ", curr_lsn=" << log->curr_lsn() 
-                        // also print info that shows why we didn't croak
-                        // on the first check
-                        << "; space left " << log->space_left()
-                        << " bytes fwd " << _log_bytes_fwd
-                        << endl;
-                        fprintf(stderr, "%s\n", tmp.str().c_str());
-                    }
-                    lsn_t target = 
-                        log_m::first_lsn(log->global_min_lsn().file()+1);
-
-                    /* NOTE: this is problematic: it
-                     * creates latch-latch deadlocks.
-                     */
-
-                    w_rc_t rc = bf->force_until_lsn(target, false);
-                    // did the force succeed?
-                    if(rc.is_error()) {
-                        if(rc.err_num() == eBPFORCEFAILED) 
-                            return RC(eOUTOFLOGSPACE);
-                        return rc;
-                    }
-                    
-                    // is it still bad news?
-                    badnews = (log->global_min_lsn().file() 
-                                            == oldest_segment);
-
-                    const char *again = (tries <= 1)?"give up":"try again";
-                    char const* result = badnews?
-                                    "failed" :
-                                    "successful";
-                    fprintf(stderr, "Log recovery %s%s\n", result, again);
+                release_1thread_log_mutex(); // the  checkpoint will acquire this
+		for(int tries_left=3; tries_left > 0; tries_left--) {
+		    if(tries_left == 1) {
+			// the checkpoint should also do this, but just in case...
+			lsn_t target = log_m::first_lsn(log->global_min_lsn().hi()+1);
+			w_rc_t rc = bf->force_until_lsn(target, false);
+			// did the force succeed?
+			if(rc.is_error()) {
+			    INC_TSTAT(log_full_giveup);
+			    fprintf(stderr, "Log recovery failed\n");
 #if W_DEBUG_LEVEL > 0
-                    extern void dump_all_sm_stats();
-                    dump_all_sm_stats();
+			    extern void dump_all_sm_stats();
+			    dump_all_sm_stats();
 #endif
-                }
-                cs.exit();
-                acquire_1thread_log_mutex();
-            }
-        } // while tries > 0
-    } // active xct
+			    if(rc.err_num() == eBPFORCEFAILED) 
+				return RC(eOUTOFLOGSPACE);
+			    return rc;
+			}
+		    }
+
+		    // most likely it's well aware, but just in case...
+		    chkpt->wakeup_and_take(); 
+		    log->wait_for_space();
+		    
+		    // try again...
+		    if(log->reserve_space(MIN_BYTES_READY)) {
+			if(tries_left > 1) {
+			    INC_TSTAT(log_full_wait);
+			}
+			else {
+			    INC_TSTAT(log_full_force);
+			}
+			goto success;
+		    }
+		}
+
+		// nothing's working... give up and abort
+		stringstream tmp;
+		tmp << "Log too full. me=" << me()->id
+		    << " pthread=" << pthread_self()
+		    << ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
+		    << ", curr_lsn=" << log->curr_lsn() 
+		    // also print info that shows why we didn't croak
+		    // on the first check
+		    << "; space left " << log->space_left()
+		    << endl;
+		fprintf(stderr, "%s\n", tmp.str().c_str());
+		INC_TSTAT(log_full_giveup);
+		badnews = true;
+	    }
+
+	    if(badnews)
+		return RC(eOUTOFLOGSPACE);
+	    
+	success:
+	    acquire_1thread_log_mutex();
+	}
+	_log_bytes_ready += MIN_BYTES_READY;
+    }
+
+    /* Transactions must make some log entries as they complete
+       (commit or abort), so we have to have always some bytes
+       reserved. This is the third of those three logrec_t in
+       MIN_BYTES_READY, so we don't have to reserve more ready bytes
+       just because of this.
+     */
+    if(_log_bytes_rsvd < MIN_BYTES_RSVD) {
+	_log_bytes_ready -= MIN_BYTES_RSVD;
+	_log_bytes_rsvd += MIN_BYTES_RSVD;
+    }
+    
     ret = _last_log = _log_buf;
     w_assert3(is_1thread_log_mutex_mine());
-    if(badnews) return RC(eOUTOFLOGSPACE);
-
     return RCOK;
 }
 
 
-void 
+rc_t
 xct_impl::give_logbuf(logrec_t* l, const page_p *page)
 {
     FUNC(xct_impl::give_logbuf);
@@ -1460,24 +1461,21 @@ xct_impl::give_logbuf(logrec_t* l, const page_p *page)
         w_assert3(last_mod_page.latch_mode() == LATCH_NL);
     }
 
-    _flush_logbuf(); // stuffs tid, _last_lsn into our record,
+    rc_t rc = _flush_logbuf(); // stuffs tid, _last_lsn into our record,
         // then inserts it into the log, getting _last_lsn
-
+    if(rc.is_error())
+	goto done;
+    
     if(last_mod_page.is_fixed() ) {
         w_assert2(last_mod_page.latch_mode() == LATCH_EX);
         last_mod_page.set_lsns(_last_lsn);
         last_mod_page.unfix_dirty();
         w_assert1(last_mod_page.check_lsn_invariant());
     }
-    
-    if( !l->is_rollback() ) {
-        // Add to the rollback obligation: assume 1:1
-        log->add_obligation(l->length());
-        // protected by 1thread_log_mutex:
-        _that->__log_bytes_generated += l->length();
-    }
 
+ done:
     release_1thread_log_mutex();
+    return rc;
 }
 
 
@@ -1737,6 +1735,10 @@ xct_impl::rollback(lsn_t save_pt)
             << " save_pt " << save_pt << " anchor " << _anchor);
     _in_compensated_op++;
 
+    // rollback is only one type of compensated op, and it doesn't nest
+    w_assert0(!_rolling_back); 
+    _rolling_back = true; 
+
     lsn_t nxt = _undo_nxt;
 
     LOGTRACE( << "abort begins at " << nxt);
@@ -1782,8 +1784,7 @@ xct_impl::rollback(lsn_t save_pt)
                       << " ... " );
 
 #if W_DEBUG_LEVEL > 2
-            u_int         bbwd = _log_bytes_bwd;
-            u_int         bfwd = _log_bytes_fwd;
+	    u_int	was_rsvd = _log_bytes_rsvd;
 #endif 
             lpid_t pid = r.construct_pid();
             page_p page;
@@ -1803,16 +1804,9 @@ xct_impl::rollback(lsn_t save_pt)
             r.undo(page.is_fixed() ? &page : 0);
 
 #if W_DEBUG_LEVEL > 2
-            bbwd = _log_bytes_bwd - bbwd;
-            bfwd = _log_bytes_fwd - bfwd;
-            if(bbwd  > r.length()) {
+            if(was_rsvd - _log_byts_rsvd  > r.length()) {
                   LOGTRACE(<< " len=" << r.length() << " B=" << bbwd );
             }
-            /*
-            if((bfwd !=0) || (bbwd !=0)) {
-                  LOGTRACE( << " undone" << " F=" << bfwd << " B=" << bbwd );
-            }
-            */
 #endif 
             if(r.is_cpsn()) {
                 LOGTRACE( << " compensating to " << r.undo_nxt() );
@@ -1857,6 +1851,7 @@ done:
 
     DBGX( << " out compensated op");
     _in_compensated_op --;
+    _rolling_back = false;
     w_assert3(_anchor == lsn_t::null ||
                 _anchor == save_pt);
     release_1thread_log_mutex();
@@ -2447,18 +2442,25 @@ xct_impl::convert(lockid_t::name_space_t n)
 }
 
 NORET
-xct_dependent_t::xct_dependent_t(xct_t* xd) : _xd(xd)
+xct_dependent_t::xct_dependent_t(xct_t* xd) : _xd(xd), _registered(false)
 {
+}
+
+void
+xct_dependent_t::register_me() {
     // it's possible that there is no active xct when this
     // function is called, so be prepared for null
+    xct_t* xd = _xd;
     if (xd) {
         W_COERCE( xd->add_dependent(this) );
     }
+    _registered = true;
 }
 
 NORET
 xct_dependent_t::~xct_dependent_t()
 {
+    w_assert2(_registered);
     // it's possible that there is no active xct the constructor
     // was called, so be prepared for null
     if (_link.member_of() != NULL) {

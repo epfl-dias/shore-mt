@@ -89,6 +89,7 @@ public:
 
 private:
     chkpt_thread_t*        _chkpt_thread;
+    long		   _chkpt_count;
 
 
 public:

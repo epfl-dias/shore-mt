@@ -245,8 +245,8 @@ public:
                                     return (me()->xct_log()->xct_log_is_off()
                                             == false);
                                 }
-    rc_t                        get_logbuf(logrec_t*&);
-    void                        give_logbuf(logrec_t*, const page_p *p = 0);
+    rc_t                        get_logbuf(logrec_t*&, const page_p *p = 0);
+    rc_t                        give_logbuf(logrec_t*, const page_p *p = 0);
 
     //
     //        Used by I/O layer
@@ -339,6 +339,21 @@ public:
     static void                  assert_xlist_mutex_not_mine();
     static void                  assert_xlist_mutex_is_mine();
 
+    /* "poisons" the transaction so cannot block on locks (or remain
+       blocked if already so), instead aborting the offending lock
+       request with eDEADLOCK. We use eDEADLOCK instead of
+       eLOCKTIMEOUT because all transactions must expect the former
+       and must abort in response; transactions which specified
+       WAIT_FOREVER won't be expecting timeouts, and the SM uses
+       timeouts (WAIT_IMMEDIATE) as internal signals which do not
+       usually trigger a transaction abort.
+
+       chkpt::take uses this to ensure timely and deadlock-free
+       completion/termination of transactions which would prevent a
+       checkpoint from freeing up needed log space.
+     */
+    void			force_nonblocking();
+
 
 /////////////////////////////////////////////////////////////////
 // DATA
@@ -354,8 +369,6 @@ private:
 
 private:
     sm_stats_info_t*             __stats; // allocated by user
-    base_stat_t                  __log_bytes_generated; // must be kept
-                                // even if not instrumented
     lockid_t*                    __saved_lockid_t;
     sdesc_cache_t*                __saved_sdesc_cache_t;
     xct_log_t*                   __saved_xct_log_t;

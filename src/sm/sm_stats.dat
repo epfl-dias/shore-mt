@@ -149,6 +149,12 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long log_chkpt_wake	Checkpoints requested by kicking the chkpt thread
     u_long log_fetches		Log records fetched from log (read)
     u_long log_inserts		Log records inserted into log (written)
+    u_long log_full		A transaction encountered log full
+    u_long log_full_old_xct	An old transaction had to abort
+    u_long log_full_old_page	A transaction had to abort due to holding a dirty old page
+    u_long log_full_wait	A log full was resolved by waiting for space
+    u_long log_full_force	A log full was resolved by forcing the buffer pool
+    u_long log_full_giveup	A transaction aborted because neither waiting nor forcing helped
 
     u_long log_bytes_generated	Bytes written to the log
 

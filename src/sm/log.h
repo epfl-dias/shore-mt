@@ -102,15 +102,14 @@ public:
     virtual rc_t flush(lsn_t lsn)=0;
     virtual void start_flush_daemon()=0;
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn)=0;
-    virtual void compute_space()=0;
     virtual lsn_t curr_lsn() const;
     virtual rc_t scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)=0;
     virtual rc_t fetch(lsn_t &lsn, logrec_t* &rec, lsn_t* nxt=NULL)=0;
     virtual void release()=0; 
                      
-    void    add_obligation(int howmuch);
-    void    remove_obligation(int howmuch);
-    smlevel_0::fileoff_t    check_obligation() const; // how many bytes left
+    fileoff_t    reserve_space(fileoff_t howmuch);
+    void   release_space(fileoff_t howmuch);
+    void    wait_for_space();
 
     void set_master(lsn_t master_lsn, lsn_t min_lsn, lsn_t min_xct_lsn);
     long space_left() const;
@@ -177,7 +176,10 @@ public:
                                     int                arraysize,
                                     const lsn_t*        array
                                     );
-    
+
+    long			max_chkpt_size() const;
+    bool			verify_chkpt_reservation();
+    fileoff_t			consume_chkpt_reservation(fileoff_t howmuch);
 protected:
     log_m();
     
@@ -192,11 +194,14 @@ protected:
     lsn_t                   _master_lsn;
     lsn_t                   _old_master_lsn;
     lsn_t                   _min_chkpt_rec_lsn;
-    smlevel_0::fileoff_t    _space_available;
-    smlevel_0::fileoff_t    _rollback_obligation;
+    uint64_t volatile  	    _space_available; // how many unreserved bytes in the log?
+    uint64_t volatile       _space_rsvd_for_chkpt; // can we run a checkpoint right now?
     fileoff_t               _partition_size;
     fileoff_t               _partition_data_size;
     bool                    _log_corruption;
+    pthread_mutex_t	    _space_lock;
+    pthread_cond_t	    _space_cond;
+    bool		    _waiting_for_space;
     
 private:
     // no copying allowed
@@ -239,7 +244,6 @@ struct ringbuf_log : public log_m
     virtual rc_t insert(logrec_t &r, lsn_t* l); // returns the lsn the data was written to
     virtual rc_t flush(lsn_t lsn);
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn);
-    virtual void compute_space();
     virtual void start_flush_daemon();
     void flush_daemon();
     virtual void _flush(lsn_t base_lsn, long start1, long end1, long start2, long end2)=0;
@@ -337,7 +341,6 @@ public:
 
     enum { invalid_fhdl = -1 };
 
-    virtual void                compute_space();
     virtual
     NORET                        ~log_base();
 protected:

@@ -180,6 +180,8 @@ srv_log::srv_log(
 
     w_assert1(is_aligned(_readbuf));
     DBGTHRD(<< "_readbuf is at " << W_ADDR(_readbuf));
+    pthread_mutex_init(&_scavenge_lock, 0);
+    pthread_cond_init(&_scavenge_cond, 0);
 }
 
 NORET
@@ -204,45 +206,6 @@ void
 srv_log::release() 
 {
     _partition_lock.release(log_me_node);
-}
-
-
-/*********************************************************************
- *
- *  void srv_log::compute_space() 
- *    called whenever the number of partitions changes (we open one,
- *    or we scavenge some space) and whenever we take a checkpoint.
- *    Computes some slowly-changing numbers: the amount of space left 
- *    available by the existing partitions (_space_available) 
- *  
- *  The value _space_available is not updated on every log record
- *  insert, but is always bounded from above by the correct
- *  value. Threads which need an accurate number (as of the instant it
- *  was calculated, at least) are free to call the function directly.
- *
- *********************************************************************/
-// callers: checkpoint thread, transactions (if it looks like log is full)
-// MUTEX: partition
-void ringbuf_log::compute_space() 
-{
-    CRITICAL_SECTION(cs, _partition_lock);
-    
-    // how many partitions available?
-    lsn_t curr = curr_lsn();
-    int used_partitions = curr.file() - min_chkpt_rec_lsn().file() + 1;
-    int free_partitions = PARTITION_COUNT - used_partitions - 1;
-    if(free_partitions > 0) --free_partitions; // conservative estimate
-    long free_space = free_partitions*logDataLimit();
-    _space_available = free_space + (logDataLimit() - curr.rba());
-
-    /*
-    fprintf(stderr, 
-            "used_part %d free_part %d free_space %ld lDL %ld curr.rba() %ld\n",
-            used_partitions, free_partitions, 
-            free_space, logDataLimit(),
-            curr.rba()
-           );
-   */
 }
 
 
@@ -286,6 +249,7 @@ srv_log::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
 {
     FUNC(srv_log::scavenge);
     CRITICAL_SECTION(cs, _partition_lock);
+    pthread_mutex_lock(&_scavenge_lock);
 
 #if W_DEBUG_LEVEL > 2
     sanity_check();
@@ -327,18 +291,29 @@ srv_log::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
         p->close(true);
         p->destroy();
     }
+    
     if(count > 0) {
-        /* We scavenged at least one partition, so we should
-         * probably do a checkpoint, in case our only checkpoint
-         * was in or partly in the partition we just scavenged.
-         * We hope this isn't the case, and we wakeup_and_take
-         * when a new partition is opened, but that's no
-         * guarantee, since the checkpoint might have been going on
-         * when the partition was near the end, and the wakeup_and_take
-         * might not have accomplished anything... 
-         */
-        smlevel_1::chkpt->wakeup_and_take();
+	/* LOG_RESERVATIONS
+
+	   reinstate the log space from the reclaimed partitions. We
+	   can put back the entire partition size because every log
+	   insert which finishes off a partition will consume whatever
+	   unused space was left at the end.
+
+	   Skim off the top of the released space whatever it takes to
+	   top up the log checkpoint reservation.
+	 */
+	fileoff_t reclaimed = count*_partition_data_size;
+	fileoff_t max_chkpt = max_chkpt_size();
+	while(!verify_chkpt_reservation() && reclaimed > 0) {
+	    long skimmed = std::min(max_chkpt, reclaimed);
+	    atomic_add_long(&_space_rsvd_for_chkpt, skimmed);
+	    reclaimed -= skimmed;
+	}
+	release_space(reclaimed);
+	pthread_cond_signal(&_scavenge_cond);
     }
+    pthread_mutex_unlock(&_scavenge_lock);
 
     return RCOK;
 }
@@ -363,6 +338,25 @@ srv_log::_flush(lsn_t lsn, long start1, long end1, long start2, long end2)
         w_assert3(n != 0);
 
         {
+	    /* FRJ: before starting into the CS below we have to be
+	       sure an empty partition waits for us (otherwise we
+	       deadlock because partition scavenging is protected by
+	       the _partition_lock as well).
+	     */
+	    pthread_mutex_lock(&_scavenge_lock);
+	retry:
+	    bf->activate_background_flushing();
+	    smlevel_1::chkpt->wakeup_and_take();
+	    int oldest = log->global_min_lsn().hi();
+	    if(oldest + PARTITION_COUNT == lsn.file()) {
+		fprintf(stderr, "Can't open partition %d until partition %d is reclaimed\n",
+			lsn.file(), oldest);
+		pthread_cond_wait(&_scavenge_cond, &_scavenge_lock);
+		goto retry;
+	    }
+	    pthread_mutex_unlock(&_scavenge_lock);
+		
+
             // grab the lock -- we're about to mess with partitions
             CRITICAL_SECTION(cs, _partition_lock);
             p->close();  
@@ -1483,15 +1477,6 @@ srv_log::open(partition_number_t  __num,
         }
         w_assert3(p->exists());
         w_assert3(p->is_open_for_append());
-
-        // BUG_BF_DEADLOCK_1_FIX
-        // The idea here is to checkpoint at the beginning of every
-        // new partition because it seems we aren't taking enough
-        // checkpoints; then we were making the user threads do an emergency
-        // checkpoint to scavenge log space.  Short-tx workloads should never
-        // encounter this.    Don't do this if shutting down or starting
-        // up because in those 2 cases, the chkpt_m might not exist yet/anymore
-        if(smlevel_1::chkpt != NULL) smlevel_1::chkpt->wakeup_and_take();
     }
     return p;
 }

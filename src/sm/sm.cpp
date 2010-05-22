@@ -920,8 +920,11 @@ ss_m::_construct_once(
     // Force the log after recovery.  The background flush threads exist
     // and might be working due to recovery activities.
     // But to avoid interference with their control structure, 
-    // we will do this directly.  NOTE that this takes a checkpoint as well.
-    if(log) bf->force_until_lsn(log->curr_lsn());
+    // we will do this directly.  Take a checkpoint as well.
+    if(log) {
+	bf->force_until_lsn(log->curr_lsn());
+	chkpt->wakeup_and_take();
+    }	
 
     me()->check_pin_count(0);
 
@@ -1008,6 +1011,7 @@ ss_m::_destruct_once()
         // with serial writes since the background flushing has been
         // disabled
         bf->force_until_lsn(log->curr_lsn());
+	chkpt->wakeup_and_take();
 
         // from now no more logging and checkpoints will be done
         chkpt->retire_chkpt_thread();

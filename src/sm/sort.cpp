@@ -1355,6 +1355,7 @@ sort_stream_i::sort_stream_i() : xct_dependent_t(xct())
     sd = new sort_desc_t;  // deleted in ~sort_stream_i
     record_malloc(sizeof(sort_desc_t));
     _once = false;
+    register_me();
 }
 
 NORET
@@ -1383,6 +1384,7 @@ sort_stream_i::sort_stream_i(const key_info_t& k, const sort_parm_t& s,
 
     sd->comp = get_cmp_func(ki.type, sp.ascending);
     _once = false;
+    register_me();
 }
 
 NORET

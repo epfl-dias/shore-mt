@@ -140,6 +140,11 @@ public:
 
     void                         publish_partial(bfcb_t* p, bool discard);
     bool                         latched_by_me(bfcb_t* p) const;
+
+    // true == no longer hold any old dirty pages
+    // false == unable to flush all old dirty pages we hold
+    bool 			force_my_dirty_old_pages(lpid_t const* wal_page=0) const;
+    
     void                         publish(
         bfcb_t*                       p,
         latch_mode_t                  mode,

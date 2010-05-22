@@ -209,7 +209,6 @@ xct_t::xct_t(
         sm_stats_info_t* stats, 
         timeout_in_ms timeout) : 
     __stats(stats),
-    __log_bytes_generated(0),
     __saved_lockid_t(0),
     __saved_sdesc_cache_t(0),
     __saved_xct_log_t(0),
@@ -248,7 +247,6 @@ xct_t::xct_t(const tid_t& t, state_t s, const lsn_t& last_lsn,
              const lsn_t& undo_nxt, timeout_in_ms timeout) 
     :
     __stats(0),
-    __log_bytes_generated(0),
     __saved_lockid_t(0),
     __saved_sdesc_cache_t(0),
     __saved_xct_log_t(0),
@@ -288,10 +286,6 @@ xct_t::xct_t(const tid_t& t, state_t s, const lsn_t& last_lsn,
 
 xct_t::~xct_t() 
 { 
-
-    if(smlevel_1::log) {
-        smlevel_1::log->remove_obligation(__log_bytes_generated);
-    }
 
     w_assert9(__stats == 0);
 
@@ -703,15 +697,15 @@ xct_t::dispose()
 
 
 rc_t 
-xct_t::get_logbuf(logrec_t*& ret)
+xct_t::get_logbuf(logrec_t*& ret, const page_p *page)
 {
-    return i_this->get_logbuf(ret);
+    return i_this->get_logbuf(ret, page);
 }
 
-void 
+rc_t 
 xct_t::give_logbuf(logrec_t* l, const page_p *page)
 {
-    i_this->give_logbuf(l, page);
+    return i_this->give_logbuf(l, page);
 }
 
 
@@ -803,6 +797,11 @@ xct_t::lockunblock()
     i_this->lockunblock();
 }
 
+void
+xct_t::force_nonblocking()
+{
+    _lock_info->set_nonblocking();
+}
 
 void
 xct_t::acquire_1thread_xct_mutex() // default: true
@@ -1316,33 +1315,14 @@ xct_t::num_extents_marked_for_deletion( base_stat_t &num) const
 w_rc_t 
 xct_log_warn_check_t::check(xct_t *& /*_victim */) 
 {
-    // IP: Disabling the eLOGSPACEWARN check
-#if 0
-    if (me()->generate_log_warnings())  
-    {
-        _victim = 0;
-        smlevel_0::fileoff_t left = smlevel_1::log->check_obligation() ;
-        if( left < smlevel_0::log_warn_trigger )
-        {
-            if(log_warn_callback) {
-                xct_t *v = xct();
-                xct_i i(true);
-                w_rc_t rc = (*log_warn_callback)(
-                        &i,   // iterator
-                        v,    // victim
-                        left, // space left  
-                        smlevel_0::log_warn_trigger // threshhold
-                    );
-                if(rc.is_error() && (rc.err_num() == eUSERABORT)) {
-                    _victim = v;
-                }
-                return rc;
-            } else {
-                return  RC(eLOGSPACEWARN);
-            }
-        }
-    }
-#endif
+    /* FRJ: TODO: use this with the new log reservation code. One idea
+       would be to return eLOGSPACEWARN if this transaction (or some
+       other?) has been forced nonblocking. Another would be to hook
+       in with the LOG_RESERVATIONS stuff and warn if transactions are
+       having to wait to acquire log space. Yet another way would be
+       to hook in with the checkpoint thread and see if it feels
+       stressed...
+     */
     return RCOK;
 }
 

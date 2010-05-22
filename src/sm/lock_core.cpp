@@ -242,7 +242,8 @@ xct_lock_info_t::xct_lock_info_t()
 :
     _wait_request(NULL),
     _lock_level(lockid_t::t_record),
-    _quark_marker(0)
+    _quark_marker(0),
+    _noblock(false)
 {
     for (int i = 0; i < t_num_durations; i++)  {
         _my_req_list[i].set_offset(W_LIST_ARG(lock_request_t, xlink));
@@ -263,6 +264,25 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
     return this;
 }
                                                     
+
+/*********************************************************************
+ *
+ *  xct_lock_info_t::nolockblock()
+ *
+ *********************************************************************/
+void xct_lock_info_t::set_nonblocking()
+{
+    w_assert2(!MUTEX_IS_MINE(lock_info_mutex));
+    MUTEX_ACQUIRE(lock_info_mutex);
+    _noblock = true;
+    if(_wait_request) {
+	// nothing should be able to go wrong...
+	INC_TSTAT(log_full_old_xct);
+	w_assert2(_wait_request->thread());
+	W_COERCE(_wait_request->thread()->smthread_unblock(eDEADLOCK)); 
+    }
+    MUTEX_RELEASE(lock_info_mutex);
+}
 
 /*********************************************************************
  *
@@ -809,7 +829,7 @@ lock_request_t::init(xct_t* x, lmode_t m, duration_t d)
  *********************************************************************/
 void
 lock_request_t::init(xct_t* x, 
-        bool W_IFDEBUG9(quark_marker))
+        bool W_IFDEBUG2(quark_marker))
 {
     FUNC(lock_request_t::lock_request_t(make marker));
     init(x, NL, t_short);
@@ -1268,7 +1288,12 @@ lock_core_m::acquire(
                       << " duration=" << int(duration)
                       << " timeout=" << timeout );
 
-                {
+                if(the_xlinfo->is_nonblocking()) {
+		    // die immediately if we've been poisoned 
+		    INC_TSTAT(log_full_old_xct);
+		    rce = eDEADLOCK;
+		}
+		else {
 
                     const char* blockname = "lock";
                     // TODO: non-rc version of smthread_block

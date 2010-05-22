@@ -186,6 +186,8 @@ protected:
     int                 _wrbufsize;
     char*               _readbuf;
     skip_log*           _skip_log;
+    pthread_mutex_t	_scavenge_lock;
+    pthread_cond_t	_scavenge_cond;
 };
 
 

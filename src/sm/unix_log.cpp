@@ -865,7 +865,6 @@ unix_log::unix_log(const char* logdir,
             <<" durable_lsn " << durable_lsn());
 
     cs.exit();
-    compute_space(); // does a sanity check
 }
 
 

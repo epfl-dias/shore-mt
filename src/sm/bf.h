@@ -193,6 +193,10 @@ public:
     static bool                 fixed_by_me(const page_s* buf) ;
     static bool                 is_bf_page(const page_s* p, 
                                                   bool and_in_htab = true);
+    // true == no longer hold any old dirty pages
+    // false == unable to flush all old dirty pages we hold
+    bool 			force_my_dirty_old_pages(lpid_t const* wal_page=0) const;
+    
     static bfcb_t*              get_cb(const page_s*) ;
 
     static void                 dump(ostream &o);

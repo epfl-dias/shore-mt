@@ -312,6 +312,5 @@ bool log_i::next(lsn_t& lsn, logrec_t*& r)
     return ! eof;
 }
 
-void    log_base::compute_space() {}
 log_base::~log_base() {}
 

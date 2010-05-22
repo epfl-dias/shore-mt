@@ -67,6 +67,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "chkpt.h"
 #include "logdef_gen.cpp"
 #include "bf_core.h"
+#include "xct_dependent.h"
 
 #include <new>
 
@@ -105,6 +106,73 @@ private:
 };
 
 
+struct old_xct_tracker {
+    struct dependent : xct_dependent_t  {
+	w_link_t _link;
+	old_xct_tracker* _owner;
+
+	dependent(xct_t* xd, old_xct_tracker* owner)
+	    : xct_dependent_t(xd), _owner(owner)
+	{
+	    register_me();
+	}
+	
+	virtual void
+	xct_state_changed(smlevel_1::xct_state_t,
+			  smlevel_1::xct_state_t new_state)
+	{
+	    if(new_state == smlevel_1::xct_ended) 
+		_owner->report_finished(xd());
+	}
+    };
+
+    old_xct_tracker()
+	: _list(W_LIST_ARG(dependent, _link), 0)
+	, _count(0)
+    {
+	pthread_mutex_init(&_lock, 0);
+	pthread_cond_init(&_cond, 0);
+    }
+    
+    ~old_xct_tracker() {
+	w_assert2(! _count);
+	while(_list.pop());
+    }
+    
+    void track(xct_t* xd) {
+	dependent* d = new dependent(xd, this);
+	pthread_mutex_lock(&_lock);
+	_count++;
+	_list.push(d);
+	pthread_mutex_unlock(&_lock);
+    }
+    
+    bool finished() const {
+	long volatile const* count = &_count;
+	return 0 == *count;
+    }
+    
+    void wait_for_all() {
+	pthread_mutex_lock(&_lock);
+	while(_count)
+	    pthread_cond_wait(&_cond, &_lock);
+	pthread_mutex_unlock(&_lock);
+    }
+
+    void report_finished(xct_t* xd) {
+	pthread_mutex_lock(&_lock);
+	if(! --_count)
+	    pthread_cond_signal(&_cond);
+	pthread_mutex_unlock(&_lock);
+    }
+    
+    pthread_mutex_t	_lock;
+    pthread_cond_t 	_cond;
+    w_list_t<dependent, unsafe_list_dummy_lock_t> _list;
+    long 		_count;
+    
+};
+
 
 /*********************************************************************
  *
@@ -115,7 +183,7 @@ private:
  *********************************************************************/
 NORET
 chkpt_m::chkpt_m()
-    : _chkpt_thread(0)
+    : _chkpt_thread(0), _chkpt_count(0)
 {
 }
 
@@ -232,13 +300,120 @@ void chkpt_m::take()
      * MUST BE W_COERCE (not W_DO).
      */
     chkpt_serial_m::chkpt_acquire();
-
+ retry:
+    
     /*
+     * FRJ: We must somehow guarantee that the log always has space to
+     * accept checkpoints.  We impose two constraints to this end:
+     *
+     * 1. We cap the total space checkpoints are allowed to consume in
+     *    any one log partition. This is a good idea anyway because
+     *    checkpoint size is linear in the number of dirty buffer pool
+     *    pages -- ~2MB per GB of dirty data -- and yet the utility of
+     *    checkpoints drops off quickly as the dirty page count
+     *    increases -- log analysis and recovery must start at the lsn
+     *    of the oldest dirty page regardless of how recent the
+     *    checkpoint was.
+     *
+     * 2. No checkpoint may depend on more than /max_openlog-1/ log
+     *    partitions. In other words, every checkpoint completion must
+     *    leave at least one log partition available.
+     *
+     * We use these two constraints, together with log reservations,
+     * to guarantee the ability to reclaim log space if the log
+     * becomes full. The log maintains, on our behalf, a reservation
+     * big enough for two maximally-sized checkpoints (ie the dirty
+     * page table lists every page in the buffer pool). Every time we
+     * reclaim a log segment this reservation is topped up atomically.
+     */
+#define LOG_INSERT(constructor_call, rlsn)			\
+    do {							\
+	new (logrec) constructor_call;				\
+	W_COERCE( log->insert(*logrec, rlsn) );			\
+	if(!log->consume_chkpt_reservation(logrec->length())) {	\
+	    W_FATAL(eOUTOFLOGSPACE);				\
+	}							\
+    } while(0)
+    
+    /* if current partition is max_openlog then the oldest lsn we can
+       tolerate is 2.0. We must flush all pages dirtied before that
+       time and must wait until all transactions with an earlier
+       start_lsn have ended (at worst they will abort if the log fills
+       up before they can commit).
+
+       TODO: use smlevel_0::log_warn_callback to notify the VAS in
+       case old transactions are't currently active for some reason.
+
+       Also, remember the current checkpoint count so we can see
+       whether we get raced...
+     */
+#warning "TODO use log_warn_callback in case old transactions aren't logging right now"
+    long curr_pnum = log->curr_lsn().file();
+    long too_old_pnum = std::max(0l, curr_pnum - max_openlog+1);
+    if(!log->verify_chkpt_reservation()) {
+	/* Yikes! The log can't guarantee that we'll be able to
+	   complete any checkpoint after this one, so we must reclaim
+	   space even if the log doesn't seem to be full.
+	*/
+	long too_old_pnum = log->global_min_lsn().file();
+	if(too_old_pnum == curr_pnum) {
+	    // how/why did they reserve so much log space???
+	    W_FATAL(eOUTOFLOGSPACE);
+	}
+    }
+
+
+    /* We cannot proceed if any transaction has a too-low start_lsn;
+       wait for them to complete before continuing.
+       
+       WARNING: we have to wake any old transactions which are waiting
+       on locks, or we risk deadlocks where the lock holder waits on a
+       full log while the old transaction waits on the lock.
+     */
+    lsn_t oldest_valid_lsn = log_m::first_lsn(too_old_pnum+1);
+    old_xct_tracker tracker;
+    { 
+	xct_i it(true); // do acquire the xlist_mutex...
+	while(xct_t* xd=it.next()) {
+	    lsn_t const &flsn = xd->first_lsn();
+	    if(flsn < oldest_valid_lsn) {
+		// poison the transaction and add it to the list...
+		xd->force_nonblocking();
+		tracker.track(xd);
+	    }
+	}
+    }
+
+    /* release the chkpt_serial to do expensive stuff
+
+       We'll record the current checkpoint count so we can detect
+       whether we get raced during the gap.
+     */
+    long chkpt_stamp = _chkpt_count;
+    chkpt_serial_m::chkpt_release();
+
+    
+    // clear out all too-old pages
+    W_COERCE(bf->force_until_lsn(oldest_valid_lsn, false));
+
+    /* hopefully the page cleaning took long enough that the old
+       transactions all ended...
+     */
+    if(!tracker.finished())
+       tracker.wait_for_all();
+
+    // raced?
+    chkpt_serial_m::chkpt_acquire();
+    if(_chkpt_count != chkpt_stamp)
+	goto retry;
+    
+    /*
+     *  Finally, we're ready to start the actual checkpoint!
+     *
      *  Write a Checkpoint Begin Log and record its lsn in master
      */
     lsn_t master;
-    new (logrec) chkpt_begin_log(io->GetLastMountLSN());
-    W_COERCE( log->insert(*logrec, &master) );
+    LOG_INSERT(chkpt_begin_log(io->GetLastMountLSN()), &master);
 
     /*
      *  Checkpoint the buffer pool dirty page table, and record
@@ -283,8 +458,7 @@ void chkpt_m::take()
                 /*
                  *  Write a Buffer Table Log
                  */
-                new (logrec) chkpt_bf_tab_log(count, pid, rec_lsn);
-                W_COERCE( log->insert(*logrec, 0) );
+                LOG_INSERT(chkpt_bf_tab_log(count, pid, rec_lsn), 0);
             }
         }
         //fprintf(stderr, "Checkpoint found %d dirty pages\n", total_count);
@@ -328,8 +502,7 @@ void chkpt_m::take()
                  *  Write a Checkpoint Device Table Log
                  */
                 // XXX The bogus 'const char **' cast is for visual c++
-                new (logrec) chkpt_dev_tab_log(ret, (const char **) devs, vids);
-                W_COERCE( log->insert(*logrec, 0) );
+                LOG_INSERT(chkpt_dev_tab_log(ret, (const char **) devs, vids), 0);
             }
         }
         delete [] vids;
@@ -420,9 +593,8 @@ void chkpt_m::take()
                 /*
                  *  Write a Transaction Table Log
                  */
-                new (logrec) chkpt_xct_tab_log(youngest, i, tid, state,
-                                   last_lsn, undo_nxt);
-                W_COERCE( log->insert(*logrec, 0) );
+		LOG_INSERT(chkpt_xct_tab_log(youngest, i, tid, state,
+                                   last_lsn, undo_nxt), 0);
             }
         } while (xd);
     }
@@ -464,8 +636,7 @@ void chkpt_m::take()
     /*
      *  Write the Checkpoint End Log
      */
-    new (logrec) chkpt_end_log (master, min_rec_lsn);
-    W_COERCE( log->insert(*logrec, 0) );
+    LOG_INSERT(chkpt_end_log (master, min_rec_lsn), 0);
 
     /*
      *  Sync the log
@@ -482,11 +653,6 @@ void chkpt_m::take()
      *  Scavenge some log
      */
     W_COERCE( log->scavenge(min_rec_lsn, min_xct_lsn) );
-
-    /*
-     * Update our space estimate
-     */
-    log->compute_space();
 
     chkpt_serial_m::chkpt_release();
 }
