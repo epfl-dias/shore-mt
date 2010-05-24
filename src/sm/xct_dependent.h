@@ -34,6 +34,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
+class xct_t;
+
 class xct_dependent_t {
 public:
     virtual NORET        ~xct_dependent_t();
@@ -55,7 +57,7 @@ protected:
      */
     void		register_me(); // called because our 
 private:
-    friend class xct_impl;
+    friend class xct_t;
     // Must protect the list when detaching; the
     // only way to do that is through the xct_t, so
     // we need a ptr to it here:

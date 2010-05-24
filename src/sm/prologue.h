@@ -237,7 +237,7 @@ prologue_rc_t::~prologue_rc_t()
         sm_stats_info_t * stats = _victim->is_instrumented() ? 
                 _victim->steal_stats() : 0;
         W_COERCE(_victim->abort());
-        delete _victim;
+	xct_t::destroy_xct(_victim);
         delete stats; 
         _victim = 0;
     }

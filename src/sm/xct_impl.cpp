@@ -91,17 +91,25 @@ extern "C" void xstop() { }
 
 #include <new>
 #include "block_alloc.h"
+#define SM_LEVEL 0
+#include <sm_int_1.h>
+
+#include "lock.h"
+#include "xct_impl.h"
+#include "logrec.h"
+#include "sdesc.h"
 #include <sm_int_4.h>
+#include "xct_dependent.h"
+#include <sm_int_4.h>
+
 #include <sm.h>
 #include "tls.h"
 
-#include "xct_dependent.h"
 #include "chkpt_serial.h"
 #include "lock_x.h"
 #include <sstream>
 
 #include "crash.h"
-#include "xct_impl.h"
 #include "chkpt.h"
 
 // definition of LOGTRACE is in crash.h
@@ -126,11 +134,34 @@ template class w_list_t<xct_dependent_t,queue_based_lock_t>;
 template class w_list_i<xct_dependent_t,queue_based_lock_t>;
 #endif
 
+struct lock_info_ptr {
+    xct_lock_info_t* _ptr;
+    
+    lock_info_ptr() : _ptr(0) { }
+    
+    xct_lock_info_t* take() {
+        if(xct_lock_info_t* rval = _ptr) {
+            _ptr = 0;
+            return rval;
+        }
+        return new xct_lock_info_t;
+    }
+    void put(xct_lock_info_t* ptr) {
+        if(_ptr)
+            delete _ptr;
+        _ptr = ptr? ptr->reset_for_reuse() : 0;
+    }
+    
+    ~lock_info_ptr() { put(0); }
+};
+
+DECLARE_TLS(lock_info_ptr, agent_lock_info);
+
+
 /*********************************************************************
  *
  *  _1thread_name is the name of the mutex protecting the xct_t from
  *          multi-thread access
- * NB: there is a _1thread_xct_mutex for each of xct_impl and xct_t
  *
  *********************************************************************/
 const char*                         xct_impl::_1thread_log_name = "1thLI";
@@ -143,7 +174,7 @@ const char*                         xct_impl::_1thread_log_name = "1thLI";
 ostream&
 operator<<(ostream& o, const xct_impl& x)
 {
-    o << "tid="<< x._that->tid();
+    o << "tid="<< x.tid();
 
     o << " global_tid=";
     if (x._global_tid)  {
@@ -195,9 +226,18 @@ DECLARE_TLS(block_alloc<logrec_t>, logrec_pool);
  *  and the xct record is inserted into _xlist.
  *
  *********************************************************************/
-xct_impl::xct_impl(xct_t* that) 
+xct_impl::xct_impl(sm_stats_info_t* stats, const tid_t& t,
+		   state_t s, const lsn_t& last_lsn,
+		   const lsn_t& undo_nxt, timeout_in_ms timeout) 
     :   
-        _that(that),
+    __stats(stats),
+    __saved_lockid_t(0),
+    __saved_sdesc_cache_t(0),
+    __saved_xct_log_t(0),
+    _tid(t), 
+    _timeout(timeout),
+    _lock_info(agent_lock_info->take()),    
+    _lock_cache_enable(true),
         _threads_attached(0),
         _state(xct_active),
         _forced_readonly(false),
@@ -205,7 +245,9 @@ xct_impl::xct_impl(xct_t* that)
         _global_tid(0),
         _coord_handle(0),
         _read_only(false),
-        // _first_lsn, _last_lsn, _undo_nxt, 
+        // _first_lsn,
+        _last_lsn(last_lsn),
+        _undo_nxt(undo_nxt),
         _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &_1thread_xct),
         _last_log(0),
         _log_buf(0),
@@ -218,6 +260,10 @@ xct_impl::xct_impl(xct_t* that)
         _last_heard_from_coord(0),
         _xct_ended(0) // for assertions
 {
+    w_assert9(tid() <= _nxt_tid);
+
+    _lock_info->set_tid(_tid);
+
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
     _log_buf = new (*logrec_pool) logrec_t; // deleted when xct goes away
 #else
@@ -240,57 +286,18 @@ xct_impl::xct_impl(xct_t* that)
 
     DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
     DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
-}
 
+    if (timeout_c() == WAIT_SPECIFIED_BY_THREAD) {
+        // override in this case
+        set_timeout(me()->lock_timeout());
+    }
+    w_assert9(timeout_c() >= 0 || timeout_c() == WAIT_FOREVER);
 
-/*********************************************************************
- *
- *   xct_impl::xct_impl(state, last_lsn, undo_nxt)
- *
- *   Manually begin a specific transaction with a specific
- *   tid. This form mainly used by the restart recovery routines
- *
- *********************************************************************/
-xct_impl::xct_impl(xct_t* that,
-         state_t s, const lsn_t& last_lsn,
-         const lsn_t& undo_nxt) 
-    :    
-        _that(that),
-        _threads_attached(0),
-        _state(s), 
-        _forced_readonly(false),
-        _vote(vote_bad), 
-        _global_tid(0),
-        _coord_handle(0),
-        _read_only(false),
-        // _first_lsn, 
-        _last_lsn(last_lsn),
-        _undo_nxt(undo_nxt),
-        _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &_1thread_xct),
-        _last_log(0),
-        _log_buf(0),
-        _log_bytes_rsvd(0),
-        _log_bytes_ready(0),
-	_rolling_back(false),
-        _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
-        _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
-        _in_compensated_op(0),
-        _last_heard_from_coord(0),
-        _xct_ended(0) // for assertions
-{
+#ifndef SDESC_CACHE_PER_THREAD
+    __saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
+#endif /* SDESC_CACHE_PER_THREAD */
 
-#if USE_BLOCK_ALLOC_FOR_LOGREC 
-    _log_buf = new (*logrec_pool) logrec_t; // deleted when xct goes away
-#else
-    _log_buf = new logrec_t; // deleted when xct goes away
-#endif
-    if (!_log_buf)  W_FATAL(eOUTOFMEMORY);
-
-    lock_info()->set_lock_level( convert(cc_alg) );
-
-    SetDefaultEscalationThresholds();
-    DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
-    DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
+    put_in_order();
 }
 
 
@@ -305,6 +312,17 @@ xct_impl::xct_impl(xct_t* that,
  *********************************************************************/
 xct_impl::~xct_impl()
 {
+
+    w_assert9(__stats == 0);
+
+    W_COERCE(acquire_xlist_mutex());
+
+    // FRJ: WARNING: xct_impl::commit has this code as well!
+    _xlink.detach();
+    xct_t* xd = _xlist.last();
+    _oldest_tid = xd ? xd->_tid : _nxt_tid;
+    release_xlist_mutex();
+
     if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
 	w_assert2(smlevel_0::log);
 	smlevel_0::log->release_space(leftovers);
@@ -335,10 +353,23 @@ xct_impl::~xct_impl()
     delete _coord_handle;
 
     // clean up what's stored in the thread
-    me()->no_xct(_that);
+    me()->no_xct(this);
 
-    _that = 0;
-
+    if(_lock_info) {
+        agent_lock_info->put(_lock_info);
+    }
+    if(__saved_lockid_t)  { 
+        delete[] __saved_lockid_t; 
+        __saved_lockid_t=0; 
+    }
+    if(__saved_sdesc_cache_t) {         
+        delete __saved_sdesc_cache_t;
+        __saved_sdesc_cache_t=0; 
+    }
+    if(__saved_xct_log_t) { 
+        delete __saved_xct_log_t; 
+        __saved_xct_log_t=0; 
+    }
 }
 
 
@@ -765,7 +796,7 @@ done:
  *
  *********************************************************************/
 rc_t
-xct_impl::commit(uint4_t flags)
+xct_impl::_commit(uint4_t flags)
 {
     W_DO(check_one_thread_attached());
 
@@ -946,7 +977,7 @@ xct_impl::commit(uint4_t flags)
  *
  *********************************************************************/
 rc_t
-xct_impl::abort()
+xct_impl::_abort()
 {
     // If there are too many threads attached, tell the VAS and let it
     // ensure that only one does this.
@@ -1102,6 +1133,9 @@ xct_impl::save_point(lsn_t& lsn)
 rc_t
 xct_impl::dispose()
 {
+    delete __stats;
+    __stats = 0;
+    
     W_DO(check_one_thread_attached());
     W_COERCE( lm->unlock_duration(t_long, true, true) );
     ClearAllStoresToFree();

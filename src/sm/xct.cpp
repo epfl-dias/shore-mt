@@ -58,20 +58,20 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SM_SOURCE
 #define XCT_C
 
-#ifdef __GNUG__
-#pragma implementation "xct.h"
-#endif
-
 #include <new>
+#define SM_LEVEL 0
 #include "sm_int_1.h"
+
 #include "sdesc.h"
 #include "block_alloc.h"
 #include "tls.h"
 
-#include "sm_escalation.h"
-#include "lock_x.h"
+#include "lock.h"
 #include "xct_dependent.h"
 #include "xct_impl.h"
+
+#include "sm_escalation.h"
+#include "lock_x.h"
 
 #include <w_strstream.h>
 
@@ -179,177 +179,46 @@ tid_t                                xct_t::_oldest_tid = tid_t::null;
 // FRJ: WARNING: xct_impl::commit has some of this code as well
 #define USE_BLOCK_ALLOC_FOR_XCT_IMPL  1
 #if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
-DECLARE_TLS(block_alloc<xct_impl>, xct_impl_pool);
-#endif
-
-struct lock_info_ptr {
-    xct_lock_info_t* _ptr;
-    
-    lock_info_ptr() : _ptr(0) { }
-    
-    xct_lock_info_t* take() {
-        if(xct_lock_info_t* rval = _ptr) {
-            _ptr = 0;
-            return rval;
-        }
-        return new xct_lock_info_t;
-    }
-    void put(xct_lock_info_t* ptr) {
-        if(_ptr)
-            delete _ptr;
-        _ptr = ptr? ptr->reset_for_reuse() : 0;
-    }
-    
-    ~lock_info_ptr() { put(0); }
-};
-
-DECLARE_TLS(lock_info_ptr, agent_lock_info);
-
-xct_t::xct_t(
-        sm_stats_info_t* stats, 
-        timeout_in_ms timeout) : 
-    __stats(stats),
-    __saved_lockid_t(0),
-    __saved_sdesc_cache_t(0),
-    __saved_xct_log_t(0),
-    _tid(_nxt_tid.atomic_incr()), 
-    _timeout(timeout),
-    i_this(0),    
-    _lock_info(agent_lock_info->take()),    
-    _lock_cache_enable(true)
-{
-    w_assert9(tid() <= _nxt_tid);
-
-    _lock_info->set_tid(_tid);
-
-#if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
-    i_this = new (*xct_impl_pool) xct_impl(this); // deleted when xct finishes
+DECLARE_TLS(block_alloc<xct_t>, xct_pool);
+#define NEW_XCT new (*xct_pool)
+#define DELETE_XCT(xd) xct_pool->destroy_object(xd)
 #else
-    i_this = new xct_impl(this); // deleted when xct finishes
+#define NEW_XCT new
+#define DELETE_XCT(xd) delete xd
 #endif
 
-    put_in_order();
-    me()->attach_xct(this);
+#define i_this this
 
-
-    if (timeout_c() == WAIT_SPECIFIED_BY_THREAD) {
-        // override in this case
-        set_timeout(me()->lock_timeout());
-    }
-    w_assert9(timeout_c() >= 0 || timeout_c() == WAIT_FOREVER);
-
-#ifndef SDESC_CACHE_PER_THREAD
-    __saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
-#endif /* SDESC_CACHE_PER_THREAD */
+xct_t*
+xct_t::new_xct(
+        sm_stats_info_t* stats, 
+        timeout_in_ms timeout)
+{
+    xct_t* xd = NEW_XCT xct_t(stats, _nxt_tid.atomic_incr(),
+			       xct_active, lsn_t::null,
+			      lsn_t::null, timeout);
+    me()->attach_xct(xd);
+    return xd;
 }
 
-xct_t::xct_t(const tid_t& t, state_t s, const lsn_t& last_lsn,
+xct_t*
+xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
              const lsn_t& undo_nxt, timeout_in_ms timeout) 
-    :
-    __stats(0),
-    __saved_lockid_t(0),
-    __saved_sdesc_cache_t(0),
-    __saved_xct_log_t(0),
-    _tid(t), 
-    _timeout(timeout),
-    i_this(0),    
-    _lock_info(agent_lock_info->take()),    
-    _lock_cache_enable(true)
 {
 
     // Uses user(recovery)-provided tid
-    _nxt_tid.atomic_assign_max(tid());
-
-    _lock_info->set_tid(_tid);
-
-#if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
-    i_this = new (*xct_impl_pool) xct_impl(this, s , last_lsn, undo_nxt); //deleted when xct ends
-#else
-    i_this = new xct_impl(this, s , last_lsn, undo_nxt); //deleted when xct ends
-#endif
-    put_in_order();
+    _nxt_tid.atomic_assign_max(t);
+    xct_t* xd = NEW_XCT xct_t(0, t, s, last_lsn, undo_nxt, timeout);
+    
     /// Don't attach
-    // sm.tcb()->xct = 0;
     w_assert1(me()->xct() == 0);
-
-    if (timeout_c() == WAIT_SPECIFIED_BY_THREAD) {
-        // override in this case
-        set_timeout(me()->lock_timeout());
-    }
-    w_assert9(timeout_c() >= 0 || timeout_c() == WAIT_FOREVER);
-
-#ifndef SDESC_CACHE_PER_THREAD
-    __saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when thread detaches or xct finishes
-#endif /* SDESC_CACHE_PER_THREAD */
+    return xd;
 }
 
-
-xct_t::~xct_t() 
-{ 
-
-    w_assert9(__stats == 0);
-
-    W_COERCE(acquire_xlist_mutex());
-
-    // FRJ: WARNING: xct_impl::commit has this code as well!
-    _xlink.detach();
-    xct_t* xd = _xlist.last();
-    _oldest_tid = xd ? xd->_tid : _nxt_tid;
-    release_xlist_mutex();
-
-    if(i_this) {
-#if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
-        xct_impl_pool->destroy_object(i_this);
-#else
-        delete i_this;
-#endif
-        i_this = 0;
-    }
-
-    if(_lock_info) {
-        agent_lock_info->put(_lock_info);
-    }
-    if(__saved_lockid_t)  { 
-        delete[] __saved_lockid_t; 
-        __saved_lockid_t=0; 
-    }
-    if(__saved_sdesc_cache_t) {         
-        delete __saved_sdesc_cache_t;
-        __saved_sdesc_cache_t=0; 
-    }
-    if(__saved_xct_log_t) { 
-        delete __saved_xct_log_t; 
-        __saved_xct_log_t=0; 
-    }
-}
-
-
-ostream&
-operator<<(ostream& o, const xct_t& x)
+void
+xct_t::destroy_xct(xct_t* xd) 
 {
-    /**\brief Callback function for dumping all the smthreads 
-     * attached to an xct. 
-     */
-    class PrintSmthreadsOfXct : public SmthreadFunc
-    {
-        public:
-        PrintSmthreadsOfXct(ostream& out, const xct_t* x) : o(out), xct(x) {};
-        void operator()(const smthread_t& smthread)  {
-            if (smthread.xct() == xct)  {
-                o << "--------------------" << endl << smthread;
-            }
-        }
-        private:
-        ostream&    o;
-        const xct_t*    xct;
-
-    };
-
-    o << *x.i_this << endl;
-    PrintSmthreadsOfXct f(o, &x);
-    smthread_t::for_each_smthread(f);
-
-    return o;
+    DELETE_XCT(xd);
 }
 
 #if W_DEBUG_LEVEL > 2
@@ -382,12 +251,6 @@ dumpThreadById(int i) {
     smthread_t::for_each_smthread(f);
 }
 #endif 
-
-xct_t::state_t
-xct_t::state() const
-{
-    return i_this->state();
-}
 
 /*
  * clean up existing transactions -- called from ~ss_m, so
@@ -532,60 +395,6 @@ xct_t::oldest_tid()
     return _oldest_tid;
 }
 
-bool                        
-xct_t::is_extern2pc() 
-const
-{
-    return i_this->is_extern2pc();
-}
-
-void
-xct_t::set_coordinator(const server_handle_t &h) 
-{
-    i_this->set_coordinator(h);
-}
-
-const server_handle_t &
-xct_t::get_coordinator() const
-{
-    return i_this->get_coordinator();
-}
-
-void
-xct_t::change_state(state_t new_state)
-{
-    i_this->change_state(new_state);
-}
-
-rc_t
-xct_t::add_dependent(xct_dependent_t* dependent)
-{
-    return i_this->add_dependent(dependent);
-}
-
-rc_t
-xct_t::remove_dependent(xct_dependent_t* dependent)
-{
-    return i_this->remove_dependent(dependent);
-}
-
-bool
-xct_t::find_dependent(xct_dependent_t* ptr)
-{
-    return i_this->find_dependent(ptr);
-}
-
-rc_t 
-xct_t::prepare()
-{
-    return i_this->prepare();
-}
-
-rc_t
-xct_t::log_prepared(bool in_chkpt)
-{
-    return i_this->log_prepared(in_chkpt);
-}
 
 rc_t
 xct_t::abort(bool save_stats_structure /* = false */)
@@ -594,13 +403,7 @@ xct_t::abort(bool save_stats_structure /* = false */)
         delete __stats;
         __stats = 0;
     }
-    return i_this->abort();
-}
-
-rc_t 
-xct_t::enter2pc(const gtid_t &g)
-{
-    return i_this->enter2pc(g);
+    return i_this->_abort();
 }
 
 /*********************************************************************
@@ -681,148 +484,16 @@ xct_t::query_prepared(int &numtids)
     return RCOK;
 }
 
-rc_t
-xct_t::save_point(lsn_t& lsn)
+int
+xct_t::num_threads()
 {
-    return i_this->save_point(lsn);
-}
-
-rc_t
-xct_t::dispose()
-{
-    delete __stats;
-    __stats = 0;
-    return i_this->dispose();
-}
-
-
-rc_t 
-xct_t::get_logbuf(logrec_t*& ret, const page_p *page)
-{
-    return i_this->get_logbuf(ret, page);
-}
-
-rc_t 
-xct_t::give_logbuf(logrec_t* l, const page_p *page)
-{
-    return i_this->give_logbuf(l, page);
-}
-
-
-/*********************************************************************
- *
- *  xct_t::release_anchor(and_compensate)
- *
- *  stop critical sections vis-a-vis compensated operations
- *  If and_compensate==true, it makes the _last_log a clr
- *
- *********************************************************************/
-void
-xct_t::release_anchor( bool and_compensate )
-{
-    i_this->release_anchor(and_compensate);
-}
-const lsn_t& 
-xct_t::anchor(bool grabit)
-{
-    return i_this->anchor(grabit);
-}
-void 
-xct_t::compensate_undo(const lsn_t& lsn)
-{
-    i_this->compensate_undo(lsn);
-}
-
-void 
-xct_t::compensate(const lsn_t& lsn, bool undoable)
-{
-    i_this->compensate(lsn, undoable);
-}
-
-/*********************************************************************
- *
- *  xct_t::rollback(savept)
- *
- *  Rollback transaction up to "savept".
- *
- *********************************************************************/
-rc_t
-xct_t::rollback(lsn_t save_pt)
-{
-    return i_this->rollback(save_pt);
-}
-
-
-smlevel_0::concurrency_t                
-xct_t::get_lock_level()  
-{ 
-    return i_this->get_lock_level();
-}
-
-void                           
-xct_t::lock_level(concurrency_t l) 
-{
-    w_assert9(i_this->one_thread_attached());
-    i_this->lock_level(l);
-}
-
-int 
-xct_t::num_threads() 
-{
-    return i_this->num_threads();
-}
-
-void 
-xct_t::attach_thread() 
-{
-    i_this->attach_thread();
-}
-
-
-void 
-xct_t::detach_thread() 
-{
-    i_this->detach_thread();
-}
-
-w_rc_t
-xct_t::lockblock(timeout_in_ms timeout)
-{
-    return i_this->lockblock(timeout);
-}
-
-void
-xct_t::lockunblock()
-{
-    i_this->lockunblock();
+    return _threads_attached;
 }
 
 void
 xct_t::force_nonblocking()
 {
     _lock_info->set_nonblocking();
-}
-
-void
-xct_t::acquire_1thread_xct_mutex() // default: true
-{
-    if(_1thread_xct.is_mine(&localns::_xct_t_me_node)) {
-        return;
-    }
-    if( _1thread_xct.attempt(&localns::_xct_t_me_node) ) {
-        // success
-        return; 
-    }
-    INC_TSTAT(await_1thread_xct);
-    (void) _1thread_xct.acquire(&localns::_xct_t_me_node);
-}
-
-void
-xct_t::release_1thread_xct_mutex()
-{
-    DBGX( << " release xct mutex");
-
-    _1thread_xct.release(localns::_xct_t_me_node);
 }
 
 rc_t
@@ -833,7 +504,7 @@ xct_t::commit(bool lazy)
     // be going on right now.... see comments
     // in log_prepared and chkpt.cpp
 
-    return i_this->commit(t_normal | (lazy ? t_lazy : t_normal));
+    return i_this->_commit(t_normal | (lazy ? t_lazy : t_normal));
 }
 
 
@@ -841,7 +512,7 @@ rc_t
 xct_t::chain(bool lazy)
 {
     w_assert9(i_this->one_thread_attached());
-    return i_this->commit(t_chain | (lazy ? t_lazy : t_chain));
+    return i_this->_commit(t_chain | (lazy ? t_lazy : t_chain));
 }
 
 
@@ -1173,7 +844,7 @@ void
 xct_t::force_readonly() 
 {
     acquire_1thread_xct_mutex();
-    i_this->force_readonly();
+    _forced_readonly = true;
     release_1thread_xct_mutex();
 }
 
@@ -1198,90 +869,6 @@ xct_t::put_in_order() {
     }
     release_xlist_mutex();
 #endif 
-}
-
-void                        
-xct_t::SetEscalationThresholds(int4_t toPage, int4_t toStore, int4_t toVolume)
-{
-    i_this->SetEscalationThresholds(toPage, toStore, toVolume);
-}
-
-void                        
-xct_t::GetEscalationThresholds(int4_t &toPage, int4_t &toStore, int4_t &toVolume)
-{
-    i_this->GetEscalationThresholds(toPage, toStore, toVolume);
-}
-
-const lsn_t&
-xct_t::last_lsn() const
-{
-    return i_this->last_lsn();
-}
-
-void
-xct_t::set_last_lsn( const lsn_t&l)
-{
-    i_this->set_last_lsn(l);
-}
-
-const lsn_t&
-xct_t::first_lsn() const
-{
-    return i_this->first_lsn();
-}
-
-void
-xct_t::set_first_lsn(const lsn_t &l) 
-{
-    i_this->set_first_lsn(l);
-}
-
-const lsn_t&
-xct_t::undo_nxt() const
-{
-    return i_this->undo_nxt();
-}
-
-void
-xct_t::set_undo_nxt(const lsn_t &l) 
-{
-    i_this->set_undo_nxt(l);
-}
-
-const logrec_t*
-xct_t::last_log() const
-{
-    return i_this->last_log();
-}
-
-const gtid_t*                   
-xct_t::gtid() const 
-{
-    return i_this->gtid();
-}
-
-vote_t
-xct_t::vote() const
-{
-    return i_this->vote();
-}
-
-void 
-xct_t::AddStoreToFree(const stid_t& stid)
-{
-    i_this->AddStoreToFree(stid);
-}
-
-void 
-xct_t::AddLoadStore(const stid_t& stid)
-{
-    i_this->AddLoadStore(stid);
-}
-
-const int4_t *
-xct_t::GetEscalationThresholdsArray()
-{
-    return i_this->GetEscalationThresholdsArray();
 }
 
 
@@ -1324,10 +911,4 @@ xct_log_warn_check_t::check(xct_t *& /*_victim */)
        stressed...
      */
     return RCOK;
-}
-
-rc_t
-xct_t::check_one_thread_attached() const
-{
-    return i_this->check_one_thread_attached();
 }
