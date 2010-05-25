@@ -177,20 +177,20 @@ operator<<(ostream& o, const xct_impl& x)
     o << "tid="<< x.tid();
 
     o << " global_tid=";
-    if (x._global_tid)  {
-        o << *x._global_tid;
+    if (x._core->_global_tid)  {
+        o << *x._core->_global_tid;
     }  else  {
         o << "<NONE>";
     }
 
-    o << endl << " state=" << x.state() << " num_threads=" << x._threads_attached << endl << "   ";
+    o << endl << " state=" << x.state() << " num_threads=" << x._core->_threads_attached << endl << "   ";
 
     o << " defaultTimeout=";
     print_timeout(o, x.timeout_c());
     o << " first_lsn=" << x._first_lsn << " last_lsn=" << x._last_lsn << endl << "   ";
 
-    o << " num_storesToFree=" << x._storesToFree.num_members()
-      << " num_loadStores=" << x._loadStores.num_members() << endl << "   ";
+    o << " num_storesToFree=" << x._core->_storesToFree.num_members()
+      << " num_loadStores=" << x._core->_loadStores.num_members() << endl << "   ";
 
     o << " in_compensated_op=" << x._in_compensated_op << " anchor=" << x._anchor;
 
@@ -218,22 +218,8 @@ static __thread queue_based_lock_t::ext_qnode _1thread_log_me = EXT_QNODE_INITIA
 DECLARE_TLS(block_alloc<logrec_t>, logrec_pool);
 #endif
 
-/*********************************************************************
- *
- *  xct_impl::xct_impl(that, type)
- *
- *  Begin a transaction. The transaction id is assigned automatically,
- *  and the xct record is inserted into _xlist.
- *
- *********************************************************************/
-xct_impl::xct_impl(sm_stats_info_t* stats, const tid_t& t,
-		   state_t s, const lsn_t& last_lsn,
-		   const lsn_t& undo_nxt, timeout_in_ms timeout) 
-    :   
-    __stats(stats),
-    __saved_lockid_t(0),
-    __saved_sdesc_cache_t(0),
-    __saved_xct_log_t(0),
+xct_impl::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
+    :
     _tid(t), 
     _timeout(timeout),
     _lock_info(agent_lock_info->take()),    
@@ -245,24 +231,50 @@ xct_impl::xct_impl(sm_stats_info_t* stats, const tid_t& t,
         _global_tid(0),
         _coord_handle(0),
         _read_only(false),
+        _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
+        _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
+        _last_heard_from_coord(0),
+        _xct_ended(0) // for assertions
+{
+    _lock_info->set_tid(_tid);
+    _lock_info->set_lock_level ( convert(cc_alg) );
+    
+    DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
+    DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
+
+    INC_TSTAT(begin_xct_cnt);
+
+}
+
+/*********************************************************************
+ *
+ *  xct_impl::xct_impl(that, type)
+ *
+ *  Begin a transaction. The transaction id is assigned automatically,
+ *  and the xct record is inserted into _xlist.
+ *
+ *********************************************************************/
+xct_impl::xct_impl(xct_core* core, sm_stats_info_t* stats,
+		   const lsn_t& last_lsn, const lsn_t& undo_nxt) 
+    :   
+    __stats(stats),
+    __saved_lockid_t(0),
+    __saved_sdesc_cache_t(0),
+    __saved_xct_log_t(0),
+    _tid(core->_tid), 
         // _first_lsn,
         _last_lsn(last_lsn),
         _undo_nxt(undo_nxt),
-        _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &_1thread_xct),
+        _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &core->_1thread_xct),
         _last_log(0),
         _log_buf(0),
         _log_bytes_rsvd(0),
         _log_bytes_ready(0),
 	_rolling_back(false),
-        _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
-        _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
         _in_compensated_op(0),
-        _last_heard_from_coord(0),
-        _xct_ended(0) // for assertions
+    _core(core)
 {
     w_assert9(tid() <= _nxt_tid);
-
-    _lock_info->set_tid(_tid);
 
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
     _log_buf = new (*logrec_pool) logrec_t; // deleted when xct goes away
@@ -280,13 +292,6 @@ xct_impl::xct_impl(sm_stats_info_t* stats, const tid_t& t,
 
     SetDefaultEscalationThresholds();
 
-    lock_info()->set_lock_level ( convert(cc_alg) );
-    
-    INC_TSTAT(begin_xct_cnt);
-
-    DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
-    DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
-
     if (timeout_c() == WAIT_SPECIFIED_BY_THREAD) {
         // override in this case
         set_timeout(me()->lock_timeout());
@@ -301,6 +306,15 @@ xct_impl::xct_impl(sm_stats_info_t* stats, const tid_t& t,
 }
 
 
+xct_impl::xct_core::~xct_core()
+{
+    w_assert3(_state == xct_ended);
+    delete _global_tid;
+    delete _coord_handle;
+    if(_lock_info) {
+        agent_lock_info->put(_lock_info);
+    }
+}
 /*********************************************************************
  *
  *  xct_impl::~xct_impl()
@@ -315,23 +329,10 @@ xct_impl::~xct_impl()
 
     w_assert9(__stats == 0);
 
-    W_COERCE(acquire_xlist_mutex());
-
-    // FRJ: WARNING: xct_impl::commit has this code as well!
-    _xlink.detach();
-    xct_t* xd = _xlist.last();
-    _oldest_tid = xd ? xd->_tid : _nxt_tid;
-    release_xlist_mutex();
-
-    if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
-	w_assert2(smlevel_0::log);
-	smlevel_0::log->release_space(leftovers);
-    };
-	
+    _teardown(false);
     FUNC(xct_t::~xct_t);
     DBGX( << " ended" );
 
-    w_assert3(_state == xct_ended);
     w_assert3(_in_compensated_op==0);
 
     if (shutdown_clean)  {
@@ -349,15 +350,10 @@ xct_impl::~xct_impl()
 #else
     delete _log_buf;
 #endif
-    delete _global_tid;
-    delete _coord_handle;
 
     // clean up what's stored in the thread
     me()->no_xct(this);
 
-    if(_lock_info) {
-        agent_lock_info->put(_lock_info);
-    }
     if(__saved_lockid_t)  { 
         delete[] __saved_lockid_t; 
         __saved_lockid_t=0; 
@@ -370,8 +366,32 @@ xct_impl::~xct_impl()
         delete __saved_xct_log_t; 
         __saved_xct_log_t=0; 
     }
+    // caller deletes core...
 }
 
+// common code needed by _commit(t_chain) and ~xct_impl()
+void
+xct_impl::_teardown(bool is_chaining) {
+    W_COERCE(acquire_xlist_mutex());
+
+    _xlink.detach();
+    if(is_chaining) {
+        _tid = _core->_tid = _nxt_tid.atomic_incr();
+        _xlist.put_in_order(_that);
+    }
+    
+    // find the new oldest xct
+    xct_t* xd = _xlist.last();
+    _oldest_tid = xd ? xd->_tid : _nxt_tid;
+    release_xlist_mutex();
+
+    if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
+	w_assert2(smlevel_0::log);
+	smlevel_0::log->release_space(leftovers);
+	_log_bytes_rsvd = _log_bytes_ready = 0;
+    };
+	
+}
 
 /*********************************************************************
  *
@@ -391,21 +411,21 @@ xct_impl::set_coordinator(const server_handle_t &h)
     /*
      * Make a copy 
      */
-    if(!_coord_handle) {
-        _coord_handle = new server_handle_t; // deleted when xct goes way
-        if(!_coord_handle) {
+    if(!_core->_coord_handle) {
+        _core->_coord_handle = new server_handle_t; // deleted when xct goes way
+        if(!_core->_coord_handle) {
             W_FATAL(eOUTOFMEMORY);
         }
     }
 
-    *_coord_handle = h;
+    *_core->_coord_handle = h;
 }
 
 const server_handle_t &
 xct_impl::get_coordinator() const
 {
     // caller can copy
-    return *_coord_handle;
+    return *_core->_coord_handle;
 }
 
 /*********************************************************************
@@ -428,8 +448,8 @@ xct_impl::change_state(state_t new_state)
     w_assert2((new_state > _state) || 
             (_state == xct_chaining && new_state == xct_active));
 
-    state_t old_state = _state;
-    _state = new_state;
+    state_t old_state = _core->_state;
+    _core->_state = new_state;
 
     w_list_i<xct_dependent_t,queue_based_lock_t> i(_dependent_list);
     xct_dependent_t* d;
@@ -457,7 +477,7 @@ xct_impl::add_dependent(xct_dependent_t* dependent)
     
     w_assert1(is_1thread_xct_mutex_mine());
     _dependent_list.push(dependent);
-    dependent->xct_state_changed(_state, _state);
+    dependent->xct_state_changed(_core->_state, _core->_state);
     release_1thread_xct_mutex();
     return RCOK;
 }
@@ -536,12 +556,12 @@ xct_impl::prepare()
     w_assert1(_state == xct_active);
 
     // default unless all works ok
-    _vote = vote_abort;
+    _core->_vote = vote_abort;
 
-    _read_only = (_first_lsn == lsn_t::null);
+    _core->_read_only = (_first_lsn == lsn_t::null);
 
-    if(_read_only || forced_readonly()) {
-        _vote = vote_readonly;
+    if(_core->_read_only || forced_readonly()) {
+        _core->_vote = vote_readonly;
         // No need to log prepare record
 #if W_DEBUG_LEVEL > 5
         // This is really a bogus assumption,
@@ -600,7 +620,7 @@ xct_impl::prepare()
     change_state(xct_prepared);
     INC_TSTAT(prepare_xct_cnt);
 
-    _vote = vote_commit;
+    _core->_vote = vote_commit;
     return RCOK;
 }
 
@@ -635,10 +655,10 @@ xct_impl::log_prepared(bool in_chkpt)
     SSMTEST("prepare.unfinished.0");
 
     int total_EX, total_IX, total_SIX, num_extents;
-    if( ! _coord_handle ) {
+    if( ! _core->_coord_handle ) {
                 return RC(eNOHANDLE);
     }
-    rc = log_xct_prepare_st(_global_tid, *_coord_handle);
+    rc = log_xct_prepare_st(_core->_global_tid, *_core->_coord_handle);
     if (rc.is_error()) { RC_AUGMENT(rc); goto done; }
 
     SSMTEST("prepare.unfinished.1");
@@ -935,31 +955,19 @@ xct_impl::_commit(uint4_t flags)
 #endif
         /*
          *  Start a new xct in place
-         *
-         * FRJ: This should really be encapsulated in xct.cpp somehow
-         * -- it was way out of sync with the rest of the world!
          */
-        W_COERCE(_that->acquire_xlist_mutex());
-        _that->_xlink.detach();
-        tid() = nxt_tid().atomic_incr();
-        _that->_xlist.put_in_order(_that);
-        xct_t* xd = _that->_xlist.last();
-        w_assert3(xd);
-        _that->_oldest_tid = xd->_tid;
-        _that->release_xlist_mutex();
-
+	_teardown(true);
         _first_lsn = _last_lsn = _undo_nxt = lsn_t::null;
-        _xct_ended = 0;
+        _core->_xct_ended = 0;
         _last_log = 0;
-        _lock_cache_enable = true;
-
+        _core->_lock_cache_enable = true;
 
         // should already be out of compensated operation
         w_assert3( _in_compensated_op==0 );
 
         me()->attach_xct(_that);
         INC_TSTAT(begin_xct_cnt);
-        _state = xct_chaining; // to allow us to change state back
+        _core->_state = xct_chaining; // to allow us to change state back
         // to active: there's an assert about this where we don't
         // have context to know that it's where we're chaining.
         change_state(xct_active);
@@ -1091,13 +1099,13 @@ xct_impl::enter2pc(const gtid_t &g)
     if(is_extern2pc()) {
         return RC(eEXTERN2PCTHREAD);
     }
-    _global_tid = new gtid_t; //deleted when xct goes away
-    if(!_global_tid) {
+    _core->_global_tid = new gtid_t; //deleted when xct goes away
+    if(!_core->_global_tid) {
         W_FATAL(eOUTOFMEMORY);
     }
     DBG(<<"ente2pc for tid " << tid() 
         << " global tid is " << g);
-    *_global_tid = g;
+    *_core->_global_tid = g;
 
     return RCOK;
 }
@@ -1140,7 +1148,7 @@ xct_impl::dispose()
     W_COERCE( lm->unlock_duration(t_long, true, true) );
     ClearAllStoresToFree();
     ClearAllLoadStores();
-    _state = xct_ended; // unclean!
+    _core->_state = xct_ended; // unclean!
     me()->detach_xct(_that);
     return RCOK;
 }
@@ -1302,7 +1310,7 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
      */
     static u_int const MIN_BYTES_READY = 3*sizeof(logrec_t);
     static u_int const MIN_BYTES_RSVD =  sizeof(logrec_t);
-    if(!_rolling_back && _state == xct_active
+    if(!_rolling_back && _core->_state == xct_active
        && _log_bytes_ready < MIN_BYTES_READY) {
 	if(!log->reserve_space(MIN_BYTES_READY)) {
 	    /*
@@ -1478,7 +1486,7 @@ xct_impl::give_logbuf(logrec_t* l, const page_p *page)
         // log records that write the page are for the format, which
         // is yet to come.
         if(l->type() != logrec_t::t_alloc_file_page) {
-            w_assert2(0); // we shouldn't get here.
+            W_FATAL(eINTERNAL); // we shouldn't get here.
         }
     } else {
         // This log record doesn't use a page.
@@ -1911,11 +1919,11 @@ xct_impl::ClearAllStoresToFree()
     w_assert2(one_thread_attached());
     // acquire_1thread_xct_mutex();
     stid_list_elem_t*        s = 0;
-    while ((s = _storesToFree.pop()))  {
+    while ((s = _core->_storesToFree.pop()))  {
         delete s;
     }
 
-    w_assert3(_storesToFree.is_empty());
+    w_assert3(_core->_storesToFree.is_empty());
     // release_1thread_xct_mutex();
 }
 
@@ -1933,7 +1941,7 @@ xct_impl::FreeAllStoresToFree()
     w_assert2(one_thread_attached());
     // acquire_1thread_xct_mutex();
     stid_list_elem_t*        s = 0;
-    while ((s = _storesToFree.pop()))  {
+    while ((s = _core->_storesToFree.pop()))  {
         W_COERCE( io->free_store_after_xct(s->stid) );
         delete s;
     }
@@ -1945,7 +1953,7 @@ xct_impl::FreeAllStoresToFree()
  * marked for deletion by this xct
  */
 void
-xct_impl::num_extents_marked_for_deletion(base_stat_t &num)
+xct_impl::num_extents_marked_for_deletion(base_stat_t &num) const
 {
     acquire_1thread_xct_mutex();
     stid_list_elem_t*        s = 0;
@@ -1954,7 +1962,7 @@ xct_impl::num_extents_marked_for_deletion(base_stat_t &num)
     base_stat_t j;
 
     {
-    w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_storesToFree);
+    w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_core->_storesToFree);
     while ((s = i.next()))  {
         _stats.Clear();
         W_COERCE( io->get_store_meta_stats(s->stid, _stats) );
@@ -1979,7 +1987,7 @@ xct_impl::PrepareLogAllStoresToFree()
     stid_list_elem_t*              e;
     uint4_t                        num = 0;
     {
-        w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_storesToFree);
+        w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_core->_storesToFree);
         while ((e = i.next()))  {
             stids[num++] = e->stid;
             if (num >= prepare_stores_to_free_t::max)  {
@@ -2000,7 +2008,7 @@ void
 xct_impl::DumpStoresToFree()
 {
     stid_list_elem_t*                e;
-    w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_storesToFree);
+    w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_core->_storesToFree);
 
     acquire_1thread_xct_mutex();
     cout << "list of stores to free";
@@ -2084,14 +2092,14 @@ xct_impl::ConvertAllLoadStoresToRegularStores()
     VolidCnt cnt;
 
     {
-        w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_loadStores);
+        w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_core->_loadStores);
 
         while ((s = i.next()))  {
             cnt.Increment(s->stid.vol);
         }
     }
 
-    while ((s = _loadStores.pop()))  {
+    while ((s = _core->_loadStores.pop()))  {
         bool sync_volume = (cnt.Decrement(s->stid.vol) == 0);
         store_flag_t f;
         W_DO( io->get_store_flags(s->stid, f));
@@ -2114,7 +2122,7 @@ xct_impl::ClearAllLoadStores()
 {
     w_assert2(one_thread_attached());
     stid_list_elem_t*        s = 0;
-    while ((s = _loadStores.pop()))  {
+    while ((s = _core->_loadStores.pop()))  {
         delete s;
     }
 
@@ -2155,7 +2163,7 @@ xct_impl::attach_thread()
         return RC(eINQUARK);
     }
 #endif
-    int nt=atomic_add_nv(_threads_attached, 1);
+    int nt=atomic_add_nv(_core->_threads_attached, 1);
     if(nt > 1) {
         INC_TSTAT(mpl_attach_cnt);
     }
@@ -2169,7 +2177,7 @@ void
 xct_impl::detach_thread() 
 {
     acquire_1thread_xct_mutex();
-    atomic_add(_threads_attached, -1);
+    atomic_add(_core->_threads_attached, -1);
     w_assert2(_threads_attached >=0);
     me()->no_xct(_that);
 
@@ -2183,7 +2191,7 @@ xct_impl::lockblock(timeout_in_ms timeout)
 // Another thread in our xct is blocking. We're going to have to
 // wait on another resource, until our partner thread unblocks,
 // and then try again.
-    CRITICAL_SECTION(bcs, _waiters_mutex);
+    CRITICAL_SECTION(bcs, _core->_waiters_mutex);
     w_rc_t rc;
     if(num_threads() > 1) {
         DBGTHRD(<<"blocking on condn variable");
@@ -2194,11 +2202,11 @@ xct_impl::lockblock(timeout_in_ms timeout)
         // _waiters_cond was an scond_t:
         if(timeout == WAIT_IMMEDIATE)  return RC(sthread_t::stTIMEOUT);
         if(timeout == WAIT_FOREVER)  {
-            DO_PTHREAD(pthread_cond_wait(&_waiters_cond, &_waiters_mutex));
+            DO_PTHREAD(pthread_cond_wait(&_core->_waiters_cond, &_core->_waiters_mutex));
         } else {
             struct timespec when;
             sthread_t::timeout_to_timespec(timeout, when);
-            DO_PTHREAD_TIMED(pthread_cond_timedwait(&_waiters_cond, &_waiters_mutex, &when));
+            DO_PTHREAD_TIMED(pthread_cond_timedwait(&_core->_waiters_cond, &_core->_waiters_mutex, &when));
         }
 
         DBGTHRD(<<"not blocked on cond'n variable");
@@ -2216,9 +2224,9 @@ xct_impl::lockunblock()
 // This thread in our xct is no longer blocking. Wake up anyone
 // who was waiting on this other resource because I was 
 // blocked in the lock manager.
-    CRITICAL_SECTION(bcs, _waiters_mutex);
+    CRITICAL_SECTION(bcs, _core->_waiters_mutex);
     DBGTHRD(<<"signalling waiters on cond'n variable");
-    DO_PTHREAD(pthread_cond_broadcast(&_waiters_cond));
+    DO_PTHREAD(pthread_cond_broadcast(&_core->_waiters_cond));
     DBGTHRD(<<"signalling cond'n variable done");
 }
 
@@ -2240,15 +2248,15 @@ bool
 xct_impl::one_thread_attached() const
 {
     // wait for the checkpoint to finish
-    if( _threads_attached > 1) {
+    if( _core->_threads_attached > 1) {
         chkpt_serial_m::trx_acquire();
-        if( _threads_attached > 1) {
+        if( _core->_threads_attached > 1) {
             chkpt_serial_m::trx_release();
 #if W_DEBUG_LEVEL > 2
             fprintf(stderr, 
             "Fatal VAS or SSM error: %s %d %s %d.%d \n",
             "Only one thread allowed in this operation at any time.",
-            _threads_attached, 
+            _core->_threads_attached, 
             "threads are attached to xct",
             tid().get_hi(), tid().get_lo()
             );
@@ -2268,7 +2276,7 @@ xct_impl::is_1thread_log_mutex_mine() const
 bool
 xct_impl::is_1thread_xct_mutex_mine() const
 {
-  return _1thread_xct.is_mine(&_1thread_xct_me);
+  return _core->_1thread_xct.is_mine(&_1thread_xct_me);
 }
 
 extern "C" void xctstophere(int c);
@@ -2356,7 +2364,7 @@ xct_impl::acquire_1thread_log_mutex()
 }
 
 void
-xct_impl::acquire_1thread_xct_mutex() // default: true
+xct_impl::acquire_1thread_xct_mutex() const // default: true
 {
     if(is_1thread_xct_mutex_mine()) {
         return;
@@ -2364,20 +2372,20 @@ xct_impl::acquire_1thread_xct_mutex() // default: true
     // the queue_based_lock_t implementation can tell if it was
     // free or held; the w_pthread_lock_t cannot,
     // and always returns false.
-    bool was_contended = _1thread_xct.acquire(&_1thread_xct_me);
+    bool was_contended = _core->_1thread_xct.acquire(&_1thread_xct_me);
     if(was_contended) 
         INC_TSTAT(await_1thread_xct);
     DBGX(    << " acquired xct mutex");
 }
 
 void
-xct_impl::release_1thread_xct_mutex()
+xct_impl::release_1thread_xct_mutex() const
 {
     w_assert3(is_1thread_xct_mutex_mine());
 
     DBGX( << " release xct mutex");
 
-    _1thread_xct.release(_1thread_xct_me);
+    _core->_1thread_xct.release(_1thread_xct_me);
 }
 
 void

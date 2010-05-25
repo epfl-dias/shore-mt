@@ -709,6 +709,149 @@ public:
         tid_t&                   tid,
         timeout_in_ms            timeout = WAIT_SPECIFIED_BY_THREAD);
 
+    /**\brief Fork the designated transaction's log stream and attach
+     *to the new one.
+     *
+     * \ingroup SSMXCT
+     *
+     * \details
+     *
+     * Somewhat misnamed for historical reaons, the xct_t returned by
+     * begin_xct actually represents one (and the only, at first) \e
+     * log \e stream of the transaction. This log stream is not
+     * reentrant and must be duplicated in order for other threads to
+     * attach to the transaction. The storage manager considers a
+     * transaction to be multithreaded at any time multiple log
+     * streams exist, regardless of whether threads are currently
+     * attached to them. 
+     *
+     * Each log stream is independent of the others, and each may have
+     * its own anchor and savepoint(s); locks are still shared among
+     * all of a transaction's log streams. All log streams are
+     * equivalent in the sense that ecah can perform any operation the
+     * original could. Any stream can fork new streams or end the
+     * transaction (assuming no others exist), and the original stream
+     * can be closed (assuming others exist).
+     *
+     * Log streams may migrate freely between threads, and
+     * attaching/detaching them is a lightweight operation. However,
+     * only one thread may use a stream at a time, and Bad Things Will
+     * Happen (tm) if two threads use one log stream
+     * simultaneously. Release builds of the SM detect simultaneous
+     * attachments on a best-effort basis only, while debug builds
+     * enforce these conditions strictly.
+     *
+     * One risk of allowing multiple log streams is the possibility
+     * for them to become "tangled" with respect to savepoints. For
+     * example, all streams which access the same value must roll back
+     * if any does, and rolling back a stream to undo one operation
+     * may roll back other, unrelated work, as a side effect. For this
+     * reason, savepoint operations may not occur when multiple
+     * streams are present, though multiple streams may work in parallel
+     * before, during, and after an active savepoint. All work on all
+     * streams performed during a savepoint can thus be rolled back to
+     * reach a known, consistent state.
+     *
+     * \e Notes
+     *
+     * In order to reduce overheads the system prefers to reopen
+     * previously-closed log streams rather than creating new ones. As
+     * a result the cost of forking log streams is more closely tied
+     * to the maximum number open at any instant rather than the total
+     * number of calls to fork_log_stream.
+     *
+     * \e Restrictions
+     *
+     * At most one thread may attach to a log stream at a time, and
+     * attempts to attach a second thread to a log stream fail with
+     * TWOTHREAD. The converse also holds: attaching a second log
+     * stream to a thread fails with INTRANS. 
+     *
+     * At least one log stream must exist at all times, and attempts
+     * to close the last one will fail with ONETHREAD.
+     *
+     * Some operations fail with TWOTHREAD if more than one log stream
+     * exists. Notable examples include commit_xct/abort_xct,
+     * creation/deletion of stores, use of quarks, and taking/rolling
+     * back savepoints. Any stream is equally suitable for performing
+     * these operations (not just the one returned by xct_begin) as
+     * long as all others have been closed. Further, these operations
+     * do not preclude the existence of multiple streams at other
+     * times (including while savepoints or quarks are active).
+     *
+     * Some features cannot be combined with multithreaded
+     * transactions at all. The main example (at this point) is
+     * 2PC. Attempts to use these features after a call to
+     * fork_log_stream will fail with TWOTHREAD (even if all others
+     * have since been closed). Similarly, attempts to fork the log
+     * stream after calling enter_2pc fail with IN2PC.
+     */
+    static rc_t		 fork_log_stream(xct_t* forkme);
+
+    /**\brief Detach from, and close, the attached log stream
+     *\ingroup SSMXCT
+     *
+     * \details
+     *
+     * When multiple log streams are created by fork_log_stream, all
+     * but one must be closed before the transaction can end. In
+     * addition, unwanted log streams may be closed at any
+     * time. Attempting to close the last log stream fails with
+     * ONETHREAD.
+     */
+    static rc_t		close_log_stream();
+
+    /**\brief Instruments the current thread with the stats object
+     * provided.
+     *
+     *\details
+     *
+     * The storage manager tracks a wide variety of statistics which
+     * are ultimately collected on a per-thread basis and eventually
+     * aggregated centrally. Statistics objects are not reentrant and
+     * should only be assigned to one thread at a time.
+     *
+     * Statistics are always cleared when attached and snapped when
+     * detached from their owner, but the system never deletes
+     * user-supplied objects.
+     *
+     * There are two ways to track statistics:
+     *
+     * 1. Log stream-assigned. The user explicitly attaches a
+     *    statistics object to a log stream at creation time
+     *    (xct_begin attaches stats to the starting stream). Closing
+     *    the stream or committing the transaction detaches the stats
+     *    automatically. This method may impose high overhead for
+     *    short transactions.
+     *
+     * 2. Thread-assigned. The user explicitly attaches a statistics
+     *    object to an agent thread (with no transaction
+     *    attached). All transactions which subsequently attach to the
+     *    thread will use the thread's object if they do not have
+     *    their own. Stats are detached automatically if the thread
+     *    terminates.
+     *
+     * Statistics cannot be detached while a transaction is attached
+     * to the calling thread (failing with INTRANS). The system
+     * prefers stream-assigned over thread-assigned stats if both are
+     * available; if neither is available the system creates a
+     * stream-assigned stats and deletes it when the stream closes.
+     *
+     * This function silently replaces whatever stats were previously
+     * attached.
+     */
+    static rc_t		attach_stats(sm_stats_info_t* s);
+
+    /*\brief detaches user stats from the current thread. 
+     *
+     * \details
+     *
+     * No effect if no stats were previously attached.
+     *
+     * Errors: INTRANS if a transaction is currently attached.
+     */      
+    static rc_t		detach_stats();
+
     /**\brief Make the attached transaction a thread of a distributed transaction.
      *\ingroup SSM2PC
      *

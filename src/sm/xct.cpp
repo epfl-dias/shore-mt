@@ -180,11 +180,16 @@ tid_t                                xct_t::_oldest_tid = tid_t::null;
 #define USE_BLOCK_ALLOC_FOR_XCT_IMPL  1
 #if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
 DECLARE_TLS(block_alloc<xct_t>, xct_pool);
+DECLARE_TLS(block_alloc<xct_t::xct_core>, core_pool);
 #define NEW_XCT new (*xct_pool)
 #define DELETE_XCT(xd) xct_pool->destroy_object(xd)
+#define NEW_CORE new (*core_pool)
+#define DELETE_CORE(c) core_pool->destroy_object(c)
 #else
 #define NEW_XCT new
 #define DELETE_XCT(xd) delete xd
+#define NEW_CORE new
+#define DELETE_CORE(c) delete c
 #endif
 
 #define i_this this
@@ -194,9 +199,9 @@ xct_t::new_xct(
         sm_stats_info_t* stats, 
         timeout_in_ms timeout)
 {
-    xct_t* xd = NEW_XCT xct_t(stats, _nxt_tid.atomic_incr(),
-			       xct_active, lsn_t::null,
-			      lsn_t::null, timeout);
+    xct_core* core = NEW_CORE xct_core(_nxt_tid.atomic_incr(),
+				       xct_active, timeout);
+    xct_t* xd = NEW_XCT xct_t(core, stats, lsn_t(), lsn_t());
     me()->attach_xct(xd);
     return xd;
 }
@@ -208,7 +213,8 @@ xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
 
     // Uses user(recovery)-provided tid
     _nxt_tid.atomic_assign_max(t);
-    xct_t* xd = NEW_XCT xct_t(0, t, s, last_lsn, undo_nxt, timeout);
+    xct_core* core = NEW_CORE xct_core(t, s, timeout);
+    xct_t* xd = NEW_XCT xct_t(core, 0, last_lsn, undo_nxt);
     
     /// Don't attach
     w_assert1(me()->xct() == 0);
@@ -218,7 +224,9 @@ xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
 void
 xct_t::destroy_xct(xct_t* xd) 
 {
+    xct_core* core = xd->_core;
     DELETE_XCT(xd);
+    DELETE_CORE(core);
 }
 
 #if W_DEBUG_LEVEL > 2
@@ -381,6 +389,15 @@ xct_t::look_up(const tid_t& tid)
     return 0;
 }
 
+xct_lock_info_t*
+xct_t::lock_info() const {
+    return _core->_lock_info;
+}
+
+timeout_in_ms
+xct_t::timeout_c() const {
+    return _core->_timeout;
+}
 
 /*********************************************************************
  *
@@ -487,13 +504,13 @@ xct_t::query_prepared(int &numtids)
 int
 xct_t::num_threads()
 {
-    return _threads_attached;
+    return _core->_threads_attached;
 }
 
 void
 xct_t::force_nonblocking()
 {
-    _lock_info->set_nonblocking();
+    lock_info()->set_nonblocking();
 }
 
 rc_t
@@ -519,7 +536,7 @@ xct_t::chain(bool lazy)
 bool
 xct_t::lock_cache_enabled() 
 {
-    bool volatile* result = &_lock_cache_enable;
+    bool volatile* result = &_core->_lock_cache_enable;
     return *result;
 }
 
@@ -528,7 +545,7 @@ xct_t::set_lock_cache_enable(bool enable)
 {
     bool result;
     membar_exit();
-    result = atomic_swap_8((unsigned char*) &_lock_cache_enable, enable);
+    result = atomic_swap_8((unsigned char*) &_core->_lock_cache_enable, enable);
     membar_enter();
     return result;
 }
@@ -844,7 +861,7 @@ void
 xct_t::force_readonly() 
 {
     acquire_1thread_xct_mutex();
-    _forced_readonly = true;
+    _core->_forced_readonly = true;
     release_1thread_xct_mutex();
 }
 
@@ -891,12 +908,7 @@ xct_t::dump(ostream &out)
 void                        
 xct_t::set_timeout(timeout_in_ms t) 
 { 
-    _timeout = t; 
-}
-void                         
-xct_t::num_extents_marked_for_deletion( base_stat_t &num) const
-{
-    i_this->num_extents_marked_for_deletion(num);
+    _core->_timeout = t; 
 }
 
 w_rc_t 

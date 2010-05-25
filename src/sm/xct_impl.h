@@ -101,7 +101,6 @@ class xct_impl : public smlevel_1
 private:
     // TODO: GRoT! highly redundant and confusing, but less code-ripping required for the initial code change
     #define _that this
-    tid_t&    nxt_tid() { return _that->_nxt_tid; }
 
     friend class block_alloc<xct_t>;
 private:
@@ -145,9 +144,6 @@ private:
     rc_t            ConvertAllLoadStoresToRegularStores();
     void            ClearAllLoadStores();
 
-    void             num_extents_marked_for_deletion(
-                    base_stat_t &num);
-
  public:
     ostream &       dump_locks(ostream &) const;
 
@@ -169,41 +165,105 @@ private:
     w_rc_t               _flush_logbuf(bool sync=false);
     w_rc_t	       _sync_logbuf();
 
+    void 		_teardown(bool is_chaining);
+
+public:
+    /* A nearly-POD struct whose only job is to enable a N:1
+       relationship between the log streams of a transaction (xct_t)
+       and its core functionality such as locking and 2PC (xct_core).
+
+       Any transaction state which should not eventually be replicated
+       per-thread goes here. Usually such state is protected by the
+       1-thread-xct-mutex.
+
+       Static data members can stay in xct_t, since they're not even
+       duplicated per-xct, let alone per-thread.
+     */
+    struct xct_core
+    {
+	xct_core(tid_t const &t, state_t s, timeout_in_ms timeout);
+	~xct_core();
+
+	//-- from xct.h ----------------------------------------------------
+	tid_t                  _tid;
+	timeout_in_ms                _timeout; // default timeout value for lock reqs
+	xct_lock_info_t*             _lock_info;
+
+	/* 
+	 * _lock_cache_enable is protected by its own mutex, because
+	 * it is used from the lock manager, and the lock mgr is used
+	 * by the volume mgr, which necessarily holds the xct's 1thread_log
+	 * mutex.  Thus, in order to avoid mutex-mutex deadlocks,
+	 * we have a mutex to cover _lock_cache_enable that is used
+	 * for NOTHING but reading and writing this datum.
+	 */
+	bool                          _lock_cache_enable;
+	
+	// the 1thread_xct mutex is used to ensure that only one thread
+	// is using the xct structure on behalf of a transaction 
+	// TBD whether this should be a spin- or block- lock:
+	queue_based_lock_t              _1thread_xct;
+
+	//-- from xct_impl.h -----------------------------------------------
+	
+	// to be manipulated only by smthread funcs
+	volatile int       _threads_attached; 
+
+	// used in lockblock, lockunblock, by lock_core 
+	pthread_cond_t            _waiters_cond;  // paired with _waiters_mutex
+	mutable pthread_mutex_t   _waiters_mutex;  // paired with _waiters_cond
+
+	state_t             _state;
+	bool                _forced_readonly;
+	vote_t              _vote;
+	gtid_t *            _global_tid; // null if not participating
+	server_handle_t*    _coord_handle; // ignored for now
+	bool                _read_only;
+
+	/*
+	 * List of stores which this xct will free after completion
+	 * Protected by _1thread_xct.
+	 */
+	w_list_t<stid_list_elem_t,queue_based_lock_t>    _storesToFree;
+
+	/*
+	 * List of load stores:  converted to regular on xct commit,
+	 *                act as a temp files during xct
+	 */
+	w_list_t<stid_list_elem_t,queue_based_lock_t>    _loadStores;
+
+	// for two-phase commit:
+	time_t            _last_heard_from_coord;
+
+	volatile int      _xct_ended; // used for self-checking (assertions) only
+    };
+    
 private: // all data members private
-                // to be manipulated only by smthread funcs
-    volatile int       _threads_attached; 
-                    
     // the 1thread_xct mutex is used to ensure that only one thread
     // is using the xct structure on behalf of a transaction 
     // It protects a number of things, including the xct_dependents list
     static const char* _1thread_xct_name; // name of xct mutex
 
-    // used in lockblock, lockunblock, by lock_core 
-    pthread_cond_t            _waiters_cond;  // paired with _waiters_mutex
-    mutable pthread_mutex_t   _waiters_mutex;  // paired with _waiters_cond
-
+#warning GRoT (whole point of xct streams)
     // the 1thread_log mutex is used to ensure that only one thread
     // is logging on behalf of this xct 
     mutable queue_based_lock_t   _1thread_log;
     static const char* _1thread_log_name; // name of log mutex
 
-    state_t             _state;
-    bool                _forced_readonly;
-    vote_t              _vote;
-    gtid_t *            _global_tid; // null if not participating
-    server_handle_t*    _coord_handle; // ignored for now
-    bool                _read_only;
     lsn_t               _first_lsn;
     lsn_t               _last_lsn;
     lsn_t               _undo_nxt;
 
     // list of dependents: protected by _1thread_xct
+    // FRJ: this will become per-stream and not need the mutex any more
     w_list_t<xct_dependent_t,queue_based_lock_t>    _dependent_list;
 
     /*
      *  lock request stuff
      */
+    static 
     lockid_t::name_space_t    convert(concurrency_t cc);
+    static
     concurrency_t             convert(lockid_t::name_space_t n);
 
     /*
@@ -219,18 +279,6 @@ private: // all data members private
     fileoff_t		_log_bytes_ready; // available for insert/reservations
     bool		_rolling_back;
 
-    /*
-     * List of stores which this xct will free after completion
-     * Protected by _1thread_xct.
-     */
-    w_list_t<stid_list_elem_t,queue_based_lock_t>    _storesToFree;
-
-    /*
-     * List of load stores:  converted to regular on xct commit,
-     *                act as a temp files during xct
-     */
-    w_list_t<stid_list_elem_t,queue_based_lock_t>    _loadStores;
-
 
      volatile int            _in_compensated_op; 
         // in the midst of a compensated operation
@@ -238,10 +286,8 @@ private: // all data members private
      lsn_t            _anchor;
         // the anchor for the outermost compensated op
 
-     // for two-phase commit:
-     time_t            _last_heard_from_coord;
+    xct_core*		_core;
 
-     volatile int      _xct_ended; // used for self-checking (assertions) only
 #if 0
 };
 #else
@@ -259,7 +305,7 @@ inline
 xct_impl::state_t
 xct_impl::state() const
 {
-    return _state;
+    return _core->_state;
 }
 
 
@@ -312,14 +358,14 @@ xct_impl::GetEscalationThresholdsArray()
 inline void xct_impl::AddStoreToFree(const stid_t& stid)
 {
     acquire_1thread_xct_mutex();
-    _storesToFree.push(new stid_list_elem_t(stid));
+    _core->_storesToFree.push(new stid_list_elem_t(stid));
     release_1thread_xct_mutex();
 }
 
 inline void xct_impl::AddLoadStore(const stid_t& stid)
 {
     acquire_1thread_xct_mutex();
-    _loadStores.push(new stid_list_elem_t(stid));
+    _core->_loadStores.push(new stid_list_elem_t(stid));
     release_1thread_xct_mutex();
 }
 
@@ -327,7 +373,7 @@ inline
 vote_t
 xct_impl::vote() const
 {
-    return _vote;
+    return _core->_vote;
 }
 
 inline
@@ -383,7 +429,7 @@ inline
 bool
 xct_impl::forced_readonly() const
 {
-    return _forced_readonly;
+    return _core->_forced_readonly;
 }
 
 /*********************************************************************
@@ -400,7 +446,7 @@ xct_impl::is_extern2pc()
 const
 {
     // true if is a thread of global tx
-    return _global_tid != 0;
+    return _core->_global_tid != 0;
 }
 
 
@@ -408,7 +454,7 @@ inline
 const gtid_t*           
 xct_impl::gtid() const 
 {
-    return _global_tid;
+    return _core->_global_tid;
 }
 
 #ifdef XCT_IMPL_C
