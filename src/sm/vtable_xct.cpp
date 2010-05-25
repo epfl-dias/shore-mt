@@ -39,16 +39,13 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 #include <new>
-#define SM_LEVEL 0
 #include "sm_int_1.h"
 #include "tls.h"
-#include "block_alloc.h"
 
-#include "lock.h"
-#include "xct_impl.h"
 #include "sm_escalation.h"
 #include "lock_x.h"
 #include "xct_dependent.h"
+#include "xct_impl.h"
 
 #include <vtable.h>
 #include <sm_vtable_enum.h>
@@ -138,7 +135,7 @@ xct_t::vtable_collect(vtable_row_t &t)
 
     // xct_forced_readonly_attr
     t.set_string(xct_forced_readonly_attr, 
-            (forced_readonly()?"true":"false"));
+            (i_this->forced_readonly()?"true":"false"));
 }
 
 void        

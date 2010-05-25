@@ -2184,7 +2184,7 @@ ss_m::_begin_xct(sm_stats_info_t *_stats, tid_t& tid, timeout_in_ms timeout)
     xct_t* x;
     {
         CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
-        x = xct_t::new_xct(_stats, timeout);
+        x = new xct_t(_stats, timeout);
     }
 
     if (!x) 
@@ -2221,17 +2221,17 @@ ss_m::_prepare_xct(sm_stats_info_t*& _stats, vote_t &v)
         SSMTEST("prepare.readonly.1");
         W_DO( x.commit() );
         SSMTEST("prepare.readonly.2");
-	xct_t::destroy_xct(&x);
+        delete &x;
         w_assert3(xct() == 0);
     } else if(v == vote_abort) {
         SSMTEST("prepare.abort.1");
         W_DO( x.abort() );
         SSMTEST("prepare.abort.2");
-	xct_t::destroy_xct(&x);
+        delete &x;
         w_assert3(xct() == 0);
     } else if(v == vote_bad) {
         W_DO( x.abort() );
-	xct_t::destroy_xct(&x);
+        delete &x;
         w_assert3(xct() == 0);
     }
     return RCOK;
@@ -2258,7 +2258,7 @@ ss_m::_commit_xct(sm_stats_info_t*&             _stats, bool lazy)
     W_DO( x.commit(lazy) );
 
     if(x.is_instrumented()) _stats = x.steal_stats();
-    xct_t::destroy_xct(&x);
+    delete &x;
     w_assert3(xct() == 0);
 
     return RCOK;
@@ -2382,7 +2382,7 @@ ss_m::_abort_xct(sm_stats_info_t*&             _stats)
     W_DO( x.abort(true /* save _stats structure */) );
     _stats = (x.is_instrumented() ? x.steal_stats() : 0);
 
-    xct_t::destroy_xct(&x);
+    delete &x;
     w_assert3(xct() == 0);
 
     return RCOK;
@@ -2532,7 +2532,8 @@ ss_m::_create_vol(const char* dev_name, const lvid_t& lvid,
     DBG(<<"got new vid " << tmp_vid 
         << " mounting " << dev_name);
     W_DO(io->mount(dev_name, tmp_vid, apply_fake_io_latency, fake_disk_latency));
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed
+    xct_t xct;   // start a short transaction
+    xct_auto_abort_t xct_auto(&xct); // abort if not completed
     {
         W_DO(dir->create_dir(tmp_vid));
     }
@@ -2559,7 +2560,8 @@ ss_m::_create_vol(const char* dev_name, const lvid_t& lvid,
         stid_t root_iid;
         W_DO(vol_root_index(tmp_vid, root_iid));
         sdesc_t* sd;
-        xct_auto_abort_t xct_auto; // start a tx, abort if not completed
+        xct_t xct;   // start a short transaction
+        xct_auto_abort_t xct_auto(&xct); // abort if not completed
 
         W_DO(lm->lock(tmp_vid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
 

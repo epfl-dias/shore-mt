@@ -228,12 +228,12 @@ restart_m::recover(lsn_t master)
      * reallocated.
      */
     if (found_xct_freeing_space)  {
-        xct_t*        xd = xct_t::new_xct();
+        xct_t*        xd = new xct_t();
         w_assert1(xd);
         smlevel_0::errlog->clog << info_prio << "Freeing stores before undo ..." << flushl;
         W_COERCE( io_m::free_stores_during_recovery(t_store_freeing_exts) );
         W_COERCE( xd->commit(false) );
-	xct_t::destroy_xct(xd);
+        delete xd;
     }
 
 
@@ -252,14 +252,14 @@ restart_m::recover(lsn_t master)
      * done freeing space.  these files are destroyed here.
      */
     if (found_xct_freeing_space)  {
-        xct_t*        xd = xct_t::new_xct();
+        xct_t*        xd = new xct_t();
         w_assert1(xd);
         smlevel_0::errlog->clog << info_prio << "Freeing stores ..." << flushl;
         W_COERCE( io_m::free_stores_during_recovery(t_deleting_store) );
         smlevel_0::errlog->clog << info_prio << "Freeing extents ..." << flushl;
         W_COERCE( io_m::free_exts_during_recovery() );
         W_COERCE( xd->commit(false) );
-	xct_t::destroy_xct(xd);
+        delete xd;
     }
 
     smlevel_0::errlog->clog << info_prio << "Oldest active transaction is " 
@@ -388,7 +388,7 @@ restart_m::analysis_pass(
          */
         if ((r.tid() != tid_t::null) && ! (xd = xct_t::look_up(r.tid()))) {
             DBG(<<"analysis: inserting tx " << r.tid() << " active ");
-            xd = xct_t::new_xct(r.tid(), xct_t::xct_active, lsn, r.prev());
+            xd = new xct_t(r.tid(), xct_t::xct_active, lsn, r.prev());
             w_assert1(xd);
             xct_t::update_youngest_tid(r.tid());
         }
@@ -461,7 +461,7 @@ restart_m::analysis_pass(
                     xct_t* xd = xct_t::look_up(dp->xrec[i].tid);
                     if (!xd) {
                         if (dp->xrec[i].state != xct_t::xct_ended)  {
-                            xd = xct_t::new_xct(dp->xrec[i].tid,
+                            xd = new xct_t(dp->xrec[i].tid,
                                            dp->xrec[i].state,
                                            dp->xrec[i].last_lsn,
                                            dp->xrec[i].undo_nxt);

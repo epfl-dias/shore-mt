@@ -53,13 +53,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #ifndef XCT_H
 #define XCT_H
 
-/* this file is imported three different ways...
-
-   1. By normal SM/VAS components. Everything gets used
-   2. By xct_impl.h. Use everything up to but not including the '}' for xct_t
-   3. By xct_impl.h again. Use everything not included the first time
- */
-#if !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_1)
 #include "w_defines.h"
 
 /*  -- do not edit anything above this line --   </std-header>*/
@@ -70,9 +63,26 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 class xct_dependent_t;
 
+/**\brief Tells whether the log is on or off for this xct at this moment.
+ * \details
+ * This is used internally for turning on & off the log during 
+ * top-level actions.
+ */
+class xct_log_t : public smlevel_1 {
+private:
+    //per-thread-per-xct info
+    bool         _xct_log_off;
+public:
+    NORET        xct_log_t(): _xct_log_off(false) {};
+    bool         xct_log_is_off() { return _xct_log_off; }
+    void         set_xct_log_off() { _xct_log_off = true; }
+    void         set_xct_log_on() { _xct_log_off = false; }
+};
+
 class lockid_t; // forward
 class sdesc_cache_t; // forward
 class xct_log_t; // forward
+class xct_impl; // forward
 class xct_i; // forward
 class restart_m; // forward
 class lock_m; // forward
@@ -88,6 +98,7 @@ class smthread_t; // forward
 
 class xct_t : public smlevel_1 {
     friend class xct_i;
+    friend class xct_impl; 
     friend class smthread_t;
     friend class restart_m;
     friend class lock_m;
@@ -105,33 +116,17 @@ public:
     typedef xct_state_t         state_t;
 
 public:
-
-    static
-    xct_t*                        new_xct(
+    NORET                        xct_t(
         sm_stats_info_t*             stats = 0,  // allocated by caller
         timeout_in_ms                timeout = WAIT_SPECIFIED_BY_THREAD);
-    
-    static
-    xct_t*                       new_xct(
+    NORET                       xct_t(
         const tid_t&                 tid, 
         state_t                      s, 
         const lsn_t&                 last_lsn,
         const lsn_t&                 undo_nxt,
         timeout_in_ms                timeout = WAIT_SPECIFIED_BY_THREAD);
-    static
-    void                        destroy_xct(xct_t* xd);
-
-    struct xct_core; // for block_alloc use only...
-private:
-    NORET                        xct_t(
-	xct_core*		     core,
-        sm_stats_info_t*             stats,  // allocated by caller
-        const lsn_t&                 last_lsn,
-        const lsn_t&                 undo_nxt);
     // NORET                    xct_t(const logrec_t& r);
     NORET                       ~xct_t();
-
-public:
 
     friend ostream&             operator<<(ostream&, const xct_t&);
 
@@ -139,10 +134,16 @@ public:
     void                        vtable_collect(vtable_row_t &);
     static void                 vtable_collect_names(vtable_row_t &);
 
+    NORET                       operator bool() const {
+                                    return state() != xct_stale && this != 0;
+                                }
+ 
     state_t                     state() const;
     void                        set_timeout(timeout_in_ms t) ;
-
-    timeout_in_ms               timeout_c() const;
+    inline
+    timeout_in_ms               timeout_c() const { 
+                                    return  _timeout; 
+                                }
 
     /*  
      * for 2pc: internal, external
@@ -240,7 +241,10 @@ public:
     //
     //        logging functions -- used in logstub_gen.cpp only, so it's inlined here:
     //
-    bool                        is_log_on() const;
+    bool                        is_log_on() const {
+                                    return (me()->xct_log()->xct_log_is_off()
+                                            == false);
+                                }
     rc_t                        get_logbuf(logrec_t*&, const page_p *p = 0);
     rc_t                        give_logbuf(logrec_t*, const page_p *p = 0);
 
@@ -324,7 +328,7 @@ protected:
     rc_t                          obtain_one_lock(lock_mode_t mode, 
                                         const lockid_t &l); 
 
-    xct_lock_info_t*              lock_info() const;
+    xct_lock_info_t*              lock_info() const { return _lock_info; }
 
 public:
     // XXX this is only for chkpt::take().  This problem needs to
@@ -371,15 +375,31 @@ private:
 
     static tid_t                 _nxt_tid;// only safe for pre-emptive threads on 64-bit platforms
     static tid_t                 _oldest_tid;
-    
-    // NB: must replicate because _xlist keys off it...
-    // NB: can't be const because we might chain...
-    tid_t                  _tid;
+
+    const tid_t                  _tid;
+    timeout_in_ms                _timeout; // default timeout value for lock reqs
+    xct_impl *                   i_this;
+    xct_lock_info_t*             _lock_info;
+
+    /* 
+     * _lock_cache_enable is protected by its own mutex, because
+     * it is used from the lock manager, and the lock mgr is used
+     * by the volume mgr, which necessarily holds the xct's 1thread_log
+     * mutex.  Thus, in order to avoid mutex-mutex deadlocks,
+     * we have a mutex to cover _lock_cache_enable that is used
+     * for NOTHING but reading and writing this datum.
+     */
+    bool                          _lock_cache_enable;
+
+    // the 1thread_xct mutex is used to ensure that only one thread
+    // is using the xct structure on behalf of a transaction 
+    // TBD whether this should be a spin- or block- lock:
+    queue_based_lock_t              _1thread_xct;
+
 public:
-    void                         acquire_1thread_xct_mutex() const; // serialize
-    void                         release_1thread_xct_mutex() const; // concurrency ok
-#endif // !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_1)
-#if !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_2)
+    void                         acquire_1thread_xct_mutex(); // serialize
+    void                         release_1thread_xct_mutex(); // concurrency ok
+
 };
 
 /*
@@ -395,22 +415,6 @@ public:
         return RC_AUGMENT(__e); \
     } \
 }
-
-/**\brief Tells whether the log is on or off for this xct at this moment.
- * \details
- * This is used internally for turning on & off the log during 
- * top-level actions.
- */
-class xct_log_t : public smlevel_1 {
-private:
-    //per-thread-per-xct info
-    bool         _xct_log_off;
-public:
-    NORET        xct_log_t(): _xct_log_off(false) {};
-    bool         xct_log_is_off() { return _xct_log_off; }
-    void         set_xct_log_off() { _xct_log_off = true; }
-    void         set_xct_log_on() { _xct_log_off = false; }
-};
 
 class xct_log_switch_t : public smlevel_0 {
     /*
@@ -442,11 +446,6 @@ public:
         }
     }
 };
-
-inline
-bool xct_t::is_log_on() const {
-    return (me()->xct_log()->xct_log_is_off() == false);
-}
 
 /* XXXX This is somewhat hacky becuase I am working on cleaning
    up the xct_i xct iterator to provide various levels of consistency.
@@ -504,7 +503,7 @@ private:
 // apply to local volumes only.
 class xct_auto_abort_t : public smlevel_1 {
 public:
-    xct_auto_abort_t() : _xct(xct_t::new_xct()) {}
+    xct_auto_abort_t(xct_t* xct) : _xct(xct) {}
     ~xct_auto_abort_t() {
         switch(_xct->state()) {
         case smlevel_1::xct_ended:
@@ -516,7 +515,6 @@ public:
         default:
             W_FATAL(eINTERNAL);
         }
-	xct_t::destroy_xct(_xct);
     }
     rc_t commit() {
         // These are only for local txs
@@ -529,8 +527,6 @@ public:
 private:
     xct_t*        _xct;
 };
-
-#endif // !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_2)
 
 /*<std-footer incl-file-exclusion='XCT_H'>  -- do not edit anything below this line -- */
 
