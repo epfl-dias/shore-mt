@@ -1281,8 +1281,17 @@ file_m::_locate_page(const rid_t& rid, file_p& page, latch_mode_t mode)
 }
 
 //
-// Free the page only if it is empty and it is not the first page of the file.
+// Free the page only if it is empty and it is not 
+// the first page of the file.
+//
 // Note: a valid file should always have at least one page allocated.
+// Note: This is called in forward processing and in rollback.
+// In the rollback case we are undoing a file_alloc_page_log record.
+// We consider this to be a nested top-level action; the undo CAN
+// fail.  (Because the allocting xct acquires only an IX lock on the
+// page, the page can be used immediately by other xcts to create records.)
+// (Similarly, another xct could be trying to free the page
+// we are doing the same, since they both find the record count to be 0.)
 //
 rc_t
 file_m::_free_page(file_p& page)
@@ -1309,53 +1318,38 @@ file_m::_free_page(file_p& page)
             // If we failed with the immediate locks, now try 
             // longer-term locks:
 
-            if (rc.err_num() == eLOCKTIMEOUT) {
+	    // FRJ: actually, we *can't* resolve it because unfixing
+	    // the page here doesn't unfix the page in
+	    // alloc_file_page_log::undo
+            if (0 && rc.err_num() == eLOCKTIMEOUT) {
                 page.unfix();
-                W_DO(lm->lock_force(pid, EX, t_long,
-                                        WAIT_SPECIFIED_BY_XCT));
-                // got lock
-                W_DO(page.fix(pid, LATCH_EX));
+                rc = lm->lock_force(pid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
+		if(!rc.is_error()) {
+		    // got lock. nothing should go wrong with the latch
+		    W_DO(page.conditional_fix(pid, LATCH_EX));
 
-#if W_DEBUG_LEVEL > 0
-                // fixed  page
-                bool isdead = page.is_deadbeef();
-                // We should not have been able to use any records.
-                if(isdead) w_assert1(page.rec_count() == 0);
-#endif
+		    // Re-check.   Because we unfixed the page and
+		    // re-fixed it, we have to check that it's
+		    // still part of this store.  That's done by
+		    // passing in "true" to io_m::free_page
+		    if (page.rec_count() == 0)
+			rc = smlevel_0::io->free_page(pid, true/*chk store memb*/ );
+		    
+		    // else leave it as eOK
+		}
+	    }
 
-                // Re-check.   Because we unfixed the page and
-                // re-fixed it, we have to check that it's
-                // still part of this store.  That's done by
-                // passing in "true" to io_m::free_page
-                if (page.rec_count() == 0) {
-                    rc = smlevel_0::io->free_page(pid, true/*chk store memb*/ );
-
-                    if(rc.is_error()) {
-                        w_assert1(rc.err_num() != eLOCKTIMEOUT);
-#if W_DEBUG_LEVEL > 1
-                        {
-                            w_ostrstream s;
-                            s  << " returns rc= " << rc;
-                            fprintf(stderr, 
-                            "file_m::_free_page failed @ %d, isdead=%d %s\n", 
-                                __LINE__,
-                                isdead,
-                                s.c_str());
-                        }
-#endif
-                    } 
-                } else {
-                    w_assert1(!isdead);
-                    return RCOK;
-                }
-            }
-            else if(!rc.is_error()) {
-                page.set_deadbeef(); // while latched
-            }
-            return rc.reset();
+	    // Bail on eOK or any unacceptable failure
+	    if(rc.err_num() != eDEADLOCK && rc.err_num() != eLOCKTIMEOUT)
+		return rc.reset(); 
+	    
+	    // It's OK if we couldn't get the lock. Give up and let
+	    // other xct free the page. We could have two xcts trying
+	    // to free the page at the same time.
+	    fprintf(stderr, "- ^ - ^ - ^ - Unable to undo alloc for page %d.%d.%d... giving up\n",
+		    pid.vol().vol, pid.store(), pid.page);
         }
-
-    } 
+    }
     return RCOK;
 }
 
