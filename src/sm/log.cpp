@@ -703,7 +703,7 @@ void ringbuf_log::set_size(fileoff_t size)
 		"log partitions too small compared to buffer pool:\n"
 		"	%lld bytes per partition available\n"
 		"	%lld bytes needed for checkpointing dirty pages\n",
-		_partition_data_size, _space_rsvd_for_chkpt);
+		(long long)_partition_data_size, (long long)_space_rsvd_for_chkpt);
 	W_FATAL(eOUTOFLOGSPACE);
     }
 }
@@ -726,13 +726,13 @@ rc_t        log_m::new_log_m(log_m        *&the_log,
 smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }
 
 typedef smlevel_0::fileoff_t fileoff_t;
-static fileoff_t take_space(uint64_t volatile* ptr, int amt) {
+static fileoff_t take_space(fileoff_t volatile* ptr, int amt) {
     fileoff_t ov = *ptr;
     while(1) {
 	if(ov < amt)
 	    return 0;
 	fileoff_t nv = ov - amt;
-	fileoff_t cv = atomic_cas_64(ptr, ov, nv);
+	fileoff_t cv = atomic_cas_64((uint64_t*)ptr, ov, nv);
 	if(ov == cv)
 	    return amt;
 	
@@ -783,7 +783,7 @@ void log_m::release_space(fileoff_t amt) {
        We broadcast whenever a "significant" amount of space seems to
        be free.
      */
-    fileoff_t now_available = atomic_add_long_nv(&_space_available, amt);
+    fileoff_t now_available = atomic_add_long_nv((uint64_t*) &_space_available, amt);
     w_assert0(now_available <= _partition_data_size*PARTITION_COUNT);
     //    fprintf(stderr, ">*<*><*>< Log space: %ld\n", now_available);
     if(_waiting_for_space && now_available > 16*sizeof(logrec_t)) {

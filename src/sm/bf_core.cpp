@@ -317,7 +317,7 @@ bf_core_m::latched_by_me( bfcb_t* p) const
 }
 
 bool
-bf_core_m::force_my_dirty_old_pages(lpid_t const* wal_page) const {
+bf_core_m::force_my_dirty_old_pages(lpid_t const* /*wal_page*/) const {
 #warning TODO: actually look for dirty pages instead of just guessing they exist
     return false;
 }

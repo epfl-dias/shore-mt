@@ -307,7 +307,7 @@ srv_log::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
 	fileoff_t max_chkpt = max_chkpt_size();
 	while(!verify_chkpt_reservation() && reclaimed > 0) {
 	    long skimmed = std::min(max_chkpt, reclaimed);
-	    atomic_add_long(&_space_rsvd_for_chkpt, skimmed);
+	    atomic_add_long((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
 	    reclaimed -= skimmed;
 	}
 	release_space(reclaimed);
@@ -347,7 +347,7 @@ srv_log::_flush(lsn_t lsn, long start1, long end1, long start2, long end2)
 	retry:
 	    bf->activate_background_flushing();
 	    smlevel_1::chkpt->wakeup_and_take();
-	    int oldest = log->global_min_lsn().hi();
+	    u_int oldest = log->global_min_lsn().hi();
 	    if(oldest + PARTITION_COUNT == lsn.file()) {
 		fprintf(stderr, "Can't open partition %d until partition %d is reclaimed\n",
 			lsn.file(), oldest);
