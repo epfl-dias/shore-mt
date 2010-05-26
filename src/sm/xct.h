@@ -402,6 +402,28 @@ public:
 
 };
 
+struct auto_release_anchor {
+    xct_t* _xd;
+    lsn_t _anchor;
+    bool _and_compensate;
+    operator lsn_t const&() const { return _anchor; }
+    auto_release_anchor(bool and_compensate=true)
+	: _xd(xct()), _and_compensate(and_compensate)
+    {
+	if(_xd)
+	    _anchor = _xd->anchor(_and_compensate);
+    }
+    void compensate() {
+	if(_xd)
+	    _xd->compensate(_anchor);
+	_xd = 0; // cancel pending release in destructor
+    }
+    ~auto_release_anchor() {
+	if(_xd)
+	    _xd->release_anchor(_and_compensate);
+    }
+};
+
 /*
  * Use X_DO inside compensated operations
  */
