@@ -159,7 +159,7 @@ struct old_xct_tracker {
 	pthread_mutex_unlock(&_lock);
     }
 
-    void report_finished(xct_t* xd) {
+     void report_finished(xct_t*) {
 	pthread_mutex_lock(&_lock);
 	if(! --_count)
 	    pthread_cond_signal(&_cond);
@@ -376,7 +376,7 @@ void chkpt_m::take()
 	xct_i it(true); // do acquire the xlist_mutex...
 	while(xct_t* xd=it.next()) {
 	    lsn_t const &flsn = xd->first_lsn();
-	    if(flsn < oldest_valid_lsn) {
+	    if(flsn.valid() && flsn < oldest_valid_lsn) {
 		// poison the transaction and add it to the list...
 		xd->force_nonblocking();
 		tracker.track(xd);
