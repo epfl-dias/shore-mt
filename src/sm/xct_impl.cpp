@@ -211,6 +211,7 @@ xct_impl::xct_impl(xct_t* that)
         _log_buf(0),
         _log_bytes_rsvd(0),
         _log_bytes_ready(0),
+        _log_bytes_used(0),
 	_rolling_back(false),
         _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
         _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
@@ -271,6 +272,7 @@ xct_impl::xct_impl(xct_t* that,
         _log_buf(0),
         _log_bytes_rsvd(0),
         _log_bytes_ready(0),
+        _log_bytes_used(0),
 	_rolling_back(false),
         _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
         _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
@@ -912,7 +914,7 @@ xct_impl::commit(uint4_t flags)
 	    w_assert2(smlevel_0::log);
 	    smlevel_0::log->release_space(leftovers);
 	};
-	_log_bytes_rsvd = _log_bytes_ready = 0;
+	_log_bytes_rsvd = _log_bytes_ready = _log_bytes_used = 0;
 	
         W_COERCE(_that->acquire_xlist_mutex());
         _that->_xlink.detach();
@@ -1179,6 +1181,7 @@ xct_impl::_flush_logbuf( bool sync )
 		_log_bytes_ready -= 2*bytes_used;
 		_log_bytes_rsvd += bytes_used;
 	    }
+	    _log_bytes_used += bytes_used;
 
             // log insert effectively set_lsn to the lsn of the *next* byte of
             // the log.
@@ -1276,7 +1279,8 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
     static u_int const MIN_BYTES_RSVD =  sizeof(logrec_t);
     if(!_rolling_back && _state == xct_active
        && _log_bytes_ready < MIN_BYTES_READY) {
-	if(!log->reserve_space(MIN_BYTES_READY)) {
+	fileoff_t needed = MIN_BYTES_READY;
+	if(!log->reserve_space(needed)) {
 	    /*
 	       Yikes! Log full!
 
@@ -1358,11 +1362,9 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 		    }
 
 		    // most likely it's well aware, but just in case...
-		    chkpt->wakeup_and_take(); 
-		    log->wait_for_space();
-		    
-		    // try again...
-		    if(log->reserve_space(MIN_BYTES_READY)) {
+		    chkpt->wakeup_and_take();
+		    W_IGNORE(log->wait_for_space(needed, 100));
+		    if(!needed) {
 			if(tries_left > 1) {
 			    INC_TSTAT(log_full_wait);
 			}
@@ -1371,21 +1373,28 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 			}
 			goto success;
 		    }
+		    
+		    // try again...
 		}
 
-		// nothing's working... give up and abort
-		stringstream tmp;
-		tmp << "Log too full. me=" << me()->id
-		    << " pthread=" << pthread_self()
-		    << ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
-		    << ", curr_lsn=" << log->curr_lsn() 
-		    // also print info that shows why we didn't croak
-		    // on the first check
-		    << "; space left " << log->space_left()
-		    << endl;
-		fprintf(stderr, "%s\n", tmp.str().c_str());
-		INC_TSTAT(log_full_giveup);
-		badnews = true;
+		if(!log->reserve_space(needed)) {
+		    // won't do any good now...
+		    log->release_space(MIN_BYTES_READY - needed); 
+		    
+		    // nothing's working... give up and abort
+		    stringstream tmp;
+		    tmp << "Log too full. me=" << me()->id
+			<< " pthread=" << pthread_self()
+			<< ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
+			<< ", curr_lsn=" << log->curr_lsn() 
+			// also print info that shows why we didn't croak
+			// on the first check
+			<< "; space left " << log->space_left()
+			<< endl;
+		    fprintf(stderr, "%s\n", tmp.str().c_str());
+		    INC_TSTAT(log_full_giveup);
+		    badnews = true;
+		}
 	    }
 
 	    if(badnews)

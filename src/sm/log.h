@@ -109,7 +109,8 @@ public:
                      
     fileoff_t    reserve_space(fileoff_t howmuch);
     void   release_space(fileoff_t howmuch);
-    void    wait_for_space();
+    rc_t    wait_for_space(fileoff_t &amt, timeout_in_ms timeout);
+    virtual void	request_checkpoint()=0; // since log.cpp doesn't know about chkpt_m...
 
     void set_master(lsn_t master_lsn, lsn_t min_lsn, lsn_t min_xct_lsn);
     long space_left() const;
@@ -194,8 +195,8 @@ protected:
     lsn_t                   _master_lsn;
     lsn_t                   _old_master_lsn;
     lsn_t                   _min_chkpt_rec_lsn;
-    uint64_t volatile  	    _space_available; // how many unreserved bytes in the log?
-    uint64_t volatile       _space_rsvd_for_chkpt; // can we run a checkpoint right now?
+    fileoff_t volatile      _space_available; // how many unreserved bytes in the log?
+    fileoff_t volatile      _space_rsvd_for_chkpt; // can we run a checkpoint right now?
     fileoff_t               _partition_size;
     fileoff_t               _partition_data_size;
     bool                    _log_corruption;
@@ -247,6 +248,7 @@ struct ringbuf_log : public log_m
     virtual void start_flush_daemon();
     void flush_daemon();
     virtual void _flush(lsn_t base_lsn, long start1, long end1, long start2, long end2)=0;
+    virtual void	request_checkpoint()=0;
 
     // initialize the partition size and data_size
     void set_size(fileoff_t psize);

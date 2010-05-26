@@ -318,6 +318,10 @@ srv_log::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
     return RCOK;
 }
 
+void
+srv_log::request_checkpoint() {
+    smlevel_1::chkpt->wakeup_and_take();
+}
 
 /*********************************************************************
  *

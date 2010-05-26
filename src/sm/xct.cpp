@@ -1212,6 +1212,39 @@ xct_t::GetEscalationThresholds(int4_t &toPage, int4_t &toStore, int4_t &toVolume
     i_this->GetEscalationThresholds(toPage, toStore, toVolume);
 }
 
+smlevel_0::fileoff_t
+xct_t::get_log_space_used() const
+{
+    return i_this->_log_bytes_used
+	+ i_this->_log_bytes_rsvd
+	+ i_this->_log_bytes_rsvd;
+}
+
+rc_t
+xct_t::wait_for_log_space(fileoff_t amt) {
+    rc_t rc = RCOK;
+    if(log) {
+	fileoff_t still_needed = amt;
+	// check whether we even need to wait...
+	if(log->reserve_space(still_needed)) {
+	    still_needed = 0;
+	}
+	else {
+	    timeout_in_ms timeout = first_lsn().valid()? 100 : WAIT_FOREVER;
+	    fprintf(stderr, "%s:%d: first_lsn().valid()? %d	timeout=%d\n",
+		    __FILE__, __LINE__, first_lsn().valid(), timeout);
+	    rc = log->wait_for_space(still_needed, timeout);
+	    if(rc.is_error()) {
+		//rc = RC(eOUTOFLOGSPACE);
+	    }
+	}
+	
+	// update our reservation with whateer we got
+	i_this->_log_bytes_rsvd += amt - still_needed;
+    }
+    return rc;
+}
+
 const lsn_t&
 xct_t::last_lsn() const
 {

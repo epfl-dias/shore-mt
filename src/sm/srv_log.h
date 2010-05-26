@@ -131,6 +131,7 @@ public:
                         bool    reformat);
 
     virtual NORET      ~srv_log();
+    virtual void	request_checkpoint();
 
 
 

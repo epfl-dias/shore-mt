@@ -310,6 +310,7 @@ private: // all data members private
      */ 
     fileoff_t		_log_bytes_rsvd; // reserved for rollback
     fileoff_t		_log_bytes_ready; // available for insert/reservations
+    fileoff_t		_log_bytes_used; // total used by the xct
     bool		_rolling_back;
 
     /*

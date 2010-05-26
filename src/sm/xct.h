@@ -212,7 +212,9 @@ public:
     const lsn_t&                first_lsn() const;
     const lsn_t&                undo_nxt() const;
     const logrec_t*             last_log() const;
-
+    fileoff_t			get_log_space_used() const;
+    rc_t			wait_for_log_space(fileoff_t amt);
+    
     // used by restart, chkpt among others
     static xct_t*               look_up(const tid_t& tid);
     static tid_t                oldest_tid();        // with min tid value
