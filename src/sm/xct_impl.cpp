@@ -908,6 +908,12 @@ xct_impl::commit(uint4_t flags)
          * FRJ: This should really be encapsulated in xct.cpp somehow
          * -- it was way out of sync with the rest of the world!
          */
+	if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
+	    w_assert2(smlevel_0::log);
+	    smlevel_0::log->release_space(leftovers);
+	};
+	_log_bytes_rsvd = _log_bytes_ready = 0;
+	
         W_COERCE(_that->acquire_xlist_mutex());
         _that->_xlink.detach();
         tid() = nxt_tid().atomic_incr();
@@ -1530,7 +1536,11 @@ xct_impl::release_anchor( bool and_compensate )
                if( log && !log->compensate(_last_lsn, _anchor).is_error()) {
                     INC_TSTAT(compensate_in_log);
                } else {
+		   // compensations use _log_bytes_rsvd, not _log_bytes_ready
+		   bool was_rolling_back = _rolling_back;
+		   _rolling_back = true;
                     W_COERCE(log_compensate(_anchor));
+		    _rolling_back = was_rolling_back;
                     INC_TSTAT(compensate_records);
                }
             }
@@ -1698,7 +1708,11 @@ xct_impl::_compensate(const lsn_t& lsn, bool undoable)
         // that's there is an undoable/compensation and will be
         // undone (and we *really* want to compensate around it)
         */
+	// compensations use _log_bytes_rsvd, not _log_bytes_ready
+	bool was_rolling_back = _rolling_back;
+	_rolling_back = true;
         W_COERCE(log_compensate(lsn));
+	_rolling_back = was_rolling_back;
         INC_TSTAT(compensate_records);
     }
 }
