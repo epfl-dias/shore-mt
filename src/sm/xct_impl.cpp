@@ -1836,8 +1836,8 @@ xct_impl::rollback(lsn_t save_pt)
             r.undo(page.is_fixed() ? &page : 0);
 
 #if W_DEBUG_LEVEL > 2
-            if(was_rsvd - _log_byts_rsvd  > r.length()) {
-                  LOGTRACE(<< " len=" << r.length() << " B=" << bbwd );
+            if(was_rsvd - _log_bytes_rsvd  > r.length()) {
+                  LOGTRACE(<< " len=" << r.length() << " B=" << (was_rsvd - _log_bytes_rsvd) );
             }
 #endif 
             if(r.is_cpsn()) {

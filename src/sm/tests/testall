@@ -47,6 +47,7 @@ function execute  {
 	    fi
 	else
 	    print "failed to execute $1 ( $? )"
+	    cat $of.err
             exit 1
 	fi
 	cat $of >> $2
@@ -56,6 +57,7 @@ function execute  {
 	print "ok"
     else
 	print "failed to execute $1 ( $? )"
+	cat $2
         exit 1
     fi
     PATH=$OLD_PATH

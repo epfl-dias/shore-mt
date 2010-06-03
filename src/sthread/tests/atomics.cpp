@@ -62,7 +62,6 @@ const char *which_strings[] = {
 
 
 typedef void *          ptr_t ;
-typedef signed char     char_t;
 
 /* create a target for each type (t* = target of atomic_ops, r* = the result we
    collected with sequential applications of the threads' _mydiff
