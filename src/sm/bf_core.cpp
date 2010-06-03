@@ -627,7 +627,6 @@ bf_core_m::grab(
     w_assert2(cc_alg == t_cc_record || mode > LATCH_NL);
     w_assert2(mode != LATCH_NL); // NEH changed to assert2
     w_assert2(ret != NULL); // allocated replacement frame
-    w_assert2(ret->latch.held_by_me() == false);  // not latched
 
     INC_TSTAT(bf_look_cnt);
 
@@ -639,9 +638,9 @@ bf_core_m::grab(
     // publish downgrades or releases the latch as needed to get
     // it back to the desired mode (LATCH_NL in event of error).
     //
-    w_assert2(!ret->latch.is_latched()); 
-
-    W_COERCE(ret->latch.latch_acquire(LATCH_EX)); // PROTOCOL
+    // FRJ: we had to push the latch acquire even earlier, so now we
+    // just make sure we still hold it here
+    w_assert2(ret->latch.is_mine()); 
     w_assert2(!ret->pin_cnt()); 
     ret->pin_frame(); 
     ret->check();  // EX mode so strong check
@@ -1014,10 +1013,12 @@ bf_core_m::publish_partial(bfcb_t* p, bool discard)
     CRITICAL_SECTION(cs, tb._tb_mutex); // PROTOCOL
 
     tb.make_not_in_transit_out(pid);
-    if(discard)
+    if(discard) {
         _unused.release(p); // put on free list
+	p->latch.latch_release();
+    }
 
-    p->latch.latch_release();
+    // keep the latch... caller still needs it
 }
 
 
@@ -1506,6 +1507,11 @@ bf_core_m::replacement()
 
     if(p) {
         w_assert2(p->frame() != 0);
+	
+	// *nobody* should know about this frame!	
+	w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE);
+	w_assert0(!rc.is_error());
+	
         p->clr_old_pid();
         p->mark_clean();
         return p;

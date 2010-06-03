@@ -144,6 +144,8 @@ bfcb_t* htab_insert(bf_core_m *core, bfpid_t const &pid, bf_core_m::Tstats &s)
     {
         ret = NULL;
         cb = core->replacement();
+	w_assert0(cb->latch.is_mine());
+	cb->latch.latch_release();
     }
     if(cb == NULL) {
         cerr << " htab_insert could not get a replacement frame "
