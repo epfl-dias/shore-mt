@@ -573,7 +573,7 @@ public:
      * implicitly identifies the owning thread.
      */
     
-    bool is_mine(ext_qnode* me) { 
+    bool is_mine(ext_qnode* me) const { 
        if( me->_held == this ) {
            // only valid if is_mine 
           w_assert1( _holder == me->_held ); 
