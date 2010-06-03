@@ -629,9 +629,15 @@ void chkpt_m::take()
 
     /*
      *  Make sure that min_rec_lsn and min_xct_lsn are valid
+     *
+     *  Log reservations require that min_rec_lsn <= master; this is
+     *  correct because if everything is clean the min_*_lsn are still
+     *  set to lsn_t::max, and even if a min_*_lsn were larger than
+     *  the master, recovery would have to start from the master LSN
+     *  in any case.
      */
-    if (min_rec_lsn == lsn_t::max) min_rec_lsn = master;
-    if (min_xct_lsn == lsn_t::max) min_xct_lsn = master;
+    if (min_rec_lsn > master) min_rec_lsn = master;
+    if (min_xct_lsn > master) min_xct_lsn = master;
 
     /*
      *  Write the Checkpoint End Log

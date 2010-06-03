@@ -1171,7 +1171,15 @@ xct_impl::_flush_logbuf( bool sync )
 	       reserve an additional /length/ bytes against future
 	       rollbacks; undo records consume /length/ previously
 	       reserved bytes and leave available bytes unchanged..
+	       
+	       NOTE: we only track reservations during forward
+	       processing. The SM can no longer run out of log space,
+	       so during recovery we can assume that the log was not
+	       wedged at the time of the crash and will not become so
+	       during recovery (because redo generates only log
+	       compensations and undo was already accounted for)
 	    */
+	    if(smlevel_0::operating_mode == t_forward_processing) {
 	    long bytes_used = l->length();
 	    if(_rolling_back || state() != xct_active) {
 		w_assert0(_log_bytes_rsvd >= bytes_used);
@@ -1182,6 +1190,7 @@ xct_impl::_flush_logbuf( bool sync )
 		_log_bytes_rsvd += bytes_used;
 	    }
 	    _log_bytes_used += bytes_used;
+	    }
 
             // log insert effectively set_lsn to the lsn of the *next* byte of
             // the log.

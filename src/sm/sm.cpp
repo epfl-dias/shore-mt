@@ -915,7 +915,9 @@ ss_m::_construct_once(
         smlevel_0::redo_tid = 0;
 
     }
+
     smlevel_0::operating_mode = t_forward_processing;
+    log->activate_reservations();
 
     // Force the log after recovery.  The background flush threads exist
     // and might be working due to recovery activities.

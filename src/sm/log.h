@@ -180,6 +180,7 @@ public:
 
     long			max_chkpt_size() const;
     bool			verify_chkpt_reservation();
+    void			activate_reservations();
     fileoff_t			consume_chkpt_reservation(fileoff_t howmuch);
 protected:
     log_m();

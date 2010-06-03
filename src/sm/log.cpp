@@ -698,6 +698,7 @@ void ringbuf_log::set_size(fileoff_t size)
             _partition_size
            );
    */
+    // initial free space estimate... refined once log recovery is complete
     release_space(PARTITION_COUNT*_partition_data_size);
     if(!verify_chkpt_reservation() || _space_rsvd_for_chkpt > _partition_data_size) {
 	fprintf(stderr,
@@ -724,6 +725,28 @@ rc_t        log_m::new_log_m(log_m        *&the_log,
     return rc.reset();
 }
 
+void log_m::activate_reservations() {
+    /* With recovery complete we now activate log reservations.
+
+       In fact, the activation was setting the mode to
+       t_forward_processing, but we also have to account for any space
+       the log already occupies. We don't have to double-count
+       anything because nothing will be undone should a crash occur at
+       this point.
+     */
+    w_assert1(operating_mode == t_forward_processing);
+    w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
+
+    // knock off space used by fully partitions
+    long oldest_pnum = _min_chkpt_rec_lsn.hi();
+    long newest_pnum = curr_lsn().hi();
+    long full_partitions = newest_pnum - oldest_pnum; // can be zero
+    _space_available -= full_partitions*_partition_data_size;
+
+    // and knock off the space used so far in the current partition
+    _space_available -= curr_lsn().lo();
+}
+
 smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }
 
 typedef smlevel_0::fileoff_t fileoff_t;
@@ -746,6 +769,9 @@ fileoff_t log_m::reserve_space(fileoff_t amt) {
 }
 
 fileoff_t log_m::consume_chkpt_reservation(fileoff_t amt) {
+    if(operating_mode != t_forward_processing)
+	return amt; // not yet active -- pretend it worked
+    
     return (amt > 0)? take_space(&_space_rsvd_for_chkpt, amt) : 0;
 }
 
