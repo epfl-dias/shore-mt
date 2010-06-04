@@ -2146,7 +2146,12 @@ bf_m::_clean_segment(
                             both = true; 
                         }
 			// nobody should have been able to evict the page...
-			w_assert0(ps->pid == bp->pid());
+			// FRJ: but it could have been deleted and
+			// reformatted while we were gone. This is a
+			// valid scenario, so we only compare the
+			// pid.page rather than the whole pid
+			w_assert0(ps->pid.page == bp->pid().page
+				  && ps->pid.vol().vol == bp->pid().vol().vol);
 			w_assert0(bp->old_rec_lsn().valid());
 
 			// mark the page as no longer being written out
