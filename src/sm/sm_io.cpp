@@ -81,9 +81,7 @@ void iostophere() { }
 #include "vol.h"
 
 // VOL_LOCK_IS_RW is defined in shore.def
-#if VOL_LOCK_IS_RW
 #include <auto_release.h>
-#endif
 
 #include <store_latch_manager.h>
 // NOTE : this is shared with btree layer
@@ -97,6 +95,17 @@ store_latch_manager store_latches;
 #ifdef EXPLICIT_TEMPLATE
 template class vtable_func<vol_t>;
 #endif
+
+struct io_m::auto_leave_and_trx_release {
+    auto_leave_and_trx_release() {
+	chkpt_serial_m::trx_acquire();
+	enter();
+    }
+    ~auto_leave_and_trx_release() {
+	leave();
+	chkpt_serial_m::trx_release();
+    }
+};
 
 /*********************************************************************
  *
@@ -222,7 +231,7 @@ io_m::~io_m()
  *  If not found, return -1.
  *
  *********************************************************************/
-inline int 
+int 
 io_m::_find(vid_t vid)
 {
     if (!vid) return -1;
@@ -271,12 +280,9 @@ io_m::_find_and_grab(vid_t vid, lock_state* _me,
 bool
 io_m::is_mounted(vid_t vid)
 {
-    enter();
-
-    int i = _find(vid);
+    auto_leave enter;
+    return _find(vid) >= 0;
     // didn't grab volume mutex
-    leave();
-    return i >= 0;
 }
 
 
@@ -359,8 +365,9 @@ io_m::_dev_name(vid_t vid)
  *
  *********************************************************************/
 bool
-io_m::_is_mounted(const char* dev_name)
+io_m::is_mounted(const char* dev_name)
 {
+    auto_leave enter;
     return dev->is_mounted(dev_name);
 }
 
@@ -372,8 +379,9 @@ io_m::_is_mounted(const char* dev_name)
  *
  *********************************************************************/
 rc_t
-io_m::_mount_dev(const char* dev_name, u_int& _vol_cnt)
+io_m::mount_dev(const char* dev_name, u_int& _vol_cnt)
 {
+    auto_leave enter;
     FUNC(io_m::_mount_dev);
 
     volhdr_t vhdr;
@@ -394,8 +402,9 @@ io_m::_mount_dev(const char* dev_name, u_int& _vol_cnt)
  *
  *********************************************************************/
 rc_t
-io_m::_dismount_dev(const char* dev_name)
+io_m::dismount_dev(const char* dev_name)
 {
+    auto_leave enter;
     return dev->dismount(dev_name);
 }
 
@@ -406,8 +415,9 @@ io_m::_dismount_dev(const char* dev_name)
  *
  *********************************************************************/
 rc_t
-io_m::_dismount_all_dev()
+io_m::dismount_all_dev()
 {
+    auto_leave enter;
     return dev->dismount_all();
 }
 
@@ -418,11 +428,12 @@ io_m::_dismount_all_dev()
  *
  *********************************************************************/
 rc_t
-io_m::_list_devices(
+io_m::list_devices(
     const char**&         dev_list, 
     devid_t*&                 devid_list, 
     u_int&                 dev_cnt)
 {
+    auto_leave enter;
     return dev->list_devices(dev_list, devid_list, dev_cnt);
 }
 
@@ -432,7 +443,7 @@ io_m::_list_devices(
  *  io_m::_get_vid(lvid)
  *
  *********************************************************************/
-inline vid_t 
+vid_t 
 io_m::_get_vid(const lvid_t& lvid)
 {
     uint4_t i;
@@ -454,9 +465,10 @@ io_m::_get_vid(const lvid_t& lvid)
  *  io_m::_get_device_quota()
  *********************************************************************/
 rc_t
-io_m::_get_device_quota(const char* device, smksize_t& quota_KB,
+io_m::get_device_quota(const char* device, smksize_t& quota_KB,
                         smksize_t& quota_used_KB)
 {
+    auto_leave enter;
     W_DO(dev->quota(device, quota_KB));
 
     lvid_t lvid;
@@ -502,13 +514,14 @@ io_m::_get_lvid(const char* dev_name, lvid_t& lvid)
  *
  *********************************************************************/
 rc_t
-io_m::_get_vols(
+io_m::get_vols(
     int         start, 
     int         count,
     char        **dname,
     vid_t       vid[], 
     int&        ret_cnt)
 {
+    auto_leave enter;
     ret_cnt = 0;
     w_assert1(start + count <= max_vols);
    
@@ -535,9 +548,10 @@ io_m::_get_vols(
  *  io_m::_get_lvid(vid)
  *
  *********************************************************************/
-inline lvid_t
-io_m::_get_lvid(const vid_t vid)
+lvid_t
+io_m::get_lvid(const vid_t vid)
 {
+    auto_leave enter;
     int i = _find(vid);
     return (i >= max_vols) ? lvid_t::null : vol[i]->lvid();
 }
@@ -552,28 +566,11 @@ io_m::_get_lvid(const vid_t vid)
 rc_t
 io_m::get_lvid(const char* dev_name, lvid_t& lvid)
 {
-    enter();
-    rc_t rc = _get_lvid(dev_name, lvid);
+    auto_leave enter;
+    return _get_lvid(dev_name, lvid);
     // didn't grab volume mutex
-    leave();
-    return rc.reset();
 }
 
-
-/*********************************************************************
- *
- *  io_m::get_lvid(vid)
- *
- *********************************************************************/
-lvid_t
-io_m::get_lvid(const vid_t vid)
-{
-    enter();
-    lvid_t lvid = _get_lvid(vid);
-    // didn't grab volume mutex
-    leave();
-    return lvid;
-}
 
 
 
@@ -591,20 +588,7 @@ io_m::mount(const char* device, vid_t vid,
 {
     // grab chkpt_mutex to prevent mounts during chkpt
     // need to serialize writing dev_tab and mounts
-    chkpt_serial_m::trx_acquire();
-    enter();
-    rc_t r = _mount(device, vid, apply_fake_io_latency, fake_disk_latency);
-    // didn't grab volume mutex
-    leave();
-    chkpt_serial_m::trx_release();
-    return r;
-}
-
-
-rc_t
-io_m::_mount(const char* device, vid_t vid,
-             const bool apply_fake_io_latency, const int fake_disk_latency)
-{
+    auto_leave_and_trx_release acquire_and_enter;
     FUNC(io_m::_mount);
     DBG( << "_mount(name=" << device << ", vid=" << vid << ")");
     uint4_t i;
@@ -670,15 +654,9 @@ io_m::dismount(vid_t vid, bool flush)
     // grab chkpt_mutex to prevent dismounts during chkpt
     // need to serialize writing dev_tab and dismounts
 
-    chkpt_serial_m::trx_acquire();
-    enter();
-    rc_t r = _dismount(vid, flush);
+    auto_leave_and_trx_release acquire_and_enter;
+    return _dismount(vid, flush);
     // didn't grab volume mutex
-    leave();
-    chkpt_serial_m::trx_release();
-
-
-    return r;
 }
 
 
@@ -728,8 +706,9 @@ io_m::_dismount(vid_t vid, bool flush)
  *
  *********************************************************************/
 rc_t
-io_m::_enable_fake_disk_latency(vid_t vid)
+io_m::enable_fake_disk_latency(vid_t vid)
 {
+    auto_leave enter;
     int i = _find(vid);
     if (i < 0)  return RC(eBADVOL);
 
@@ -738,8 +717,9 @@ io_m::_enable_fake_disk_latency(vid_t vid)
 }
 
 rc_t
-io_m::_disable_fake_disk_latency(vid_t vid)
+io_m::disable_fake_disk_latency(vid_t vid)
 {
+    auto_leave enter;
     int i = _find(vid);
     if (i < 0)  return RC(eBADVOL);
 
@@ -748,8 +728,9 @@ io_m::_disable_fake_disk_latency(vid_t vid)
 }
 
 rc_t
-io_m::_set_fake_disk_latency(vid_t vid, const int adelay)
+io_m::set_fake_disk_latency(vid_t vid, const int adelay)
 {
+    auto_leave enter;
     int i = _find(vid);
     if (i < 0)  return RC(eBADVOL);
 
@@ -845,8 +826,9 @@ void check_disk(const vid_t &vid)
 #endif
 
 rc_t
-io_m::_check_disk(const vid_t &volid)
+io_m::check_disk(const vid_t &volid)
 {
+    auto_leave enter;
     GRAB_R;
 
     W_DO( v->check_disk() );
@@ -861,8 +843,9 @@ io_m::_check_disk(const vid_t &volid)
  *
  *********************************************************************/
 rc_t
-io_m::_get_new_vid(vid_t& vid)
+io_m::get_new_vid(vid_t& vid)
 {
+    auto_leave enter;
     for (vid = vid_t(1); vid != vid_t::null; vid.incr_local()) {
         int i = _find(vid);
         if (i < 0) return RCOK;;
@@ -874,11 +857,9 @@ io_m::_get_new_vid(vid_t& vid)
 vid_t
 io_m::get_vid(const lvid_t& lvid)
 {
-    enter();
-    vid_t vid = _get_vid(lvid);
+    auto_leave enter;
+    return _get_vid(lvid);
     // didn't grab volume mutex
-    leave();
-    return vid;
 }
 
 
@@ -1038,7 +1019,7 @@ io_m::_alloc_pages(
     ) 
 {
     FUNC(io_m::_alloc_pages);
-    enter();
+    auto_leave enter;
 
     /*
      *  Find the volume of "stid"
@@ -1065,7 +1046,6 @@ io_m::_alloc_pages(
                 v, stid, near_p, npages, ngot, pids, 
             may_realloc, desired_lock_mode, search_file);
 
-    leave();
     return r;
 }
 
@@ -1122,9 +1102,10 @@ io_m::alloc_a_file_page(
 )
 {
     FUNC(io_m::alloc_a_file_page);
-    enter();
+    auto_leave enter;
     vid_t volid = fid.vol;
 
+    {
     GRAB_W;
     ASSERT_HAVE_W;
 
@@ -1145,15 +1126,20 @@ io_m::alloc_a_file_page(
     // code automagically releases the anchor at the time
     // we compensate, but we don't want to do that until
     // we have finished logging the page allocation.
-    lsn_t protect_from_other_threads;
-    if (xct())  protect_from_other_threads = xct()->anchor();
+    
+    /* FRJ: this protect_from_other_threads duplicates the effect of
+       io_m::enter above. Further, neither this nor the io_m::enter
+       call -- nor any other io_m::enter call for that matter -- is
+       properly cleaned up by all those X_DO below (all nested anchors
+       must still be released before the mutex will go free)
+    */
+    //lsn_t protect_from_other_threads;
+    //if (xct())  protect_from_other_threads = xct()->anchor();
     // See 2nd release below
-
-    lsn_t anchor;
-    if (xct())  anchor = xct()->anchor();
+    auto_release_anchor anchor;
 
     int ngot=0;
-    X_DO( _alloc_pages_with_vol_mutex(
+    W_DO(_alloc_pages_with_vol_mutex(
 #ifdef GNATS110_FIX
                 filter,
 #endif
@@ -1166,7 +1152,7 @@ io_m::alloc_a_file_page(
      */
             false,  /* may_realloc*/
 
-            desired_lock_mode, search_file), anchor);
+            desired_lock_mode, search_file));
 
     w_assert1(ngot == 1);
 #if GNATS110_FIX
@@ -1174,12 +1160,10 @@ io_m::alloc_a_file_page(
     filter->check();
 #endif
 
-
     /* Compensate around the updates to the extent 
      * that allocated the page.
      */
-    if (xct())  {
-        xct()->compensate(anchor); // releases anchor
+    anchor.compensate(); // releases anchor
     }
     rc_t rc = log_alloc_file_page(allocPid);
     if(rc.is_error()) {
@@ -1190,8 +1174,7 @@ io_m::alloc_a_file_page(
     W_COERCE(rc);
 
     // release protect_from_other_threads anchor, but don't compensate
-    if(xct()) xct()->release_anchor(false /*don't compensate*/);
-    leave();
+    //if(xct()) xct()->release_anchor(false /*don't compensate*/);
 
 #if GNATS110_FIX
     w_assert1(filter->accepted());
@@ -2099,16 +2082,8 @@ io_m::_alloc_pages_with_vol_mutex(
 rc_t
 io_m::free_page(const lpid_t& pid, bool check_store_membership)
 {
-    enter();
-    rc_t r = _free_page(pid, check_store_membership);
-    leave();
-    return r;
-}
-
-
-rc_t
-io_m::_free_page(const lpid_t& pid, bool check_store_membership)
-{
+    auto_leave enter;
+    
     FUNC(io_m::_free_page);
     vid_t volid = pid.vol();
 
@@ -2153,8 +2128,9 @@ io_m::_free_page(const lpid_t& pid, bool check_store_membership)
  *********************************************************************/
 
 bool 
-io_m::_is_valid_page_of(const lpid_t& pid, snum_t s)
+io_m::is_valid_page_of(const lpid_t& pid, snum_t s)
 {
+    auto_leave enter;
     FUNC(io_m::is_valid_page_of);
     vid_t volid = pid._stid.vol;
 
@@ -2353,15 +2329,7 @@ io_m::_create_store(
 rc_t
 io_m::destroy_store(const stid_t& stid, bool acquire_lock) 
 {
-    enter();
-    rc_t r = _destroy_store(stid, acquire_lock);
-    leave();
-    return r;
-}
-
-rc_t
-io_m::_destroy_store(const stid_t& stid, bool acquire_lock)
-{
+    auto_leave enter;
     FUNC(io_m::_destroy_store);
     vid_t volid = stid.vol;
 
@@ -2395,15 +2363,7 @@ io_m::_destroy_store(const stid_t& stid, bool acquire_lock)
 rc_t
 io_m::free_store_after_xct(const stid_t& stid)
 {
-    enter();
-    rc_t r = _free_store_after_xct(stid);
-    leave();
-    return r;
-}
-
-rc_t
-io_m::_free_store_after_xct(const stid_t& stid)
-{
+    auto_leave enter;
     vid_t volid = stid.vol;
 
     GRAB_W;
@@ -2425,15 +2385,7 @@ io_m::_free_store_after_xct(const stid_t& stid)
 rc_t
 io_m::free_ext_after_xct(const extid_t& extid)
 {
-    enter();
-    rc_t r = _free_ext_after_xct(extid);
-    leave();
-    return r;
-}
-
-rc_t
-io_m::_free_ext_after_xct(const extid_t& extid)
-{
+    auto_leave enter;
     vid_t volid = extid.vol;
 
     GRAB_W;
@@ -2460,8 +2412,9 @@ io_m::_free_ext_after_xct(const extid_t& extid)
  *
  *********************************************************************/
 bool
-io_m::_is_valid_store(const stid_t& stid)
+io_m::is_valid_store(const stid_t& stid)
 {
+    auto_leave enter;
     vid_t volid = stid.vol;
 #if VOL_LOCK_IS_RW
     // essentially GRAB_R but doesn't return RC
@@ -2494,8 +2447,9 @@ io_m::_is_valid_store(const stid_t& stid)
  *
  *********************************************************************/
 rc_t
-io_m::_max_store_id_in_use(vid_t volid, snum_t& snum) 
+io_m::max_store_id_in_use(vid_t volid, snum_t& snum) 
 {
+    auto_leave enter;
     FUNC(io_m::_max_store_id_in_use);
     GRAB_R;
 
@@ -2513,8 +2467,9 @@ io_m::_max_store_id_in_use(vid_t volid, snum_t& snum)
  *
  *********************************************************************/
 rc_t
-io_m::_get_volume_meta_stats(vid_t volid, SmVolumeMetaStats& volume_stats)
+io_m::get_volume_meta_stats(vid_t volid, SmVolumeMetaStats& volume_stats)
 {
+    auto_leave enter;
     FUNC(io_m::_get_volume_meta_stats);
     GRAB_R;
 
@@ -2534,8 +2489,9 @@ io_m::_get_volume_meta_stats(vid_t volid, SmVolumeMetaStats& volume_stats)
  *
  *********************************************************************/
 rc_t
-io_m::_get_file_meta_stats(vid_t volid, uint4_t num_files, SmFileMetaStats* file_stats)
+io_m::get_file_meta_stats(vid_t volid, uint4_t num_files, SmFileMetaStats* file_stats)
 {
+    auto_leave enter;
     GRAB_R;
     W_DO( v->get_file_meta_stats(num_files, file_stats) );
     return RCOK;
@@ -2553,8 +2509,9 @@ io_m::_get_file_meta_stats(vid_t volid, uint4_t num_files, SmFileMetaStats* file
  *
  *********************************************************************/
 rc_t
-io_m::_get_file_meta_stats_batch(vid_t volid, uint4_t max_store, SmStoreMetaStats** mapping)
+io_m::get_file_meta_stats_batch(vid_t volid, uint4_t max_store, SmStoreMetaStats** mapping)
 {
+    auto_leave enter;
     GRAB_R;
 
     W_DO( v->get_file_meta_stats_batch(max_store, mapping) );
@@ -2588,12 +2545,13 @@ io_m::get_store_meta_stats(stid_t stid, SmStoreMetaStats& mapping)
  *
  *********************************************************************/
 rc_t
-io_m::_first_page(
+io_m::first_page(
     const stid_t&        stid, 
     lpid_t&              pid, 
     bool*                allocated,
     lock_mode_t          lock)
 {
+    auto_leave enter;
     FUNC(io_m::_first_page);
     vid_t volid = stid.vol;
     GRAB_R;
@@ -2620,13 +2578,14 @@ io_m::_first_page(
  *
  *********************************************************************/
 rc_t
-io_m::_last_page(
+io_m::last_page(
     const stid_t&        stid, 
     lpid_t&              pid, 
     bool*                allocated,
     lock_mode_t          desired_lock_mode
     )
 {
+    auto_leave enter;
     FUNC(io_m::_last_page);
     vid_t volid=stid.vol;
     GRAB_R;
@@ -2658,11 +2617,12 @@ io_m::_last_page(
  *  Otherwise, return the allocation status of the page in "allocated".
  *
  *********************************************************************/
-rc_t io_m::_next_page(
+rc_t io_m::next_page(
     lpid_t&              pid, 
     bool*                allocated,
     lock_mode_t          lock)
 {
+    auto_leave enter;
     FUNC(io_m::_next_page);
     vid_t volid = pid._stid.vol;
     GRAB_R;
@@ -2682,12 +2642,13 @@ rc_t io_m::_next_page(
  *  Get the next page of "pid" that is in bucket "needed" or higher
  *
  *********************************************************************/
-rc_t io_m::_next_page_with_space(
+rc_t io_m::next_page_with_space(
     lpid_t&                pid, 
     space_bucket_t         needed,
     lock_mode_t            lock
     )
 {
+    auto_leave enter;
     FUNC(io_m::_next_page_with_space);
     vid_t volid = pid._stid.vol;
     GRAB_R;
@@ -2720,8 +2681,9 @@ io_m::check_store_pages(const stid_t &stid, page_p::tag_t tag)
  *, extnum  io_m::_get_du_statistics()         DU DF
  *
  *********************************************************************/
-rc_t io_m::_get_du_statistics(vid_t volid, volume_hdr_stats_t& _stats, bool audit)
+rc_t io_m::get_du_statistics(vid_t volid, volume_hdr_stats_t& _stats, bool audit)
 {
+    auto_leave enter;
     GRAB_R;
     W_DO( v->get_du_statistics(_stats, audit) );
 
@@ -2732,10 +2694,8 @@ rc_t
 io_m::recover_pages_in_ext(vid_t vid, 
         snum_t snum, extnum_t ext, const Pmap& pmap, bool is_alloc)
 {
-    enter();
-    rc_t r = _recover_pages_in_ext(vid, snum, ext, pmap, is_alloc);
-    leave();
-    return r;
+    auto_leave enter;
+    return _recover_pages_in_ext(vid, snum, ext, pmap, is_alloc);
 }
 
 rc_t
@@ -2757,17 +2717,9 @@ io_m::_recover_pages_in_ext(vid_t volid,
 }
 
 rc_t
-io_m::store_operation(vid_t vid, const store_operation_param& param)
+io_m::store_operation(vid_t volid, const store_operation_param& param)
 {
-    enter();
-    rc_t r = _store_operation(vid, param);
-    leave();
-    return r;
-}
-
-rc_t
-io_m::_store_operation(vid_t volid, const store_operation_param& param)
-{
+    auto_leave enter;
     FUNC(io_m::_set_store_deleting);
 
     GRAB_W;

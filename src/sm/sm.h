@@ -988,6 +988,30 @@ public:
      */
     static xct_state_t     state_xct(const xct_t* x);
 
+    /**\brief Return the amount of log this transaction would consume
+     * if it rolled back.
+     *\ingroup SSMXCT
+     *
+     * If a transaction aborts with eOUTOFLOGSPACE this function can
+     * be used in conjunction with xct_reserve_log_space to
+     * pre-allocate the needed amount of log space before retrying.
+     */
+    static smlevel_0::fileoff_t		xct_log_space_needed();
+
+    /**\brief Require the specified amount of log space to be
+     * available for this transaction before continuing.
+     *\ingroup SSMXCT
+     *
+     * If a transaction risks running out of log space it can
+     * pre-request some or all of the needed amount before starting in
+     * order to improve its chances of success. Other new transactions
+     * will be unable to acquire log space before this request is
+     * granted (existing ones will be able to commit, unless they also
+     * run out of space, because that tends to free up log space and
+     * avoids wasting work).
+     */
+    static rc_t			xct_reserve_log_space(fileoff_t amt);
+    
     /**\brief Get the locking level for the attached transaction.
      * \ingroup SSMLOCK
      */

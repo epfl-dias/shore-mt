@@ -452,10 +452,6 @@ public:
         vid_t                           vid,
         const store_operation_param&    param);
 
-    static rc_t                 _store_operation(
-        vid_t                           vid,
-        const store_operation_param&    param);
-    
     static rc_t                 free_exts_on_same_page(
         const stid_t&                   stid,
         extnum_t                        ext,
@@ -481,6 +477,13 @@ public:
 private:
     static void                 enter();
     static void                 leave();
+
+    struct auto_leave {
+	auto_leave() { enter(); }
+	~auto_leave() { leave(); }
+    };
+    struct auto_leave_and_trx_release; // forward decl
+    
     // Prime the volume's caches if not already primed
     static rc_t                 _prime_cache(vol_t *v, snum_t s);
 
@@ -548,20 +551,9 @@ public:
 
 private:
 
-    static bool                 _is_mounted(const char* dev_name);
     static rc_t                 _mount_dev(const char* device, u_int& vol_cnt);
     static rc_t                 _dismount_dev(const char* device);
-    static rc_t                 _dismount_all_dev();
     static rc_t                 _get_lvid(const char* dev_name, lvid_t& lvid);
-    static rc_t                 _list_devices(
-        const char**&                  dev_list, 
-        devid_t*&                      devid_list, 
-        u_int&                         dev
-    );
-    static rc_t                 _get_device_quota(
-        const char*                    device, 
-        smksize_t&                     quota_KB, 
-        smksize_t&                     quota_used_KB);
     
     static const char*          _dev_name(vid_t vid);
     static int                  _find(vid_t vid);
@@ -584,22 +576,6 @@ private:
         bool                           for_write
     ); 
 
-    static rc_t                 _get_vols(
-        int                            start,
-        int                            count, 
-        char                           **dname, 
-        vid_t                          vid[],
-        int&                           return_cnt);
-
-
-    // fake_disk_latency
-    static rc_t                 _enable_fake_disk_latency(vid_t vid);
-    static rc_t                 _disable_fake_disk_latency(vid_t vid);
-    static rc_t                 _set_fake_disk_latency(
-        vid_t                            vid, 
-        const int                        adelay);
-
-    
     static rc_t                 _get_volume_quota(
         vid_t                             vid, 
         smksize_t&                        quota_KB, 
@@ -607,14 +583,8 @@ private:
         w_base_t::uint4_t&                exts_used
         );
     
-    static rc_t                 _check_disk(const vid_t &vid);
-    static rc_t                 _get_new_vid(vid_t& vid);
     static vid_t                _get_vid(const lvid_t& lvid);
     static lvid_t               _get_lvid(const vid_t vid);
-    static rc_t                 _mount(
-       const char* device, vid_t          vid,
-       const bool                         apply_fake_io_latency, 
-       const int                          fake_disk_latency);
     static rc_t                 _dismount(vid_t vid, bool flush);
     static rc_t                 _dismount_all(bool flush);
     static rc_t                 _alloc_pages_with_vol_mutex(
@@ -631,40 +601,6 @@ private:
         lock_mode_t                       desired_lock_mode,
         bool                              search_file
         );
-    static rc_t                 _free_page(const lpid_t& pid, bool chkstore);
-    static rc_t                 _max_store_id_in_use(
-        vid_t                             vid,
-        snum_t&                           snum) ;
-    static rc_t                 _get_volume_meta_stats(
-        vid_t                             vid,
-        SmVolumeMetaStats&                volume_stats);
-    static rc_t                 _get_file_meta_stats(
-        vid_t                             vid,
-        w_base_t::uint4_t                 num_files,
-        SmFileMetaStats*                  file_stats);
-    static rc_t                 _get_file_meta_stats_batch(
-        vid_t                             vid,
-        w_base_t::uint4_t                 max_store,
-        SmStoreMetaStats**                mapping);
-    static rc_t                 _first_page(
-        const stid_t&                     stid,
-        lpid_t&                           pid,
-        bool*                             allocated = NULL,
-        lock_mode_t                       lock = NL);
-    static rc_t                 _next_page(
-        lpid_t&                          pid,
-        bool*                            allocated,
-        lock_mode_t                      lock = NL);
-    static rc_t                 _next_page_with_space(
-        lpid_t&                          pid,
-        space_bucket_t                   needed,
-        lock_mode_t                      lock = NL);
-    static rc_t                 _last_page(
-        const stid_t&                    stid,
-        lpid_t&                          pid,
-        bool*                            allocated = NULL,
-        lock_mode_t                      desired_mode = IS);
-    static bool                 _is_valid_page_of(const lpid_t& pid, snum_t s);
     static rc_t                 _create_store(
         vid_t                           vid, 
         int                             EFF, 
@@ -672,9 +608,6 @@ private:
         stid_t&                         stid,
         extnum_t                        first_ext = 0,
         extnum_t                        num_exts = 1);
-    static rc_t                 _destroy_store(const stid_t& stid, bool acquire_lock);
-    static rc_t                 _free_store_after_xct(const stid_t& stid);
-    static rc_t                 _free_ext_after_xct(const extid_t& extid);
     static rc_t                 _get_store_flags(
         const stid_t&                   stid,
         store_flag_t&                   flags);
@@ -682,13 +615,6 @@ private:
         const stid_t&                   stid,
         store_flag_t                    flags,
         bool                            sync_volume);
-    static bool                 _is_valid_store(const stid_t& stid);
-
-    // this reports du statistics
-    static rc_t                 _get_du_statistics( // DU DF
-        vid_t                           vid,
-        volume_hdr_stats_t&             stats,
-        bool                            audit);
 
     static rc_t                 _update_ext_histo(
         const lpid_t&                   pid, 
@@ -708,80 +634,11 @@ io_m::num_vols()
     return vol_cnt;
 }
 
-inline bool
-io_m::is_mounted(const char* dev_name)
-{
-    enter();
-    bool result = _is_mounted(dev_name); 
-    leave();
-    return result;
-}
-
-inline rc_t
-io_m::mount_dev(const char* dev_name, u_int& _vol_cnt)
-{
-    enter();
-    rc_t rc = _mount_dev(dev_name, _vol_cnt); 
-    leave();
-    return rc.reset();
-}
-
-inline rc_t
-io_m::dismount_dev(const char* dev_name)
-{
-    enter();
-    rc_t rc = _dismount_dev(dev_name); 
-    leave();
-    return rc.reset();
-}
-
-inline rc_t
-io_m::dismount_all_dev()
-{
-    enter();
-    rc_t rc = _dismount_all_dev(); 
-    leave();
-    return rc.reset();
-}
-
-inline rc_t
-io_m::list_devices(const char**& dev_list, devid_t*& devid_list, u_int& dev_cnt)
-{
-    enter();
-    rc_t rc = _list_devices(dev_list, devid_list, dev_cnt); 
-    leave();
-    return rc.reset();
-}
-
-inline rc_t 
-io_m::get_device_quota(
-        const char*                    device, 
-        smksize_t&                    quota_KB, 
-        smksize_t&                    quota_used_KB)
-{
-    enter();
-    rc_t r = _get_device_quota(device, quota_KB, quota_used_KB);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_vols(int start, int count, char **dname,
-               vid_t vid[], int& return_cnt)
-{
-    enter();
-    rc_t r = _get_vols(start, count, dname, vid, return_cnt);
-    leave();
-    return r;
-}
-
 inline const char* 
 io_m::dev_name(vid_t vid) 
 {
-    enter();
-    const char* r = _dev_name(vid);
-    leave();
-    return r;
+    auto_leave enter;
+    return _dev_name(vid);
 }
 
 inline lsn_t
@@ -798,43 +655,6 @@ io_m::SetLastMountLSN(lsn_t theLSN)
 }
 
 
-// fake_disk_latency
-inline rc_t 
-io_m::enable_fake_disk_latency(
-        vid_t                             vid
-        )
-{
-    enter();
-    rc_t r = _enable_fake_disk_latency(vid);
-    leave();
-    return r;
-}
-
-inline rc_t 
-io_m::disable_fake_disk_latency(
-        vid_t                             vid
-        )
-{
-    enter();
-    rc_t r = _disable_fake_disk_latency(vid);
-    leave();
-    return r;
-}
-
-inline rc_t 
-io_m::set_fake_disk_latency(
-        vid_t                             vid,
-        const int                     adelay
-        )
-{
-    enter();
-    rc_t r = _set_fake_disk_latency(vid,adelay);
-    leave();
-    return r;
-}
-// EOF: fake_disk_latency
-
-
 inline rc_t 
 io_m::get_volume_quota(
         vid_t                             vid, 
@@ -843,127 +663,16 @@ io_m::get_volume_quota(
         w_base_t::uint4_t&                ext_used
         )
 {
-    enter();
-    rc_t r = _get_volume_quota(vid, quota_KB, quota_used_KB, ext_used);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::check_disk(const vid_t &vid)
-{
-    enter();
-    rc_t r = _check_disk(vid);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_new_vid(vid_t& vid)
-{
-    enter();
-    rc_t r = _get_new_vid(vid);
-    leave();
-    return r;
+    auto_leave enter;
+    return _get_volume_quota(vid, quota_KB, quota_used_KB, ext_used);
 }
 
 
 inline rc_t 
 io_m::dismount_all(bool flush)
 {
-    enter();
-    rc_t r = _dismount_all(flush);
-    leave();
-    return r;
-}
-
-inline bool 
-io_m::is_valid_page_of(const lpid_t& pid, snum_t s) 
-{
-    enter();
-    bool r = _is_valid_page_of(pid, s);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::max_store_id_in_use(vid_t vid, snum_t& snum) 
-{
-    enter();
-    rc_t r = _max_store_id_in_use(vid, snum);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_volume_meta_stats(vid_t vid, SmVolumeMetaStats& volume_stats)
-{
-    enter();
-    rc_t r = _get_volume_meta_stats(vid, volume_stats);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_file_meta_stats(vid_t vid, w_base_t::uint4_t num_files, 
-        SmFileMetaStats* file_stats)
-{
-    enter();
-    rc_t r = _get_file_meta_stats(vid, num_files, file_stats);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_file_meta_stats_batch(vid_t vid, w_base_t::uint4_t max_store, 
-        SmStoreMetaStats** mapping)
-{
-    enter();
-    rc_t r = _get_file_meta_stats_batch(vid, max_store, mapping);
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::first_page(const stid_t& stid, lpid_t& pid, 
-                 bool* allocated, lock_mode_t lock)
-{
-    enter();
-    rc_t r = _first_page(stid, pid, allocated, lock);
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::next_page_with_space(lpid_t& pid, space_bucket_t b, lock_mode_t lock) 
-{
-    enter();
-    rc_t r = _next_page_with_space(pid, b, lock);
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::next_page(lpid_t& pid, bool* allocated, lock_mode_t lock) 
-{
-    enter();
-    rc_t r = _next_page(pid, allocated, lock);
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::last_page(const stid_t& stid, lpid_t& pid,
-                bool* allocated, lock_mode_t lock)
-{
-    enter();
-    rc_t r = _last_page(stid, pid, allocated, lock);
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return r;
+    auto_leave enter;
+    return _dismount_all(flush);
 }
 
 inline rc_t
@@ -1015,26 +724,6 @@ io_m::init_store_histo(store_histo_t* h, const stid_t& stid,
 }
 
 
-    
-inline bool
-io_m::is_valid_store(const stid_t& stid) 
-{
-    enter();
-    bool r = _is_valid_store(stid);
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return r;
-}
-
-inline rc_t
-io_m::get_du_statistics(vid_t vid, volume_hdr_stats_t& _stats, bool audit)
-{
-    enter();
-    rc_t rc = _get_du_statistics(vid, _stats, audit);       // DU DF
-    // exchanges i/o mutex for volume mutex
-    leave();
-    return rc;
-}
 
 /*<std-footer incl-file-exclusion='SM_IO_H'>  -- do not edit anything below this line -- */
 

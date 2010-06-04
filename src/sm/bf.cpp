@@ -1532,7 +1532,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
 #if W_DEBUG_LEVEL > 2
         // see comments in similar assert in set_dirty()
         if(log) {
-            w_assert3(b->rec_lsn() != lsn_t::null || b->pin_cnt() > 0); 
+            w_assert3(b->curr_rec_lsn() != lsn_t::null || b->pin_cnt() > 0); 
         }
 #endif 
     } else {
@@ -1637,7 +1637,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
 #if W_DEBUG_LEVEL > 2
         if(b->dirty()) {
             // see comments in similar assert in set_dirty()
-            if(log) w_assert3( b->rec_lsn() != lsn_t::null || b->pin_cnt() > 0); 
+            if(log) w_assert3( b->curr_rec_lsn() != lsn_t::null || b->pin_cnt() > 0); 
         }
 #endif 
 
@@ -2135,10 +2135,6 @@ bf_m::_clean_segment(
                     while(consecutive > 0) 
                     {
                         // p points to a copy of the page
-                        // Note that we are acquiring
-                        // latches and cleaning in reverse order. That
-                        // probably doesn't matter.
-                        //
 			consecutive--;
                         page_s* ps = &pbuf[consecutive];
 			bfcb_t* bp = bparr[consecutive];
@@ -2150,7 +2146,12 @@ bf_m::_clean_segment(
                             both = true; 
                         }
 			// nobody should have been able to evict the page...
-			w_assert0(ps->pid == bp->pid());
+			// FRJ: but it could have been deleted and
+			// reformatted while we were gone. This is a
+			// valid scenario, so we only compare the
+			// pid.page rather than the whole pid
+			w_assert0(ps->pid.page == bp->pid().page
+				  && ps->pid.vol().vol == bp->pid().vol().vol);
 			w_assert0(bp->old_rec_lsn().valid());
 
 			// mark the page as no longer being written out
@@ -2340,8 +2341,10 @@ bf_m::_replace_out(bfcb_t* b)
     // Caller grabbed the page mutex but has no lock on the 
     // control block or frame yet, as the frame is a replacement
     // and cannot be found in the hash table yet.
-    w_assert1(!b->latch.is_mine()); 
-    w_assert1(!b->latch.held_by_me()); 
+    
+    // FRJ: page cleaners are oblivious to the hash table, so the
+    // protocol is now to always latch before acquiring the page mutex
+    w_assert1(b->latch.is_mine()); 
 
     // Clear dirty flag and rec_lsn for the new page
     // that we're about to read in to this frame...
@@ -3068,7 +3071,7 @@ bf_m::set_dirty(const page_s* buf)
             DBG(<< "pid " << b->pid() <<" mode=" 
             <<  int(_core->latch_mode(b)) << " rec_lsn=" << b->rec_lsn());
             w_assert3(b->latch.mode() == LATCH_EX);
-            w_assert3(b->rec_lsn() != lsn_t::null); 
+            w_assert3(b->curr_rec_lsn() != lsn_t::null); 
             w_assert3(b->dirty()); // we just set it so it's now dirty
         }
 #endif 
@@ -3251,7 +3254,7 @@ bf_filter_lsn_t::is_good(const bfcb_t& p) const
     
 #if W_DEBUG_LEVEL > 2
     if( ! p.pid().page ) {
-        w_assert3(! p.rec_lsn().valid() );
+        w_assert3(! p.curr_rec_lsn().valid() );
     }
 #endif 
 
