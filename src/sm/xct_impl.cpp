@@ -108,6 +108,7 @@ extern "C" void xstop() { }
 #define DBGX(arg) DBG(<<" th."<<me()->id << " " << "tid." << tid() << " "  arg)
 #define DBGX2(arg) DBG(<<" th." << me()->id << " "  arg)
 
+#define UNDO_FUDGE_FACTOR(nbytes) (3*(nbytes))
 
 #ifdef W_TRACE
 extern "C" void debugflags(const char *);
@@ -1186,8 +1187,10 @@ xct_impl::_flush_logbuf( bool sync )
 		_log_bytes_rsvd -= bytes_used;
 	    }
 	    else {
-		_log_bytes_ready -= 2*bytes_used;
-		_log_bytes_rsvd += bytes_used;
+		long to_reserve = UNDO_FUDGE_FACTOR(bytes_used);
+		w_assert0(_log_bytes_ready >= bytes_used + to_reserve);
+		_log_bytes_ready -= bytes_used + to_reserve;
+		_log_bytes_rsvd += to_reserve;
 	    }
 	    _log_bytes_used += bytes_used;
 	    }
@@ -1284,7 +1287,7 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
        the transaction, such as the commit/abort record and any
        top-level actions generated unexpectedly during rollback.
      */
-    static u_int const MIN_BYTES_READY = 3*sizeof(logrec_t);
+    static u_int const MIN_BYTES_READY = 2*sizeof(logrec_t) + UNDO_FUDGE_FACTOR(sizeof(logrec_t));
     static u_int const MIN_BYTES_RSVD =  sizeof(logrec_t);
     if(!_rolling_back && _state == xct_active
        && _log_bytes_ready < MIN_BYTES_READY) {
@@ -1421,7 +1424,8 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
        MIN_BYTES_READY, so we don't have to reserve more ready bytes
        just because of this.
      */
-    if(_log_bytes_rsvd < MIN_BYTES_RSVD) {
+    if(!_rolling_back && _state == xct_active
+       && _log_bytes_rsvd < MIN_BYTES_RSVD) {
 	_log_bytes_ready -= MIN_BYTES_RSVD;
 	_log_bytes_rsvd += MIN_BYTES_RSVD;
     }
