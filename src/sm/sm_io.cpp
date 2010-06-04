@@ -81,9 +81,7 @@ void iostophere() { }
 #include "vol.h"
 
 // VOL_LOCK_IS_RW is defined in shore.def
-#if VOL_LOCK_IS_RW
 #include <auto_release.h>
-#endif
 
 #include <store_latch_manager.h>
 // NOTE : this is shared with btree layer
@@ -1107,6 +1105,7 @@ io_m::alloc_a_file_page(
     auto_leave enter;
     vid_t volid = fid.vol;
 
+    {
     GRAB_W;
     ASSERT_HAVE_W;
 
@@ -1161,11 +1160,11 @@ io_m::alloc_a_file_page(
     filter->check();
 #endif
 
-
     /* Compensate around the updates to the extent 
      * that allocated the page.
      */
     anchor.compensate(); // releases anchor
+    }
     rc_t rc = log_alloc_file_page(allocPid);
     if(rc.is_error()) {
         fprintf(stderr, "could not log_alloc_file_page\n");
