@@ -392,24 +392,29 @@ rc_t ringbuf_log::insert(logrec_t &rec, lsn_t* rlsn)
     return RCOK;
 }
 
-rc_t ringbuf_log::flush(lsn_t lsn) 
+rc_t ringbuf_log::flush(lsn_t lsn, bool block) 
 {
     ASSERT_FITS_IN_POINTER(lsn_t);
     // else our reads to _durable_lsn would be unsafe
 
     // don't let them flush past end of log -- they might wait forever...
-
     lsn = std::min(lsn, (*&_curr_lsn)+ -1);
     
     // already durable?
     if(lsn >= *&_durable_lsn) {
-        CRITICAL_SECTION(cs, _wait_flush_lock);
-        while(lsn >= *&_durable_lsn) {
+        if (!block) {
             *&_waiting_for_flush = true;
-            // Use signal since the only thread that should be waiting 
-            // on the _flush_cond is the log flush daemon.
             DO_PTHREAD(pthread_cond_signal(&_flush_cond));
-            DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
+        }
+        else {
+            CRITICAL_SECTION(cs, _wait_flush_lock);
+            while(lsn >= *&_durable_lsn) {
+                *&_waiting_for_flush = true;
+                // Use signal since the only thread that should be waiting 
+                // on the _flush_cond is the log flush daemon.
+                DO_PTHREAD(pthread_cond_signal(&_flush_cond));
+                DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
+            }
         }
     } else {
         INC_TSTAT(log_dup_sync_cnt);

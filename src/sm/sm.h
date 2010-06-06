@@ -834,7 +834,8 @@ public:
      * recovery of this transaction might not be possible.
      */
     static rc_t           commit_xct(
-        bool                      lazy = false);
+                                     bool   lazy = false,
+                                     lsn_t* plastlsn=NULL);
 
     /**\brief Commit an instrumented transaction and get its statistics.
      *\ingroup SSMXCT
@@ -848,7 +849,8 @@ public:
      */
     static rc_t            commit_xct(
         sm_stats_info_t*&         stats, 
-        bool                      lazy = false);
+        bool                      lazy = false,
+        lsn_t* plastlsn=NULL);
 
     /**\brief Commit an instrumented transaction and start a new one.
      *\ingroup SSMXCT
@@ -1202,7 +1204,15 @@ public:
     // at that point in the log.  A call to this method should be
     // followed immediately by a dirty shutdown of the ssm.
     static rc_t            start_log_corruption();
-    static rc_t            sync_log();
+
+    // Forces a log flush
+    static rc_t 		sync_log(bool block=true);
+    static rc_t 		flush_until(lsn_t& anlsn, bool block=true);
+
+    // Allowing to access info about the important lsns (curr and durable)
+    static rc_t                 get_curr_lsn(lsn_t& anlsn);
+    static rc_t                 get_durable_lsn(lsn_t& anlsn);
+
 
     /*
        Device and Volume Management
@@ -1877,6 +1887,12 @@ public:
     /* enable/disable SLI globally for all threads created after this
        point. Does *NOT* disable SLI for existing threads.
      */
+    static void			set_sli_enabled(bool enabled);
+    static void			set_elr_enabled(bool enabled);
+
+    static rc_t			set_log_features(char const* features);
+    static char const* 		get_log_features();
+
     static rc_t            lock(
         const lockid_t&         n, 
         lock_mode_t             m,
@@ -1980,7 +1996,8 @@ private:
 
     static rc_t            _commit_xct(
         sm_stats_info_t*&     stats,
-        bool                  lazy);
+        bool                  lazy,
+        lsn_t* plastlsn);
 
     static rc_t            _prepare_xct(
         sm_stats_info_t*&     stats,

@@ -99,7 +99,7 @@ public:
       - wait
      */
     virtual rc_t insert(logrec_t &r, lsn_t* ret)=0; // returns the lsn the data was written to
-    virtual rc_t flush(lsn_t lsn)=0;
+    virtual rc_t flush(lsn_t lsn, bool block=true)=0;
     virtual void start_flush_daemon()=0;
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn)=0;
     virtual lsn_t curr_lsn() const;
@@ -130,7 +130,7 @@ public:
     // flush won't return until target lsn before durable_lsn(), so
     // back off by one byte so we don't depend on other inserts to
     // arrive after us
-    rc_t flush_all() { return flush(curr_lsn().advance(-1)); }
+    rc_t flush_all(bool block=true) { return flush(curr_lsn().advance(-1),block); }
 
 
     // statics
@@ -244,7 +244,7 @@ struct ringbuf_log : public log_m
     void wait_for_space();
 
     virtual rc_t insert(logrec_t &r, lsn_t* l); // returns the lsn the data was written to
-    virtual rc_t flush(lsn_t lsn);
+    virtual rc_t flush(lsn_t lsn,bool block=true);
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn);
     virtual void start_flush_daemon();
     void flush_daemon();
@@ -375,7 +375,7 @@ public:
         logrec_t*&                     rec,                \
         lsn_t*                             nxt NULLARG ) )     \
     VIRTUAL(void                 release())                \
-    VIRTUAL(rc_t                flush(const lsn_t& l))  \
+        VIRTUAL(rc_t                flush(const lsn_t& l,bool block=true)) \
     VIRTUAL(rc_t                scavenge(               \
         const lsn_t&                     min_rec_lsn,        \
         const lsn_t&                     min_xct_lsn))         \

@@ -21,7 +21,6 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
-// -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
  $Id: xct_impl.cpp,v 1.56.2.23 2010/03/25 18:05:18 nhall Exp $
@@ -766,9 +765,11 @@ done:
  *  If flag t_chain, a new transaction is instantiated inside
  *  this one, and inherits all its locks.
  *
+ *  In plastlsn it returns the lsn of the last LSN that got hardened.
+ *
  *********************************************************************/
 rc_t
-xct_impl::commit(uint4_t flags)
+xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
 {
     W_DO(check_one_thread_attached());
 
@@ -824,6 +825,13 @@ xct_impl::commit(uint4_t flags)
             _sync_logbuf();
             // W_COERCE(log->flush_all());        /* sync log */
         }
+        else { // IP: If lazy, wake up the flusher but do not block
+            _sync_logbuf(false);
+        }
+
+        // IP: Before destroying anything copy last_lsn
+        if (plastlsn != NULL) *plastlsn = _last_lsn;
+
 #if X_LOG_COMMENT_ON
         {
             w_ostrstream s;
@@ -1215,11 +1223,14 @@ xct_impl::_flush_logbuf( bool sync )
  *
  *  Force log entries up to the most recently written to disk.
  *
+ *  block: If not set it does not block, but kicks the flusher. The
+ *         default is to block, the no block option is used by AsynchCommit
+ *
  *********************************************************************/
 w_rc_t
-xct_impl::_sync_logbuf()
+xct_impl::_sync_logbuf(bool block)
 {
-    return log? log->flush(_last_lsn) : RCOK;
+    return (log? log->flush(_last_lsn,block) : RCOK);
 }
 
 /*********************************************************************

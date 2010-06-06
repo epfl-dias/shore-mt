@@ -826,14 +826,14 @@ xct_t::release_1thread_xct_mutex()
 }
 
 rc_t
-xct_t::commit(bool lazy)
+xct_t::commit(bool lazy,lsn_t* plastlsn)
 {
     // w_assert9(one_thread_attached());
     // removed because a checkpoint could
     // be going on right now.... see comments
     // in log_prepared and chkpt.cpp
 
-    return i_this->commit(t_normal | (lazy ? t_lazy : t_normal));
+    return i_this->commit(t_normal | (lazy ? t_lazy : t_normal), plastlsn);
 }
 
 

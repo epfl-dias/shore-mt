@@ -1150,23 +1150,24 @@ ss_m::begin_xct(tid_t& tid, timeout_in_ms timeout)
  *  ss_m::commit_xct()                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::commit_xct(sm_stats_info_t*&             _stats, bool lazy)
+ss_m::commit_xct(sm_stats_info_t*& _stats, bool lazy,
+                 lsn_t* plastlsn)
 {
     SM_PROLOGUE_RC(ss_m::commit_xct, commitable_xct, 0);
 
-    W_DO(_commit_xct(_stats, lazy));
+    W_DO(_commit_xct(_stats, lazy, plastlsn));
     prologue.no_longer_in_xct();
 
     return RCOK;
 }
 
 rc_t
-ss_m::commit_xct(bool lazy)
+ss_m::commit_xct(bool lazy, lsn_t* plastlsn)
 {
     SM_PROLOGUE_RC(ss_m::commit_xct, commitable_xct, 0);
 
     sm_stats_info_t*             _stats=0; 
-    W_DO(_commit_xct(_stats,lazy));
+    W_DO(_commit_xct(_stats,lazy,plastlsn));
     prologue.no_longer_in_xct();
     /*
      * throw away the _stats, since user isn't harvesting... 
@@ -1667,12 +1668,41 @@ ss_m::start_log_corruption()
 }
 
 /*--------------------------------------------------------------*
- *  ss_m::sync_log()                        *
+ *  ss_m::sync_log()				                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::sync_log()
+ss_m::sync_log(bool block)
 {
-    return log->flush_all();
+    return log->flush_all(block);
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::flush_until()				                *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::flush_until(lsn_t& anlsn, bool block)
+{
+  return log->flush(anlsn, block);
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::get_curr_lsn()			                *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::get_curr_lsn(lsn_t& anlsn)
+{
+  anlsn = log->curr_lsn();
+  return (RCOK);
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::get_durable_lsn()			                *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::get_durable_lsn(lsn_t& anlsn)
+{
+  anlsn = log->durable_lsn();
+  return (RCOK);
 }
 
 /*--------------------------------------------------------------*
@@ -2074,6 +2104,39 @@ ss_m::dump_locks() {
   return dump_locks(std::cout);
 }
 
+
+
+/*--------------------------------------------------------------*
+ *  Enable/Disable Shore-SM features                            *
+ *--------------------------------------------------------------*/
+
+void ss_m::set_sli_enabled(bool /* enable */) 
+{
+    fprintf(stdout, "SLI not supported\n");
+    //lm->set_sli_enabled(enable);
+}
+
+void ss_m::set_elr_enabled(bool /* enable */) 
+{
+    fprintf(stdout, "ELR not supported\n");
+    //xct_t::set_elr_enabled(enable);
+}
+
+rc_t ss_m::set_log_features(char const* /* features */) 
+{
+    fprintf(stdout, "Aether not integrated\n");
+    return (RCOK);
+    //return log->set_log_features(features);
+}
+
+char const* ss_m::get_log_features() 
+{
+    fprintf(stdout, "Aether not integrated\n");
+    return ("NOT-IMPL");
+    //return log->get_log_features();
+}
+
+
 /*--------------------------------------------------------------*
  *  ss_m::lock()                                *
  *--------------------------------------------------------------*/
@@ -2253,7 +2316,8 @@ ss_m::_prepare_xct(sm_stats_info_t*& _stats, vote_t &v)
  *  ss_m::_commit_xct()                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_commit_xct(sm_stats_info_t*&             _stats, bool lazy)
+ss_m::_commit_xct(sm_stats_info_t*& _stats, bool lazy,
+                  lsn_t* plastlsn)
 {
     w_assert3(xct() != 0);
     xct_t& x = *xct();
@@ -2268,7 +2332,7 @@ ss_m::_commit_xct(sm_stats_info_t*&             _stats, bool lazy)
         w_assert3(x.state()==xct_active);
     }
 
-    W_DO( x.commit(lazy) );
+    W_DO( x.commit(lazy,plastlsn) );
 
     if(x.is_instrumented()) _stats = x.steal_stats();
     delete &x;

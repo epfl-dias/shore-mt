@@ -134,7 +134,7 @@ public:
 
     rc_t            prepare();
     rc_t            log_prepared(bool in_chkpt=false);
-    rc_t            commit(w_base_t::uint4_t flags);
+    rc_t            commit(w_base_t::uint4_t flags,lsn_t* plastlsn=NULL);
     rc_t            rollback(lsn_t save_pt);
     rc_t            save_point(lsn_t& lsn);
     rc_t            abort();
@@ -235,6 +235,8 @@ private:
     void            set_last_lsn(const lsn_t &) ;
     void            set_undo_nxt(const lsn_t &) ;
 
+    void 	    _teardown(bool is_chaining);
+
 public:
 
     // used by checkpoint, restart:
@@ -252,8 +254,8 @@ public:
     int                num_threads() const { return _threads_attached; }
 
 private:
-    w_rc_t               _flush_logbuf(bool sync=false);
-    w_rc_t	       _sync_logbuf();
+    w_rc_t             _flush_logbuf(bool sync=false);
+    w_rc_t	       _sync_logbuf(bool block=true);
 
 private: // all data members private
                 // to be manipulated only by smthread funcs

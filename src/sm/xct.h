@@ -96,6 +96,9 @@ class xct_prepare_lk_log; // forward
 class sm_quark_t; // forward
 class smthread_t; // forward
 
+class logrec_t; // forward
+class page_p; // forward
+
 class xct_t : public smlevel_1 {
     friend class xct_i;
     friend class xct_impl; 
@@ -190,7 +193,7 @@ public:
                                     return         s;
                                 }
     const sm_stats_info_t&      const_stats_ref() { return *__stats; }
-    rc_t                        commit(bool lazy = false);
+    rc_t                        commit(bool lazy = false, lsn_t* plastlsn=NULL);
     rc_t                        rollback(lsn_t save_pt);
     rc_t                        save_point(lsn_t& lsn);
     rc_t                        chain(bool lazy = false);
