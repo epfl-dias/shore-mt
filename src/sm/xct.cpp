@@ -1216,7 +1216,7 @@ smlevel_0::fileoff_t
 xct_t::get_log_space_used() const
 {
     return i_this->_log_bytes_used
-	+ i_this->_log_bytes_rsvd
+	+ i_this->_log_bytes_ready
 	+ i_this->_log_bytes_rsvd;
 }
 
@@ -1239,8 +1239,8 @@ xct_t::wait_for_log_space(fileoff_t amt) {
 	    }
 	}
 	
-	// update our reservation with whateer we got
-	i_this->_log_bytes_rsvd += amt - still_needed;
+	// update our reservation with whatever we got
+	i_this->_log_bytes_ready += amt - still_needed;
     }
     return rc;
 }
