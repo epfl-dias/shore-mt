@@ -1884,7 +1884,7 @@ void  bfcb_t::set_rec_lsn(const lsn_t &what) {
     // identify the cases.
     w_assert0(latch.is_mine());
     w_assert0(!what.valid() || !smlevel_0::log
-	      || what > smlevel_0::log->global_min_lsn());
+	      || what >= smlevel_0::log->global_min_lsn());
     _rec_lsn = what;
 }
 

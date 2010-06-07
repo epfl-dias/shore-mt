@@ -742,7 +742,8 @@ void log_m::activate_reservations() {
      */
     w_assert1(operating_mode == t_forward_processing);
     w_assert1(!_reservations_active);
-    w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
+    // FRJ: not true if any logging occurred during recovery
+    //    w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
 
     // knock off space used by full partitions
     long oldest_pnum = _min_chkpt_rec_lsn.hi();
