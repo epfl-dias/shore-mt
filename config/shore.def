@@ -47,3 +47,12 @@
    "readers" is suspected.
 */
 #define VOLUME_OPS_USE_OCC 1
+
+
+/* Undefine or zero this to remove log space accounting. This is
+   probably undesirable because it allows the log to become wedged and
+   the system unrecoverable. However, log space accounting does not
+   yet handle recovery of prepared transactions and therefore must be
+   disabled if the VAS will use 2PC.
+ */
+#define USE_LOG_RESERVATIONS 1

@@ -181,6 +181,7 @@ public:
     long			max_chkpt_size() const;
     bool			verify_chkpt_reservation();
     void			activate_reservations();
+    bool			reservations_active() const { return _reservations_active; }
     fileoff_t			consume_chkpt_reservation(fileoff_t howmuch);
 protected:
     log_m();
@@ -198,6 +199,7 @@ protected:
     lsn_t                   _min_chkpt_rec_lsn;
     fileoff_t volatile      _space_available; // how many unreserved bytes in the log?
     fileoff_t volatile      _space_rsvd_for_chkpt; // can we run a checkpoint right now?
+    bool		    _reservations_active;
     fileoff_t               _partition_size;
     fileoff_t               _partition_data_size;
     bool                    _log_corruption;

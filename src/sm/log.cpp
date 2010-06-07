@@ -606,7 +606,7 @@ rc_t ringbuf_log::compensate(lsn_t orig_lsn, lsn_t undo_lsn)
 
 log_m::log_m()
     : _min_chkpt_rec_lsn(first_lsn(1)), _space_available(0),
-      _space_rsvd_for_chkpt(0),
+      _space_rsvd_for_chkpt(0), _reservations_active(false),
       _partition_size(0), _partition_data_size(0), _log_corruption(false),
       _waiting_for_space(false)
 {
@@ -731,18 +731,20 @@ rc_t        log_m::new_log_m(log_m        *&the_log,
 }
 
 void log_m::activate_reservations() {
+#if USE_LOG_RESERVATIONS
     /* With recovery complete we now activate log reservations.
 
-       In fact, the activation was setting the mode to
+       In fact, the activation should be as simple as setting the mode to
        t_forward_processing, but we also have to account for any space
        the log already occupies. We don't have to double-count
        anything because nothing will be undone should a crash occur at
        this point.
      */
     w_assert1(operating_mode == t_forward_processing);
+    w_assert1(!_reservations_active);
     w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
 
-    // knock off space used by fully partitions
+    // knock off space used by full partitions
     long oldest_pnum = _min_chkpt_rec_lsn.hi();
     long newest_pnum = curr_lsn().hi();
     long full_partitions = newest_pnum - oldest_pnum; // can be zero
@@ -750,6 +752,8 @@ void log_m::activate_reservations() {
 
     // and knock off the space used so far in the current partition
     _space_available -= curr_lsn().lo();
+    _reservations_active = true;
+#endif
 }
 
 smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }

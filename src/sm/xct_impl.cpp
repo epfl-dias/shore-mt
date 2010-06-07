@@ -1191,8 +1191,20 @@ xct_impl::_flush_logbuf( bool sync )
 	    if(smlevel_0::operating_mode == t_forward_processing) {
 	    long bytes_used = l->length();
 	    if(_rolling_back || state() != xct_active) {
+#if USE_LOG_RESERVATIONS
 		w_assert0(_log_bytes_rsvd >= bytes_used);
 		_log_bytes_rsvd -= bytes_used;
+#else
+		if(_log_bytes_rsvd >= bytes_used) {
+		    _log_bytes_rsvd -= bytes_used;
+		}
+		else if(_log_bytes_ready >= bytes_used) {
+		    _log_bytes_ready -= bytes_used;
+		}
+		else {
+		    return RC(eOUTOFLOGSPACE);
+		}
+#endif
 	    }
 	    else {
 		long to_reserve = UNDO_FUDGE_FACTOR(bytes_used);
