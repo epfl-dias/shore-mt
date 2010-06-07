@@ -303,7 +303,7 @@ srv_log::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
 	   Skim off the top of the released space whatever it takes to
 	   top up the log checkpoint reservation.
 	 */
-	fileoff_t reclaimed = count*_partition_data_size;
+	fileoff_t reclaimed = recoverable_space(count);
 	fileoff_t max_chkpt = max_chkpt_size();
 	while(!verify_chkpt_reservation() && reclaimed > 0) {
 	    long skimmed = std::min(max_chkpt, reclaimed);

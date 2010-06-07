@@ -704,7 +704,7 @@ void ringbuf_log::set_size(fileoff_t size)
            );
    */
     // initial free space estimate... refined once log recovery is complete
-    release_space(PARTITION_COUNT*_partition_data_size);
+    release_space(recoverable_space(PARTITION_COUNT));
     if(!verify_chkpt_reservation() || _space_rsvd_for_chkpt > _partition_data_size) {
 	fprintf(stderr,
 		"log partitions too small compared to buffer pool:\n"
@@ -748,7 +748,7 @@ void log_m::activate_reservations() {
     long oldest_pnum = _min_chkpt_rec_lsn.hi();
     long newest_pnum = curr_lsn().hi();
     long full_partitions = newest_pnum - oldest_pnum; // can be zero
-    _space_available -= full_partitions*_partition_data_size;
+    _space_available -= recoverable_space(full_partitions);
 
     // and knock off the space used so far in the current partition
     _space_available -= curr_lsn().lo();

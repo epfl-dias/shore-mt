@@ -111,6 +111,16 @@ public:
     void   release_space(fileoff_t howmuch);
     rc_t    wait_for_space(fileoff_t &amt, timeout_in_ms timeout);
     virtual void	request_checkpoint()=0; // since log.cpp doesn't know about chkpt_m...
+    
+    /* Q: how much reservable space does scavenging pcount partitions
+          give back?
+       
+       A: everything except a bit we have to keep to ensure the log
+          can always be flushed.
+     */
+    size_t	recoverable_space(int pcount) const {
+	return pcount*(_partition_data_size - writebufsize()/PARTITION_COUNT);
+    }
 
     void set_master(lsn_t master_lsn, lsn_t min_lsn, lsn_t min_xct_lsn);
     long space_left() const;
@@ -121,6 +131,8 @@ public:
     fileoff_t limit() const { return _partition_size; }
     fileoff_t logDataLimit() const { return _partition_data_size; }
     void start_log_corruption() { _log_corruption = true; }
+    virtual
+    int                 writebufsize() const=0;
 
     // convenience functions (composed out of other functions)
     lsn_t global_min_lsn() const { return std::min(master_lsn(), min_chkpt_rec_lsn()); }
@@ -253,6 +265,9 @@ struct ringbuf_log : public log_m
     virtual void _flush(lsn_t base_lsn, long start1, long end1, long start2, long end2)=0;
     virtual void	request_checkpoint()=0;
 
+    virtual
+    int                 writebufsize() const=0;
+    
     // initialize the partition size and data_size
     void set_size(fileoff_t psize);
 
