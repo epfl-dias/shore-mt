@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: vol.init,v 1.36.2.9 2010/03/25 18:05:32 nhall Exp $
+#  $Id: vol.init,v 1.36.2.10 2010-05-20 05:43:28 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -171,13 +171,7 @@ addcleanupvars {quota vol_list id_body_width size_page_align size dev
 				id_hdr_width vol existing skip_raw_init
 				logging show_vol_stats save_script script}
 
-
-# define 10 named sync points
-for {set i 1} {$i <= 10} {incr i} {
-	undef_named_sync $i silent
-	define_named_sync $i $i
-}
-unset i
+source  $script_dir/sync_commands.tcl
 
 # write the random number seed so that
 # when we're trying to reproduce results after
