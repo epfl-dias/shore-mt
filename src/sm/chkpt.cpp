@@ -159,7 +159,7 @@ struct old_xct_tracker {
 	pthread_mutex_unlock(&_lock);
     }
 
-    void report_finished(xct_t* xd) {
+     void report_finished(xct_t*) {
 	pthread_mutex_lock(&_lock);
 	if(! --_count)
 	    pthread_cond_signal(&_cond);
@@ -376,7 +376,7 @@ void chkpt_m::take()
 	xct_i it(true); // do acquire the xlist_mutex...
 	while(xct_t* xd=it.next()) {
 	    lsn_t const &flsn = xd->first_lsn();
-	    if(flsn < oldest_valid_lsn) {
+	    if(flsn.valid() && flsn < oldest_valid_lsn) {
 		// poison the transaction and add it to the list...
 		xd->force_nonblocking();
 		tracker.track(xd);
@@ -629,9 +629,15 @@ void chkpt_m::take()
 
     /*
      *  Make sure that min_rec_lsn and min_xct_lsn are valid
+     *
+     *  Log reservations require that min_rec_lsn <= master; this is
+     *  correct because if everything is clean the min_*_lsn are still
+     *  set to lsn_t::max, and even if a min_*_lsn were larger than
+     *  the master, recovery would have to start from the master LSN
+     *  in any case.
      */
-    if (min_rec_lsn == lsn_t::max) min_rec_lsn = master;
-    if (min_xct_lsn == lsn_t::max) min_xct_lsn = master;
+    if (min_rec_lsn > master) min_rec_lsn = master;
+    if (min_xct_lsn > master) min_xct_lsn = master;
 
     /*
      *  Write the Checkpoint End Log

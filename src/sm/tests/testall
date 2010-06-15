@@ -32,6 +32,8 @@ function execute  {
     print -n "$1\t--> running --> "
     print "running $1" >> $2
 
+    OLD_PATH=$PATH
+    PATH=$PATH:.
     if [[ -a $3 ]]; then
 	of=/tmp/$$
 	if $1 1> $of 2> $of.err ; then
@@ -45,6 +47,7 @@ function execute  {
 	    fi
 	else
 	    print "failed to execute $1 ( $? )"
+	    cat $of.err
             exit 1
 	fi
 	cat $of >> $2
@@ -54,8 +57,10 @@ function execute  {
 	print "ok"
     else
 	print "failed to execute $1 ( $? )"
+	cat $2
         exit 1
     fi
+    PATH=$OLD_PATH
 }
 
 function file_scan_test  {

@@ -21,7 +21,6 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
-// -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
  $Id: xct_impl.cpp,v 1.56.2.23 2010/03/25 18:05:18 nhall Exp $
@@ -116,6 +115,7 @@ extern "C" void xstop() { }
 #define DBGX(arg) DBG(<<" th."<<me()->id << " " << "tid." << tid() << " "  arg)
 #define DBGX2(arg) DBG(<<" th." << me()->id << " "  arg)
 
+#define UNDO_FUDGE_FACTOR(nbytes) (3*(nbytes))
 
 #ifdef W_TRACE
 extern "C" void debugflags(const char *);
@@ -262,7 +262,7 @@ xct_impl::xct_impl(xct_core* core, sm_stats_info_t* stats,
     __saved_sdesc_cache_t(0),
     __saved_xct_log_t(0),
     _tid(core->_tid), 
-        // _first_lsn,
+        // _first_lsn, _last_lsn, _undo_nxt, 
         _last_lsn(last_lsn),
         _undo_nxt(undo_nxt),
         _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &core->_1thread_xct),
@@ -270,6 +270,7 @@ xct_impl::xct_impl(xct_core* core, sm_stats_info_t* stats,
         _log_buf(0),
         _log_bytes_rsvd(0),
         _log_bytes_ready(0),
+        _log_bytes_used(0),
 	_rolling_back(false),
         _in_compensated_op(0),
     _core(core)
@@ -388,8 +389,8 @@ xct_impl::_teardown(bool is_chaining) {
     if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
 	w_assert2(smlevel_0::log);
 	smlevel_0::log->release_space(leftovers);
-	_log_bytes_rsvd = _log_bytes_ready = 0;
     };
+    _log_bytes_rsvd = _log_bytes_ready = _log_bytes_used = 0;
 	
 }
 
@@ -814,9 +815,11 @@ done:
  *  If flag t_chain, a new transaction is instantiated inside
  *  this one, and inherits all its locks.
  *
+ *  In plastlsn it returns the lsn of the last LSN that got hardened.
+ *
  *********************************************************************/
 rc_t
-xct_impl::_commit(uint4_t flags)
+xct_impl::_commit(uint4_t flags,lsn_t* plastlsn)
 {
     W_DO(check_one_thread_attached());
 
@@ -872,6 +875,13 @@ xct_impl::_commit(uint4_t flags)
             _sync_logbuf();
             // W_COERCE(log->flush_all());        /* sync log */
         }
+        else { // IP: If lazy, wake up the flusher but do not block
+            _sync_logbuf(false);
+        }
+
+        // IP: Before destroying anything copy last_lsn
+        if (plastlsn != NULL) *plastlsn = _last_lsn;
+
 #if X_LOG_COMMENT_ON
         {
             w_ostrstream s;
@@ -1205,15 +1215,39 @@ xct_impl::_flush_logbuf( bool sync )
 	       reserve an additional /length/ bytes against future
 	       rollbacks; undo records consume /length/ previously
 	       reserved bytes and leave available bytes unchanged..
+	       
+	       NOTE: we only track reservations during forward
+	       processing. The SM can no longer run out of log space,
+	       so during recovery we can assume that the log was not
+	       wedged at the time of the crash and will not become so
+	       during recovery (because redo generates only log
+	       compensations and undo was already accounted for)
 	    */
+	    if(smlevel_0::operating_mode == t_forward_processing) {
 	    long bytes_used = l->length();
 	    if(_rolling_back || state() != xct_active) {
+#if USE_LOG_RESERVATIONS
 		w_assert0(_log_bytes_rsvd >= bytes_used);
 		_log_bytes_rsvd -= bytes_used;
+#else
+		if(_log_bytes_rsvd >= bytes_used) {
+		    _log_bytes_rsvd -= bytes_used;
+		}
+		else if(_log_bytes_ready >= bytes_used) {
+		    _log_bytes_ready -= bytes_used;
+		}
+		else {
+		    return RC(eOUTOFLOGSPACE);
+		}
+#endif
 	    }
 	    else {
-		_log_bytes_ready -= 2*bytes_used;
-		_log_bytes_rsvd += bytes_used;
+		long to_reserve = UNDO_FUDGE_FACTOR(bytes_used);
+		w_assert0(_log_bytes_ready >= bytes_used + to_reserve);
+		_log_bytes_ready -= bytes_used + to_reserve;
+		_log_bytes_rsvd += to_reserve;
+	    }
+	    _log_bytes_used += bytes_used;
 	    }
 
             // log insert effectively set_lsn to the lsn of the *next* byte of
@@ -1236,11 +1270,14 @@ xct_impl::_flush_logbuf( bool sync )
  *
  *  Force log entries up to the most recently written to disk.
  *
+ *  block: If not set it does not block, but kicks the flusher. The
+ *         default is to block, the no block option is used by AsynchCommit
+ *
  *********************************************************************/
 w_rc_t
-xct_impl::_sync_logbuf()
+xct_impl::_sync_logbuf(bool block)
 {
-    return log? log->flush(_last_lsn) : RCOK;
+    return (log? log->flush(_last_lsn,block) : RCOK);
 }
 
 /*********************************************************************
@@ -1308,11 +1345,12 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
        the transaction, such as the commit/abort record and any
        top-level actions generated unexpectedly during rollback.
      */
-    static u_int const MIN_BYTES_READY = 3*sizeof(logrec_t);
+    static u_int const MIN_BYTES_READY = 2*sizeof(logrec_t) + UNDO_FUDGE_FACTOR(sizeof(logrec_t));
     static u_int const MIN_BYTES_RSVD =  sizeof(logrec_t);
     if(!_rolling_back && _core->_state == xct_active
        && _log_bytes_ready < MIN_BYTES_READY) {
-	if(!log->reserve_space(MIN_BYTES_READY)) {
+	fileoff_t needed = MIN_BYTES_READY;
+	if(!log->reserve_space(needed)) {
 	    /*
 	       Yikes! Log full!
 
@@ -1394,11 +1432,9 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 		    }
 
 		    // most likely it's well aware, but just in case...
-		    chkpt->wakeup_and_take(); 
-		    log->wait_for_space();
-		    
-		    // try again...
-		    if(log->reserve_space(MIN_BYTES_READY)) {
+		    chkpt->wakeup_and_take();
+		    W_IGNORE(log->wait_for_space(needed, 100));
+		    if(!needed) {
 			if(tries_left > 1) {
 			    INC_TSTAT(log_full_wait);
 			}
@@ -1407,21 +1443,28 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 			}
 			goto success;
 		    }
+		    
+		    // try again...
 		}
 
-		// nothing's working... give up and abort
-		stringstream tmp;
-		tmp << "Log too full. me=" << me()->id
-		    << " pthread=" << pthread_self()
-		    << ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
-		    << ", curr_lsn=" << log->curr_lsn() 
-		    // also print info that shows why we didn't croak
-		    // on the first check
-		    << "; space left " << log->space_left()
-		    << endl;
-		fprintf(stderr, "%s\n", tmp.str().c_str());
-		INC_TSTAT(log_full_giveup);
-		badnews = true;
+		if(!log->reserve_space(needed)) {
+		    // won't do any good now...
+		    log->release_space(MIN_BYTES_READY - needed); 
+		    
+		    // nothing's working... give up and abort
+		    stringstream tmp;
+		    tmp << "Log too full. me=" << me()->id
+			<< " pthread=" << pthread_self()
+			<< ": min_chkpt_rec_lsn=" << log->min_chkpt_rec_lsn()
+			<< ", curr_lsn=" << log->curr_lsn() 
+			// also print info that shows why we didn't croak
+			// on the first check
+			<< "; space left " << log->space_left()
+			<< endl;
+		    fprintf(stderr, "%s\n", tmp.str().c_str());
+		    INC_TSTAT(log_full_giveup);
+		    badnews = true;
+		}
 	    }
 
 	    if(badnews)
@@ -1439,7 +1482,8 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
        MIN_BYTES_READY, so we don't have to reserve more ready bytes
        just because of this.
      */
-    if(_log_bytes_rsvd < MIN_BYTES_RSVD) {
+    if(!_rolling_back && _core->_state == xct_active
+       && _log_bytes_rsvd < MIN_BYTES_RSVD) {
 	_log_bytes_ready -= MIN_BYTES_RSVD;
 	_log_bytes_rsvd += MIN_BYTES_RSVD;
     }
@@ -1572,7 +1616,11 @@ xct_impl::release_anchor( bool and_compensate )
                if( log && !log->compensate(_last_lsn, _anchor).is_error()) {
                     INC_TSTAT(compensate_in_log);
                } else {
+		   // compensations use _log_bytes_rsvd, not _log_bytes_ready
+		   bool was_rolling_back = _rolling_back;
+		   _rolling_back = true;
                     W_COERCE(log_compensate(_anchor));
+		    _rolling_back = was_rolling_back;
                     INC_TSTAT(compensate_records);
                }
             }
@@ -1740,7 +1788,11 @@ xct_impl::_compensate(const lsn_t& lsn, bool undoable)
         // that's there is an undoable/compensation and will be
         // undone (and we *really* want to compensate around it)
         */
+	// compensations use _log_bytes_rsvd, not _log_bytes_ready
+	bool was_rolling_back = _rolling_back;
+	_rolling_back = true;
         W_COERCE(log_compensate(lsn));
+	_rolling_back = was_rolling_back;
         INC_TSTAT(compensate_records);
     }
 }
@@ -1846,8 +1898,8 @@ xct_impl::rollback(lsn_t save_pt)
             r.undo(page.is_fixed() ? &page : 0);
 
 #if W_DEBUG_LEVEL > 2
-            if(was_rsvd - _log_byts_rsvd  > r.length()) {
-                  LOGTRACE(<< " len=" << r.length() << " B=" << bbwd );
+            if(was_rsvd - _log_bytes_rsvd  > r.length()) {
+                  LOGTRACE(<< " len=" << r.length() << " B=" << (was_rsvd - _log_bytes_rsvd) );
             }
 #endif 
             if(r.is_cpsn()) {

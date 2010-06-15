@@ -69,7 +69,7 @@ public:
     w_rc_t              ensure_mine(acquire_status* status)
                           { return _ensure_mine(status, WAIT_FOREVER); }
     void                release();
-    bool                is_mine();
+    bool                is_mine() const;
     bool                is_locked();
     const char *        holder_name() const // use in debugger: not thread-safe
                           { return _holder ? _holder->name() : "NONE"; }; 
@@ -95,7 +95,7 @@ private:
 
 
 inline bool
-smutex_t::is_mine()
+smutex_t::is_mine() const
 {
 #ifdef W_DEBUG
     /* Benign race -- the cs() is just here to keep race detection

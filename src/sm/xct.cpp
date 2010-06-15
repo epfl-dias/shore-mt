@@ -514,14 +514,14 @@ xct_t::force_nonblocking()
 }
 
 rc_t
-xct_t::commit(bool lazy)
+xct_t::commit(bool lazy,lsn_t* plastlsn)
 {
     // w_assert9(one_thread_attached());
     // removed because a checkpoint could
     // be going on right now.... see comments
     // in log_prepared and chkpt.cpp
 
-    return i_this->_commit(t_normal | (lazy ? t_lazy : t_normal));
+    return i_this->_commit(t_normal | (lazy ? t_lazy : t_normal), plastlsn);
 }
 
 
@@ -888,6 +888,39 @@ xct_t::put_in_order() {
 #endif 
 }
 
+
+smlevel_0::fileoff_t
+xct_t::get_log_space_used() const
+{
+    return i_this->_log_bytes_used
+	+ i_this->_log_bytes_ready
+	+ i_this->_log_bytes_rsvd;
+}
+
+rc_t
+xct_t::wait_for_log_space(fileoff_t amt) {
+    rc_t rc = RCOK;
+    if(log) {
+	fileoff_t still_needed = amt;
+	// check whether we even need to wait...
+	if(log->reserve_space(still_needed)) {
+	    still_needed = 0;
+	}
+	else {
+	    timeout_in_ms timeout = first_lsn().valid()? 100 : WAIT_FOREVER;
+	    fprintf(stderr, "%s:%d: first_lsn().valid()? %d	timeout=%d\n",
+		    __FILE__, __LINE__, first_lsn().valid(), timeout);
+	    rc = log->wait_for_space(still_needed, timeout);
+	    if(rc.is_error()) {
+		//rc = RC(eOUTOFLOGSPACE);
+	    }
+	}
+	
+	// update our reservation with whatever we got
+	i_this->_log_bytes_ready += amt - still_needed;
+    }
+    return rc;
+}
 
 void
 xct_t::dump(ostream &out) 

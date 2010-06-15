@@ -977,7 +977,8 @@ public:
      * recovery of this transaction might not be possible.
      */
     static rc_t           commit_xct(
-        bool                      lazy = false);
+                                     bool   lazy = false,
+                                     lsn_t* plastlsn=NULL);
 
     /**\brief Commit an instrumented transaction and get its statistics.
      *\ingroup SSMXCT
@@ -991,7 +992,8 @@ public:
      */
     static rc_t            commit_xct(
         sm_stats_info_t*&         stats, 
-        bool                      lazy = false);
+        bool                      lazy = false,
+        lsn_t* plastlsn=NULL);
 
     /**\brief Commit an instrumented transaction and start a new one.
      *\ingroup SSMXCT
@@ -1131,6 +1133,30 @@ public:
      */
     static xct_state_t     state_xct(const xct_t* x);
 
+    /**\brief Return the amount of log this transaction would consume
+     * if it rolled back.
+     *\ingroup SSMXCT
+     *
+     * If a transaction aborts with eOUTOFLOGSPACE this function can
+     * be used in conjunction with xct_reserve_log_space to
+     * pre-allocate the needed amount of log space before retrying.
+     */
+    static smlevel_0::fileoff_t		xct_log_space_needed();
+
+    /**\brief Require the specified amount of log space to be
+     * available for this transaction before continuing.
+     *\ingroup SSMXCT
+     *
+     * If a transaction risks running out of log space it can
+     * pre-request some or all of the needed amount before starting in
+     * order to improve its chances of success. Other new transactions
+     * will be unable to acquire log space before this request is
+     * granted (existing ones will be able to commit, unless they also
+     * run out of space, because that tends to free up log space and
+     * avoids wasting work).
+     */
+    static rc_t			xct_reserve_log_space(fileoff_t amt);
+    
     /**\brief Get the locking level for the attached transaction.
      * \ingroup SSMLOCK
      */
@@ -1321,7 +1347,15 @@ public:
     // at that point in the log.  A call to this method should be
     // followed immediately by a dirty shutdown of the ssm.
     static rc_t            start_log_corruption();
-    static rc_t            sync_log();
+
+    // Forces a log flush
+    static rc_t 		sync_log(bool block=true);
+    static rc_t 		flush_until(lsn_t& anlsn, bool block=true);
+
+    // Allowing to access info about the important lsns (curr and durable)
+    static rc_t                 get_curr_lsn(lsn_t& anlsn);
+    static rc_t                 get_durable_lsn(lsn_t& anlsn);
+
 
     /*
        Device and Volume Management
@@ -1996,6 +2030,12 @@ public:
     /* enable/disable SLI globally for all threads created after this
        point. Does *NOT* disable SLI for existing threads.
      */
+    static void			set_sli_enabled(bool enabled);
+    static void			set_elr_enabled(bool enabled);
+
+    static rc_t			set_log_features(char const* features);
+    static char const* 		get_log_features();
+
     static rc_t            lock(
         const lockid_t&         n, 
         lock_mode_t             m,
@@ -2099,7 +2139,8 @@ private:
 
     static rc_t            _commit_xct(
         sm_stats_info_t*&     stats,
-        bool                  lazy);
+        bool                  lazy,
+        lsn_t* plastlsn);
 
     static rc_t            _prepare_xct(
         sm_stats_info_t*&     stats,

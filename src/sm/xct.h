@@ -86,6 +86,9 @@ class xct_prepare_lk_log; // forward
 class sm_quark_t; // forward
 class smthread_t; // forward
 
+class logrec_t; // forward
+class page_p; // forward
+
 class xct_t : public smlevel_1 {
     friend class xct_i;
     friend class smthread_t;
@@ -189,7 +192,7 @@ public:
                                     return         s;
                                 }
     const sm_stats_info_t&      const_stats_ref() { return *__stats; }
-    rc_t                        commit(bool lazy = false);
+    rc_t                        commit(bool lazy = false, lsn_t* plastlsn=NULL);
     rc_t                        rollback(lsn_t save_pt);
     rc_t                        save_point(lsn_t& lsn);
     rc_t                        chain(bool lazy = false);
@@ -211,7 +214,9 @@ public:
     const lsn_t&                first_lsn() const;
     const lsn_t&                undo_nxt() const;
     const logrec_t*             last_log() const;
-
+    fileoff_t			get_log_space_used() const;
+    rc_t			wait_for_log_space(fileoff_t amt);
+    
     // used by restart, chkpt among others
     static xct_t*               look_up(const tid_t& tid);
     static tid_t                oldest_tid();        // with min tid value
@@ -380,6 +385,28 @@ public:
     void                         release_1thread_xct_mutex() const; // concurrency ok
 #endif // !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_1)
 #if !defined(XCT_IMPL_H) || defined(XCT_IMPL_H_2)
+};
+
+struct auto_release_anchor {
+    xct_t* _xd;
+    lsn_t _anchor;
+    bool _and_compensate;
+    operator lsn_t const&() const { return _anchor; }
+    auto_release_anchor(bool and_compensate=true)
+	: _xd(xct()), _and_compensate(and_compensate)
+    {
+	if(_xd)
+	    _anchor = _xd->anchor(_and_compensate);
+    }
+    void compensate() {
+	if(_xd)
+	    _xd->compensate(_anchor);
+	_xd = 0; // cancel pending release in destructor
+    }
+    ~auto_release_anchor() {
+	if(_xd)
+	    _xd->release_anchor(_and_compensate);
+    }
 };
 
 /*

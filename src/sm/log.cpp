@@ -66,6 +66,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "crash.h"
 #include <algorithm> // for std::swap
 #include <stdio.h> // snprintf
+#include <deque>
 
 // like page_p::tag_name, but doesn't W_FATAL on garbage
 static char const* page_tag_to_str(int page_tag) {
@@ -391,24 +392,29 @@ rc_t ringbuf_log::insert(logrec_t &rec, lsn_t* rlsn)
     return RCOK;
 }
 
-rc_t ringbuf_log::flush(lsn_t lsn) 
+rc_t ringbuf_log::flush(lsn_t lsn, bool block) 
 {
     ASSERT_FITS_IN_POINTER(lsn_t);
     // else our reads to _durable_lsn would be unsafe
 
     // don't let them flush past end of log -- they might wait forever...
-
     lsn = std::min(lsn, (*&_curr_lsn)+ -1);
     
     // already durable?
     if(lsn >= *&_durable_lsn) {
-        CRITICAL_SECTION(cs, _wait_flush_lock);
-        while(lsn >= *&_durable_lsn) {
+        if (!block) {
             *&_waiting_for_flush = true;
-            // Use signal since the only thread that should be waiting 
-            // on the _flush_cond is the log flush daemon.
             DO_PTHREAD(pthread_cond_signal(&_flush_cond));
-            DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
+        }
+        else {
+            CRITICAL_SECTION(cs, _wait_flush_lock);
+            while(lsn >= *&_durable_lsn) {
+                *&_waiting_for_flush = true;
+                // Use signal since the only thread that should be waiting 
+                // on the _flush_cond is the log flush daemon.
+                DO_PTHREAD(pthread_cond_signal(&_flush_cond));
+                DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
+            }
         }
     } else {
         INC_TSTAT(log_dup_sync_cnt);
@@ -600,7 +606,7 @@ rc_t ringbuf_log::compensate(lsn_t orig_lsn, lsn_t undo_lsn)
 
 log_m::log_m()
     : _min_chkpt_rec_lsn(first_lsn(1)), _space_available(0),
-      _space_rsvd_for_chkpt(0),
+      _space_rsvd_for_chkpt(0), _reservations_active(false),
       _partition_size(0), _partition_data_size(0), _log_corruption(false),
       _waiting_for_space(false)
 {
@@ -697,13 +703,14 @@ void ringbuf_log::set_size(fileoff_t size)
             _partition_size
            );
    */
-    release_space(PARTITION_COUNT*_partition_data_size);
+    // initial free space estimate... refined once log recovery is complete
+    release_space(recoverable_space(PARTITION_COUNT));
     if(!verify_chkpt_reservation() || _space_rsvd_for_chkpt > _partition_data_size) {
 	fprintf(stderr,
 		"log partitions too small compared to buffer pool:\n"
 		"	%lld bytes per partition available\n"
 		"	%lld bytes needed for checkpointing dirty pages\n",
-		_partition_data_size, _space_rsvd_for_chkpt);
+		(long long)_partition_data_size, (long long)_space_rsvd_for_chkpt);
 	W_FATAL(eOUTOFLOGSPACE);
     }
 }
@@ -723,16 +730,43 @@ rc_t        log_m::new_log_m(log_m        *&the_log,
     return rc.reset();
 }
 
+void log_m::activate_reservations() {
+#if USE_LOG_RESERVATIONS
+    /* With recovery complete we now activate log reservations.
+
+       In fact, the activation should be as simple as setting the mode to
+       t_forward_processing, but we also have to account for any space
+       the log already occupies. We don't have to double-count
+       anything because nothing will be undone should a crash occur at
+       this point.
+     */
+    w_assert1(operating_mode == t_forward_processing);
+    w_assert1(!_reservations_active);
+    // FRJ: not true if any logging occurred during recovery
+    //    w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
+
+    // knock off space used by full partitions
+    long oldest_pnum = _min_chkpt_rec_lsn.hi();
+    long newest_pnum = curr_lsn().hi();
+    long full_partitions = newest_pnum - oldest_pnum; // can be zero
+    _space_available -= recoverable_space(full_partitions);
+
+    // and knock off the space used so far in the current partition
+    _space_available -= curr_lsn().lo();
+    _reservations_active = true;
+#endif
+}
+
 smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }
 
 typedef smlevel_0::fileoff_t fileoff_t;
-static fileoff_t take_space(uint64_t volatile* ptr, int amt) {
+static fileoff_t take_space(fileoff_t volatile* ptr, int amt) {
     fileoff_t ov = *ptr;
     while(1) {
 	if(ov < amt)
 	    return 0;
 	fileoff_t nv = ov - amt;
-	fileoff_t cv = atomic_cas_64(ptr, ov, nv);
+	fileoff_t cv = atomic_cas_64((uint64_t*)ptr, ov, nv);
 	if(ov == cv)
 	    return amt;
 	
@@ -745,6 +779,9 @@ fileoff_t log_m::reserve_space(fileoff_t amt) {
 }
 
 fileoff_t log_m::consume_chkpt_reservation(fileoff_t amt) {
+    if(operating_mode != t_forward_processing)
+	return amt; // not yet active -- pretend it worked
+    
     return (amt > 0)? take_space(&_space_rsvd_for_chkpt, amt) : 0;
 }
 
@@ -772,6 +809,17 @@ bool log_m::verify_chkpt_reservation() {
     return true;
 }
 
+struct waiting_xct {
+    fileoff_t* needed;
+    pthread_cond_t* cond;
+    waiting_xct(fileoff_t *amt, pthread_cond_t* c)
+	: needed(amt), cond(c)
+    {
+    }
+};
+
+static std::deque<waiting_xct*> _log_space_waiters;
+
 void log_m::release_space(fileoff_t amt) {
     w_assert0(amt >= 0);
     /* NOTE: The use of _waiting_for_space is purposefully racy
@@ -780,24 +828,94 @@ void log_m::release_space(fileoff_t amt) {
        commit...). Instead waiters use a timeout in case they fall
        through the cracks.
 
-       We broadcast whenever a "significant" amount of space seems to
-       be free.
+       Waiting transactions are served in FIFO order; those which time
+       out set their need to -1 leave it for release_space to clean
+       it up.
      */
-    fileoff_t now_available = atomic_add_long_nv(&_space_available, amt);
-    w_assert0(now_available <= _partition_data_size*PARTITION_COUNT);
-    //    fprintf(stderr, ">*<*><*>< Log space: %ld\n", now_available);
-    if(_waiting_for_space && now_available > 16*sizeof(logrec_t)) {
-	pthread_cond_broadcast(&_space_cond);
-	_waiting_for_space = false;
+    if(_waiting_for_space) {
+	pthread_mutex_lock(&_space_lock);
+	while(amt > 0 && _log_space_waiters.size()) {
+	    bool finished_one = false;
+	    waiting_xct* wx = _log_space_waiters.front();
+	    if( ! wx->needed) {
+		finished_one = true;
+	    }
+	    else {
+		fileoff_t can_give = std::min(amt, *wx->needed);
+		*wx->needed -= can_give;
+		amt -= can_give;
+		if(! *wx->needed) {
+		    pthread_cond_signal(wx->cond);
+		    finished_one = true;
+		}
+	    }
+	    
+	    if(finished_one) {
+		delete wx;
+		_log_space_waiters.pop_front();
+	    }
+	}
+	if(_log_space_waiters.empty())
+	    _waiting_for_space = false;
+	
+	pthread_mutex_unlock(&_space_lock);
     }
+    
+    atomic_add_long((uint64_t*) &_space_available, amt);
 }
 
-void log_m::wait_for_space() {
+rc_t log_m::wait_for_space(fileoff_t &amt, timeout_in_ms timeout) {
+    // if they're asking too much don't even bother
+    if(amt > _partition_data_size)
+	return RC(eOUTOFLOGSPACE);
+
     // wait for a signal or 100ms, whichever is longer...
-    pthread_mutex_lock(&_space_lock);
+    w_assert0(amt > 0);
     struct timespec when;
-    sthread_t::timeout_to_timespec(100, when);
+    if(timeout != WAIT_FOREVER)
+	sthread_t::timeout_to_timespec(timeout, when);
+
+    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+    waiting_xct* wait = new waiting_xct(&amt, &cond);
+    pthread_mutex_lock(&_space_lock);
     _waiting_for_space = true;
-    pthread_cond_timedwait(&_space_cond, &_space_lock, &when);
+    _log_space_waiters.push_back(wait);
+    while(amt) {
+	/* First time through, someone could have freed up space
+	   before we acquired this mutex. 2+ times through, maybe our
+	   previous rounds got us enough that the normal log
+	   reservation can supply what we still need.
+	 */
+	if(reserve_space(amt)) {
+	    amt = 0;
+
+	    // nullify our entry. Non-racy beause amt > 0 and we hold the mutex
+	    wait->needed = 0;
+
+	    // clean up in case it's pure false alarms
+	    while(_log_space_waiters.size() && ! _log_space_waiters.back()->needed) {
+		delete _log_space_waiters.back();
+		_log_space_waiters.pop_back();
+	    }
+	    break;
+	}
+	request_checkpoint();
+	if(timeout == WAIT_FOREVER) {
+	    fprintf(stderr, "* - * - * tid %d.%d waiting forever for %ld bytes of log\n",
+		    xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
+	    pthread_cond_wait(&cond, &_space_lock);
+	}
+	else {
+	fprintf(stderr, "* - * - * tid %d.%d waiting with timeout for %ld bytes of log\n",
+		xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
+	    int err = pthread_cond_timedwait(&cond, &_space_lock, &when);
+	    if(err == ETIMEDOUT) 
+		break;
+	}
+    }
+    fprintf(stderr, "* - * - * tid %d.%d done waiting (%ld bytes still needed)\n",
+		xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
+
     pthread_mutex_unlock(&_space_lock);
+    return amt? RC(sthread_t::stTIMEOUT) : RCOK;
 }

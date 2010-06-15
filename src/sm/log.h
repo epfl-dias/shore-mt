@@ -99,7 +99,7 @@ public:
       - wait
      */
     virtual rc_t insert(logrec_t &r, lsn_t* ret)=0; // returns the lsn the data was written to
-    virtual rc_t flush(lsn_t lsn)=0;
+    virtual rc_t flush(lsn_t lsn, bool block=true)=0;
     virtual void start_flush_daemon()=0;
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn)=0;
     virtual lsn_t curr_lsn() const;
@@ -109,7 +109,18 @@ public:
                      
     fileoff_t    reserve_space(fileoff_t howmuch);
     void   release_space(fileoff_t howmuch);
-    void    wait_for_space();
+    rc_t    wait_for_space(fileoff_t &amt, timeout_in_ms timeout);
+    virtual void	request_checkpoint()=0; // since log.cpp doesn't know about chkpt_m...
+    
+    /* Q: how much reservable space does scavenging pcount partitions
+          give back?
+       
+       A: everything except a bit we have to keep to ensure the log
+          can always be flushed.
+     */
+    size_t	recoverable_space(int pcount) const {
+	return pcount*(_partition_data_size - writebufsize()/PARTITION_COUNT);
+    }
 
     void set_master(lsn_t master_lsn, lsn_t min_lsn, lsn_t min_xct_lsn);
     long space_left() const;
@@ -120,6 +131,8 @@ public:
     fileoff_t limit() const { return _partition_size; }
     fileoff_t logDataLimit() const { return _partition_data_size; }
     void start_log_corruption() { _log_corruption = true; }
+    virtual
+    int                 writebufsize() const=0;
 
     // convenience functions (composed out of other functions)
     lsn_t global_min_lsn() const { return std::min(master_lsn(), min_chkpt_rec_lsn()); }
@@ -129,7 +142,7 @@ public:
     // flush won't return until target lsn before durable_lsn(), so
     // back off by one byte so we don't depend on other inserts to
     // arrive after us
-    rc_t flush_all() { return flush(curr_lsn().advance(-1)); }
+    rc_t flush_all(bool block=true) { return flush(curr_lsn().advance(-1),block); }
 
 
     // statics
@@ -179,6 +192,8 @@ public:
 
     long			max_chkpt_size() const;
     bool			verify_chkpt_reservation();
+    void			activate_reservations();
+    bool			reservations_active() const { return _reservations_active; }
     fileoff_t			consume_chkpt_reservation(fileoff_t howmuch);
 protected:
     log_m();
@@ -194,8 +209,9 @@ protected:
     lsn_t                   _master_lsn;
     lsn_t                   _old_master_lsn;
     lsn_t                   _min_chkpt_rec_lsn;
-    uint64_t volatile  	    _space_available; // how many unreserved bytes in the log?
-    uint64_t volatile       _space_rsvd_for_chkpt; // can we run a checkpoint right now?
+    fileoff_t volatile      _space_available; // how many unreserved bytes in the log?
+    fileoff_t volatile      _space_rsvd_for_chkpt; // can we run a checkpoint right now?
+    bool		    _reservations_active;
     fileoff_t               _partition_size;
     fileoff_t               _partition_data_size;
     bool                    _log_corruption;
@@ -242,12 +258,16 @@ struct ringbuf_log : public log_m
     void wait_for_space();
 
     virtual rc_t insert(logrec_t &r, lsn_t* l); // returns the lsn the data was written to
-    virtual rc_t flush(lsn_t lsn);
+    virtual rc_t flush(lsn_t lsn,bool block=true);
     virtual rc_t compensate(lsn_t orig_lsn, lsn_t undo_lsn);
     virtual void start_flush_daemon();
     void flush_daemon();
     virtual void _flush(lsn_t base_lsn, long start1, long end1, long start2, long end2)=0;
+    virtual void	request_checkpoint()=0;
 
+    virtual
+    int                 writebufsize() const=0;
+    
     // initialize the partition size and data_size
     void set_size(fileoff_t psize);
 
@@ -372,7 +392,7 @@ public:
         logrec_t*&                     rec,                \
         lsn_t*                             nxt NULLARG ) )     \
     VIRTUAL(void                 release())                \
-    VIRTUAL(rc_t                flush(const lsn_t& l))  \
+        VIRTUAL(rc_t                flush(const lsn_t& l,bool block=true)) \
     VIRTUAL(rc_t                scavenge(               \
         const lsn_t&                     min_rec_lsn,        \
         const lsn_t&                     min_xct_lsn))         \

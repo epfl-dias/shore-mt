@@ -131,6 +131,7 @@ public:
                         bool    reformat);
 
     virtual NORET      ~srv_log();
+    virtual void	request_checkpoint();
 
 
 
@@ -179,6 +180,7 @@ protected:
 
     // log_buf stuff:
 public:
+    virtual
     int                 writebufsize() const { return _wrbufsize; }
     char *              readbuf() { return _readbuf; }
     int                 readbufsize() const { return READ_BUF_SIZE; }

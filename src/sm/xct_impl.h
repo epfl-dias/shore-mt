@@ -117,7 +117,7 @@ private:
 public:
 
     rc_t            _abort();
-    rc_t            _commit(w_base_t::uint4_t flags);
+    rc_t            _commit(w_base_t::uint4_t flags,lsn_t* plastlsn=NULL);
 
 protected:
     // for xct_log_switch_t:
@@ -162,8 +162,8 @@ private:
 
     bool            forced_readonly() const;
 
-    w_rc_t               _flush_logbuf(bool sync=false);
-    w_rc_t	       _sync_logbuf();
+    w_rc_t             _flush_logbuf(bool sync=false);
+    w_rc_t	       _sync_logbuf(bool block=true);
 
     void 		_teardown(bool is_chaining);
 
@@ -277,6 +277,7 @@ private: // all data members private
      */ 
     fileoff_t		_log_bytes_rsvd; // reserved for rollback
     fileoff_t		_log_bytes_ready; // available for insert/reservations
+    fileoff_t		_log_bytes_used; // total used by the xct
     bool		_rolling_back;
 
 
