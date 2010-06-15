@@ -342,8 +342,8 @@ public:
     // TODO: replace throughout the SM
     w_list_t<T,LOCK>&	push_front(T* t) { return push(t); }
     w_list_t<T,LOCK>&	push_back (T* t) { return append(t); }
-    T*	front() { return top(t); }
-    T*	back()  { return bottom(t); }
+    T*	front() { return top(); }
+    T*	back()  { return bottom(); }
     T*	pop_front() { return pop(); }
     T*	pop_back()  { return chop(); }
     
