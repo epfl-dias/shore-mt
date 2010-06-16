@@ -129,8 +129,8 @@ public:
 	// hash tables.
     void compact(const lockid_t &_l) 
 	{
-		if(_l.lspace() <= lockid_t::t_page) {
-			for (int k = _l.lspace() + 1; k <= lockid_t::t_record; ++k)
+		if(_l.lspace()+1 < L) {
+			for (int k = _l.lspace() + 1; k < L; ++k)
 			{
 				for(int i=0; i < S; i++) {
 					lock_cache_elem_t *p = &buf[i][k];
