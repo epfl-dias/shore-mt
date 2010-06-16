@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: bf_transit_bucket.h,v 1.1.2.6 2010/03/19 22:20:23 nhall Exp $
+ $Id: bf_transit_bucket.h,v 1.3 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -99,18 +99,17 @@ public:
     /// Caller (bf_core_m::replacement) holds the page_write_mutex_t,
     /// the transit bucket lock and the
     /// appropriate hash table bucket lock. 
-    void make_in_transit_out(bfcb_t* p) {
-        if(p->dirty()) {
-            // add to in-transit list
+    /// and now the frame latch.
+    void make_in_transit_out(const bfpid_t &pid) {
+		// add to in-transit list
 #if W_DEBUG_LEVEL > 2
-            for(int i=0; i < _page_count; i++)
-                w_assert3(_pages[i] != p->pid());
+		for(int i=0; i < _page_count; i++)
+			w_assert3(_pages[i] != pid);
 #endif
 
-            w_assert1(_page_count < transit_bucket_t::MAX_IN_TRANSIT);
-            _pages[_page_count++] = p->pid();
-            w_assert2(_page_count <= transit_bucket_t::MAX_IN_TRANSIT);
-        }
+		w_assert1(_page_count < transit_bucket_t::MAX_IN_TRANSIT);
+		_pages[_page_count++] = pid;
+		w_assert2(_page_count <= transit_bucket_t::MAX_IN_TRANSIT);
     }
 
     /// Caller is bf_core_m::grab

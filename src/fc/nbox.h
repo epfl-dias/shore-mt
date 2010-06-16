@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='NBOX_H'>
 
- $Id: nbox.h,v 1.18.2.3 2010/03/19 22:17:16 nhall Exp $
+ $Id: nbox.h,v 1.19 2010/05/26 01:20:21 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -35,22 +35,20 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 /*  -- do not edit anything above this line --   </std-header>*/
 
 #include <w_base.h>
-
 #include <iosfwd>
 
-/**\brief * Spatial object class: n-dimensional box 
+#ifdef __GNUG__
+#pragma interface
+#endif
+
+/**\brief Spatial object class: n-dimensional box 
+ * \details
 * An n-dimensional box is represented as: 
 * -xlow, ylow,  (lower left point)
 * -xhigh, yhigh. (higher right point).
 * Only integer coordinates are supported for the points.
 * This is used in the API for R*-trees.
 */ 
-
-
-#ifdef __GNUG__
-#pragma interface
-#endif
-
 class nbox_t {
     friend ostream& operator<<(ostream& os, const nbox_t& box);
 
@@ -67,7 +65,6 @@ public:
     */
     static nbox_t&     Null;
 
-
 public:
     /**\brief Enum to describe comparisons. */ 
     enum sob_cmp_t { t_exact = 1, t_overlap, t_cover, t_inside, t_bad };
@@ -76,12 +73,10 @@ public:
 
 protected:
     int4_t    array[2*max_dimension];    // boundary points
-    int    dim;              // dimension
+    int       dim;              // dimension
 private:
     fill4    filler;         // 8 byte alignment
-
     int4_t* box() { return array; }    // reveal internal storage
-
 public:
     /** Create a box.
      * @param[in] dimension  Number of dimensions for the "box".
@@ -90,7 +85,6 @@ public:
     /** Create a box.
      * @param[in] dimension  Number of dimensions for the "box".
      * @param[in] box   Contains the dimensions.
-     *\todo TODO NANCY document meaning of arguments
      */
     nbox_t(int dimension, int box[]);
     /** Create a box.
@@ -105,20 +99,32 @@ public:
 
     virtual ~nbox_t() {}
 
+    /// return given dimension
     int dimension() const     { return dim; }
+    /// return highest value for \a nth dimension
     int bound(int n) const     { return array[n]; }
+    /// return length of \a nth side
     int side(int n) const      { return array[n+dim]-array[n]; }
+    /// return middle of \a nth side
     int center(int n) const { return (array[n+dim]-array[n])/2+array[n]; }
 
     bool    empty() const;    // test if box is empty
     void    squared();    // make the box squared
     void    nullify();    // make the box empty (poor name)
 
-    void    canonize();    // make it orthodox: 
-                // first point is low in all
-                // dimensions, 2nd is high in all dim.
+    /**\brief Make canonical.
+     * \details
+     * First point low in all dimensions, 2nd high in all dimensions
+     */
+    void    canonize(); 
 
+    /**\brief Return Hilbert value
+     */
     int hvalue(const nbox_t& universe, int level=0) const; // hilbert value
+    /**\brief Comparison function for Hilbert values.
+     * \details
+     * For use with bulk load.
+     */
     int hcmp(const nbox_t& other, const nbox_t& universe, 
             int level=0) const; // hilbert value comparison
 

@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='PMAP_H'>
 
- $Id: pmap.h,v 1.9.2.5 2010/01/28 04:54:09 nhall Exp $
+ $Id: pmap.h,v 1.12 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -47,7 +47,7 @@ struct Pmap
     /* number of bytes */
     enum    { _size = smlevel_0::ext_map_sz_in_bytes };
 
-    u_char bits[_size];
+    u_char  bits[_size];
 
     inline    Pmap() {
         clear_all();
@@ -99,24 +99,16 @@ extern    ostream &operator<<(ostream &, const Pmap &pmap);
  * are allocated (bit set) or just reserved (bit not set).
  *
  * Depending upon the pmap size it automagically
- * provides a filler in the pmap to align it to a 2 byte boundary.
+ * provides a filler in the pmap to align it to a 4 byte boundary.
  * This aligned version is used in various structures to guarantee
  * size and alignment of other members 
 */
 
-#if (((SM_EXTENTSIZE+7) & 0x8) == 0)
-typedef    Pmap    Pmap_Align2;
+#define SM_EXTENTSIZE_IN_BYTES ((SM_EXTENTSIZE+7)/8)
+#if ((SM_EXTENTSIZE_IN_BYTES/4)*4)==(SM_EXTENTSIZE_IN_BYTES)
+// #warning Pmap_Align4: Pmap
 typedef    Pmap    Pmap_Align4;
 #else
-class Pmap_Align2 : public Pmap {
-public:
-    inline    Pmap_Align2    &operator=(const Pmap &from) {
-        *(Pmap *)this = from;    // don't copy the filler
-        return *this;
-    }
-private:
-    fill1    filler;        // keep purify happy
-};
 class Pmap_Align4 : public Pmap {
 public:
     inline    Pmap_Align4    &operator=(const Pmap &from) {
@@ -124,9 +116,19 @@ public:
         return *this;
     }
 private:
-    fill1    filler;        // keep purify happy
-    fill2   filler2;    // ditto, as well as assert 
-                // in extlink_t::extlink_t()
+#if ((SM_EXTENTSIZE_IN_BYTES & 0x3)==0x3)
+// #warning Pmap_Align4: 1 byte needed
+    fill1    filler;    // keep purify happy
+#elif ((SM_EXTENTSIZE_IN_BYTES & 0x2)==0x2)
+// #warning Pmap_Align4: 2 bytes needed
+    fill2    filler;    // keep purify happy
+#elif ((SM_EXTENTSIZE_IN_BYTES & 0x1)==0x1)
+// #warning Pmap_Align4: 3 bytes needed
+    fill1    filler1;    // keep purify happy
+    fill2    filler2;    // keep purify happy
+#else
+#error Programmer failure: SM_EXTENTSIZE_IN_BYTES  SM_EXTENTSIZE
+#endif
 };
 #endif
 

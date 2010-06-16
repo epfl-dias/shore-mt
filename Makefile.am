@@ -7,9 +7,17 @@ MAINTAINERCLEANFILES = \
 	$(installdir)/lib/*.a \
 	$(installdir)/bin/* 
 
+CLEANFILES = dox/ warnings
 SUBDIRS = src config 
-DIST_SUBDIRS = tools $(SUBDIRS)
-EXTRA_DIST = bootstrap Makefile.local Makefile.generic COPYRIGHT-NOTICE README ChangeLog Makefile.in gethugepagesize.sh
+DIST_SUBDIRS = tools $(SUBDIRS) 
+EXTRA_DIST = bootstrap Makefile.local Makefile.generic COPYRIGHT-NOTICE README ChangeLog Makefile.in gethugepagesize.sh Doxyfile
 
 ## no-op to make this for dist
 gethugepagesize.sh: 
+
+dox::
+	$(rm) -rf dox/
+	mkdir -p dox/
+	doxygen
+	(cd dox; cp -r html converted)
+	(cd dox/html; ../../tools/convert-dox.sh)

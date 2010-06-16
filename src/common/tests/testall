@@ -2,7 +2,7 @@
 
 # <std-header style='shell' orig-src='shore'>
 #
-#  $Id: testall,v 1.1.2.9 2009/12/14 23:55:02 nhall Exp $
+#  $Id: testall,v 1.5 2010/06/15 22:22:00 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -44,28 +44,39 @@ function execute  {
     print -n "$1\t--> running --> "
     print "running $1" >> $2
 
-    if [[ -a $3 ]]; then
-	of=/tmp/$$
-	if $1 1> $of 2> $of.err ; then
-	    if diff $of $3 >> $2; then
-		print "ok"
-	    else
-		print "diff failed; results in " $of " and " $of.err 
-		print "  expected results in " $3
-		print "  All diffs in " $2
+    if [[ -z $3 ]]; then
+        # no comparison file
+		echo >> /dev/null
+    elif [[ -a $3 ]]; then
+		echo >> /dev/null
+    else
+        # given argument doesn't exist
+        print "comparison file $3 doesn't exist" 
+        exit -1
+    fi
+
+    if [[ -n $3 ]]; then
+    of=/tmp/$$
+    if $1 1> $of 2> $of.err ; then
+        if diff $of $3 >> $2; then
+        print "ok"
+        else
+        print "diff failed; results in " $of " and " $of.err 
+        print "  expected results in " $3
+        print "  All diffs in " $2
                 exit 1
-	    fi
-	else
-	    print "failed to execute $1 ( $? )"
+        fi
+    else
+        print "failed to execute $1 ( $? )"
             exit 1
-	fi
-	cat $of >> $2
-	rm $of
+    fi
+    cat $of >> $2
+    rm $of
 
     elif $1 >> $2 2>&1; then
-	print "ok"
+    print "ok"
     else
-	print "failed to execute $1 ( $? )"
+    print "failed to execute $1 ( $? )"
         exit 1
     fi
 }

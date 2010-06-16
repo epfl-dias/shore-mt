@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='BF_H'>
 
- $Id: bf.h,v 1.97.2.15 2010/03/25 18:05:03 nhall Exp $
+ $Id: bf.h,v 1.100 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -167,6 +167,7 @@ public:
     static rc_t                  discard_store(stid_t stid);
     static rc_t                  discard_volume(vid_t vid);
 private:
+    static bool                  _set_dirty(bfcb_t *b);
     static rc_t                  _discard_all();
 public:
     
@@ -195,7 +196,8 @@ public:
                                                   bool and_in_htab = true);
     // true == no longer hold any old dirty pages
     // false == unable to flush all old dirty pages we hold
-    bool 			force_my_dirty_old_pages(lpid_t const* wal_page=0) const;
+    bool                        force_my_dirty_old_pages(lpid_t const* 
+                                                       wal_page=0) const;
     
     static bfcb_t*              get_cb(const page_s*) ;
 
@@ -220,7 +222,7 @@ public:
         );
 
     static lsn_t                min_rec_lsn();
-    static rc_t                        get_rec_lsn(
+    static rc_t                 get_rec_lsn(
         int                                &start_idx, 
         int                                &count,
         lpid_t                             pid[],

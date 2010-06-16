@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SM_S_H'>
 
- $Id: lsn.h,v 1.1.2.5 2010/03/19 22:19:19 nhall Exp $
+ $Id: lsn.h,v 1.2 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -108,8 +108,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 typedef w_base_t::int8_t sm_diskaddr_t;
 
-/**\defgroup LSNS How Log Sequence Numbers are Used
- * \ingroup MISC
+/**\addtogroup LSNS 
  *
  * \section LLR Locates Log Records 
  * A log sequence number generally points to a record in the log.
@@ -130,6 +129,11 @@ typedef w_base_t::int8_t sm_diskaddr_t;
  * the last one fills, we can simply wrap and change the 
  * sense of lsn_t comparisions.
  *
+ * \subsection WORK Identifying Limit of Partial Rollback
+ *
+ * A savepoint (sm_save_point_t) is an lsn_t. It tells how far back
+ * a transaction should undo its actions when ss_m::rollback_work is called.
+ *
  * \section PTS Page Timestamps
  * Each page has an lsn_t that acts as a timestamp; it is the
  * lsn of the last log record that describes an update to the page.
@@ -138,7 +142,7 @@ typedef w_base_t::int8_t sm_diskaddr_t;
  * numbers less than the page lsn have been applied, and redo of these
  * log records is not necessary.
  *
- * The Storage Manager has other special cases: lsn_t(0,1) -- this is
+ * The storage manager has other special cases: lsn_t(0,1) -- this is
  * in page.cpp, page_p::_format(), and indicates a freshly formatted page
  * with no further updates.
  * \subsection NPCD Nominal Page Corruption-Detection
@@ -231,8 +235,8 @@ typedef w_base_t::int8_t sm_diskaddr_t;
  *
  */
 class lsn_t {
-public:
     enum { file_hwm  =    0xffff }; 
+public:
     enum { PARTITION_BITS=16 };
     enum { PARTITION_SHIFT=(64-PARTITION_BITS) };
 
@@ -262,8 +266,8 @@ public:
     w_base_t::uint4_t hi()   const  { return file(); }
     w_base_t::uint4_t file() const { return to_file(_data); }
 
-    sm_diskaddr_t  lo()       const  { return rba(); }
-    sm_diskaddr_t  rba()     const { return to_rba(_data); }
+    sm_diskaddr_t     lo()   const  { return rba(); }
+    sm_diskaddr_t     rba()  const { return to_rba(_data); }
 
     // WARNING: non-atomic read-modify-write operations!
     void copy_rba(const lsn_t &other) { 
@@ -271,7 +275,9 @@ public:
     void set_rba(sm_diskaddr_t &other) { 
                 _data = get_file(_data) | get_rba(other); }
     
+    // WARNING: non-atomic read-modify-write operations!
     lsn_t& advance(int amt) { _data += amt; return *this; }
+
     lsn_t &operator+=(long delta) { return advance(delta); }
     lsn_t operator+(long delta) const { return lsn_t(*this).advance(delta); }
 

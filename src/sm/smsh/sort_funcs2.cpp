@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: sort_funcs2.cpp,v 1.21.2.5 2010/03/19 22:20:31 nhall Exp $
+ $Id: sort_funcs2.cpp,v 1.25 2010/05/26 01:20:52 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -31,7 +31,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#define SM_SOURCE
 
 /*
  * A set of applications functions -- to be moved into the
@@ -326,12 +325,12 @@ w_rc_t
 test_scanrt(
     int     n, // expected # items
     nbox_t::sob_cmp_t op,
-    const nbox_t&    thekey,
-    bool     nullsok,
-    stid_t&    stid,    
-    char *    stringbuffer,
-    vec_t&    zeroes,
-    bool    verbose
+    const nbox_t&	thekey,
+    bool 	nullsok,
+    stid_t&	stid,	
+    char *	stringbuffer,
+    vec_t&	zeroes,
+    bool	verbose
 )
 {
     /* verify */
@@ -339,22 +338,22 @@ test_scanrt(
     deleter    d4; // auto_delete for scan_index_i
 
     {
-    scanp = new scan_rt_i(stid,
-              op,
-              thekey,
-              nullsok
-              );
+	scanp = new scan_rt_i(stid,
+		      op,
+		      thekey,
+		      nullsok
+		      );
     }
     DBG(<<"d4.set scanp");
     d4.set(scanp);
 
     DBG(<<"Starting rtree scan with operator " << W_ENUM(op)
-    << " nullsok=" << nullsok);
-    w_rc_t     rc;
-    int     i;
-    pin_i    handle;
-    rid_t    rid;
-    nbox_t     key;
+	<< " nullsok=" << nullsok);
+    w_rc_t 	rc;
+    int 	i;
+    pin_i	handle;
+    rid_t	rid;
+    nbox_t 	key;
     smsize_t    elen;
     char *    el = stringbuffer;
     bool     eof;
@@ -571,10 +570,6 @@ test_scanrt(
 int
 t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 {
-    bool        use_logical = false;
-    if (use_logical_id(ip))  {
-    use_logical = true;
-    }
     if (check(ip, "vid nkeys nullok|notnull", ac, 4))
     return TCL_ERROR;
 
@@ -588,15 +583,15 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     bool     nullsok=false;
     if(strcmp(av[null_arg], "nullok")==0) {
-    nullsok = true;
+        nullsok = true;
     } else if(strcmp(av[null_arg], "notnull")==0) {
-    nullsok = false;
+        nullsok = false;
     } else {
-    cerr << "Bad argument #" << null_arg
+        cerr << "Bad argument #" << null_arg
         << " to test_bulkload_rtree: expected nullok | notnull " 
         << " got " << av[null_arg]
         <<endl;
-    return TCL_ERROR;
+        return TCL_ERROR;
     }
 
     int runsize = 3; // minimum
@@ -622,8 +617,7 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     CSKF    cskfunc;
     generic_CSKF_cookie func_cookie;
-    CF        cmpfunc = getcmpfunc(t,cskfunc, 
-            key_cookie_t(&func_cookie));
+    CF        cmpfunc = getcmpfunc(t,cskfunc, key_cookie_t(&func_cookie));
 
     func_cookie.offset = zeroes.size();
     k._length = func_cookie.length;
@@ -631,35 +625,35 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     sort_keys_t kl(1); // one key
     {
-    // Set attibutes of sort as a whole
-    int bad=0;
-    // if(kl.set_keep_orig()) { DBG(<<""); bad++; }
+        // Set attibutes of sort as a whole
+        int bad=0;
+        // if(kl.set_keep_orig()) { DBG(<<""); bad++; }
 
-    // For rtrees, unique *must * be false, as
-    // there are no "unique rtrees".
-    // Likewise, the hilbert values might not be unique.
+        // For rtrees, unique *must * be false, as
+        // there are no "unique rtrees".
+        // Likewise, the hilbert values might not be unique.
 
-    if(kl.set_unique(false)) { DBG(<<""); bad++; }
-    if(kl.set_null_unique(false)) { DBG(<<""); bad++; }
-    if(kl.set_ascending()) { DBG(<<""); bad++; }
-    // no key cookie
-    if(kl.set_for_index(cskfunc, key_cookie_t(&func_cookie))) 
-        { DBG(<<""); bad++; }
-    if(bad>0) {
-        w_reset_strstream(tclout);
-        tclout << smsh_err_name(ss_m::eBADARGUMENT) << ends;
-        Tcl_AppendResult(ip, tclout.c_str(), 0);
-        w_reset_strstream(tclout);
-        return TCL_ERROR;
-    }
-    }
+        if(kl.set_unique(false)) { DBG(<<""); bad++; }
+        if(kl.set_null_unique(false)) { DBG(<<""); bad++; }
+        if(kl.set_ascending()) { DBG(<<""); bad++; }
+        // no key cookie
+        if(kl.set_for_index(cskfunc, key_cookie_t(&func_cookie))) 
+            { DBG(<<""); bad++; }
+        if(bad>0) {
+            w_reset_strstream(tclout);
+            tclout << smsh_err_name(ss_m::eBADARGUMENT) << ends;
+            Tcl_AppendResult(ip, tclout.c_str(), 0);
+            w_reset_strstream(tclout);
+            return TCL_ERROR;
+        }
+        }
 
     // set up so it's a derived key from
     // the box, produces the output for rtree: <box,oid>
 
     if(nullsok) {
         kl.set_sortkey_derived(0, 
-        use_logical? lonehilbert : onehilbert,
+        onehilbert,
         (key_cookie_t)zeroes.size(),
         false, // not in hdr: in body
         true, // aligned
@@ -680,24 +674,24 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     deleter        d1; // auto-delete
     deleter        d2; // auto-delete
 
-    stid_t         stid; // phys case
-    stid_t         fid;  // phys case
-    vid_t          vid;  // phys case
-    {
-        DO( sm->create_md_index(
-            atoi(av[vid_arg]), 
-            sm->t_rtree,  // non-unique
-            ss_m::t_load_file, 
-            stid
-            ) );
-        DBG(<<"d1.set " << stid); 
-        d1.set(stid);
-        DO( sm->create_file(atoi(av[vid_arg]), fid, ss_m::t_load_file) );
-        DBG(<<"d2.set " << fid); 
-        d2.set(fid);
-        vid = stid.vol;
-    }
-    int     numnulls = 0;
+	stid_t 	    stid; // phys case
+	stid_t 	    fid;  // phys case
+	vid_t  	    vid;  // phys case
+	{
+	    DO( sm->create_md_index(
+			atoi(av[vid_arg]), 
+			sm->t_rtree,  // non-unique
+			ss_m::t_load_file, 
+			stid
+			) );
+	    DBG(<<"d1.set " << stid); 
+	    d1.set(stid);
+	    DO( sm->create_file(atoi(av[vid_arg]), fid, ss_m::t_load_file) );
+	    DBG(<<"d2.set " << fid); 
+	    d2.set(fid);
+	    vid = stid.vol;
+	}
+	int 	numnulls = 0;
         universe.nullify();
     int    last=0;
     {
@@ -801,20 +795,20 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         DBG(<<"Sort file done");
 
 #ifdef W_TRACE
-        if(_w_debug.flag_on(("sort_funcs2.cpp"),__FILE__) && !use_logical) {
+        if(_w_debug.flag_on(("sort_funcs2.cpp"),__FILE__) ) {
         // Scan ofid and dump contents
         w_rc_t rc;
         if(0) {
         cout << "SCAN OF SORT's INPUT  FILE" <<endl;
         scan_file_i *scan = new scan_file_i(fid);
-        rc = dump_scan(*scan, cout, true);
+        rc = dump_scan(*scan, cout, NULL, true);
         if(rc.is_error()) cout << "returns rc=" << rc <<endl;
         delete scan;
         }
         if(1) {
         cout << "SCAN OF SORT's OUTPUT FILE" <<endl;
         scan_file_i *scan = new scan_file_i(ofid);
-        rc = dump_scan(*scan, cout, true);
+        rc = dump_scan(*scan, cout, NULL, true);
         if(rc.is_error()) cout << "returns rc=" << rc <<endl;
         delete scan;
         }
@@ -944,14 +938,12 @@ t_test_bulkload_rtree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
 
     { /* test insert/remove/probe for nulls */
-        if(!use_logical) {
         // not implemented for logical
         w_rc_t rc = delete_rtree_entries(stid, 
             fid, // orig file
             zeroes.size());
         DBG(<<"rc=" << rc);
         DO(rc);
-        }
 
     }// the temp output file (d3) is deleted here
     DBG(<<"Leaving scope of d1, d2");

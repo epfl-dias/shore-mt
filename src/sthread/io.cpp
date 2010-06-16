@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: io.cpp,v 1.35.2.17 2010/03/19 22:20:01 nhall Exp $
+ $Id: io.cpp,v 1.38 2010/06/15 17:26:00 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -88,13 +88,15 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sthread.h"
 #include "sthread_stats.h"
 #include <sdisk.h>
-
 #include <sdisk_unix.h>
 
+#if defined(HUGEPAGESIZE) && (HUGEPAGESIZE == 0)
+#undef HUGEPAGESIZE
+#endif
 
 extern class sthread_stats SthreadStats;
 
-sdisk_t            **sthread_t::_disks = 0;
+sdisk_t         **sthread_t::_disks = 0;
 unsigned        sthread_t::open_max = 0;
 unsigned        sthread_t::open_count = 0;
 
@@ -117,6 +119,14 @@ int sthread_t::do_unmap()
     return 0;
 #endif
 
+#if 0
+    fprintf(stderr, "%d: munmap disalignment %d addr %p, size %lu\n",
+            __LINE__, 
+            _disk_buffer_disalignment,  
+            ( _disk_buffer -  _disk_buffer_disalignment),  
+            _disk_buffer_size);
+#endif
+
     int err =
         munmap( _disk_buffer -  _disk_buffer_disalignment,  _disk_buffer_size);
 
@@ -129,6 +139,7 @@ int sthread_t::do_unmap()
 
      _disk_buffer = NULL;
      _disk_buffer_size = 0;
+     _disk_buffer_disalignment = 0;
 
     return err;
 }
@@ -215,10 +226,37 @@ void sthread_t::align_bufsize(size_t size, long W_IFDEBUG1(system_page_size),
         == _disk_buffer_size);
 }
 
+#if defined(HUGEPAGESIZE) && (HUGEPAGESIZE > 0)
 void clear(char *buf_start, size_t requested_size)
 {
+    // Try reading first: do it in pages
+    size_t requested_huge_pages = requested_size / (HUGEPAGESIZE*1024);
+    size_t requested_pages = requested_size / SM_PAGESIZE;
+    for(size_t j=0; j < requested_pages; j++) {
+        for(size_t i=0; i < SM_PAGESIZE; i++) {
+            size_t offset = j*SM_PAGESIZE + i;
+            size_t hugepagenum =  offset / (HUGEPAGESIZE*1024);
+            size_t hugepageoffset =  offset - (hugepagenum * 
+					(HUGEPAGESIZE*1024));
+            char x = buf_start[offset];
+            
+            // shut the compiler up:
+            if(int(i) < 0) fprintf(stderr, "0x%d 0x%x, 0x%x, 0x%x", x,
+                    int(hugepagenum), int(hugepageoffset), int(requested_huge_pages));    
+        }
+    }
+    
+#if W_DEBUG_LEVEL > 4
+    fprintf(stderr, "clearing %ld bytes starting at %p\n", 
+            requested_size, buf_start); 
+#endif
     memset(buf_start, 0, requested_size);
 }
+#else
+void clear(char *, size_t )
+{
+}
+#endif
 
 
 w_rc_t sthread_t::set_bufsize_normal(
@@ -296,6 +334,7 @@ w_rc_t sthread_t::set_bufsize_normal(
     //
     // ***********************************************************
 
+    errno = 0;
     _disk_buffer = (char*) mmap(0, _disk_buffer_size,
                PROT_NONE,
                flags1,
@@ -308,13 +347,27 @@ w_rc_t sthread_t::set_bufsize_normal(
             << __LINE__ << " " 
             << "mmap (size=" << _disk_buffer_size 
             << " = " << int(_disk_buffer_size/1024)
-            << " KB ) returns -1;"
+            << " KB ) returns " << long(_disk_buffer)
             << " errno is " <<  errno  << " " << strerror(errno)
             << " flags " <<  flags1  
             << " fd " <<  fd  
             << endl;
         return RC(fcMMAPFAILED);
     }
+#if W_DEBUG_LEVEL > 4
+    else
+    {
+        cerr 
+            << __LINE__ << " " 
+            << "mmap SUCCESS! (size=" << _disk_buffer_size 
+            << " = " << int(_disk_buffer_size/1024)
+            << " KB ) returns " << long(_disk_buffer)
+            << " errno is " <<  errno  << " " << strerror(errno)
+            << " flags " <<  flags1  
+            << " fd " <<  fd  
+            << endl;
+    }
+#endif
 
 
     // ***********************************************************
@@ -439,14 +492,25 @@ static const char *hugefs_path(NULL);
 w_rc_t 
 sthread_t::set_hugetlbfs_path(const char *what) 
 { 
+    if(strcmp(what, "NULL")==0) {
+        // Do not use tlbfs
+        hugefs_path = NULL;
+        return RCOK;
+    }
 
     // stat the path to make sure it at least exists.
     // NANCY TODO: check the permissions and all that
     struct stat statbuf;
     int e=stat(what, &statbuf);
     if(e) {
-        fprintf(stderr, "Could not stat hugetlbfs: \"%s\"\n", what);
-        return RC(stBADPATH);
+        fprintf(stderr, "Could not stat \"%s\"\n", what);
+        int fd = ::open(what, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            fprintf(stderr, "Could not create \"%s\"\n", what);
+            return RC(stBADPATH);
+        } else {
+            cerr << " created " << what << endl;
+        }
     }
     hugefs_path = what; 
     // fprintf(stderr, "path is %s\n", hugefs_path);
@@ -509,18 +573,15 @@ sthread_t::set_bufsize_huge(
     // checks for each of these flags.
     //
     // ***********************************************************
-    int flags = MAP_PRIVATE;
+    int flags = 
+        MAP_PRIVATE;
 
-#if HAVE_DECL_MAP_ANONYMOUS==1
-    flags  |= MAP_ANONYMOUS;
-#elif HAVE_DECL_MAP_ANON==1
-    flags  |= MAP_ANON;
-#else
-#endif
-
+    /* NOTE: cannot use ANONYMOUS for hugetlbfs*/
 
 #if HAVE_DECL_MAP_ALIGN==1
     flags |=  MAP_ALIGN;
+    fprintf(stderr, "%d: adding flag 0x%x %s\n", __LINE__,
+            MAP_ALIGN, "MAP_ALIGN");
 #endif
     // add one SM_PAGESIZE to the size requested before alignment,
     // and then do our own alignment at the end
@@ -539,8 +600,10 @@ sthread_t::set_bufsize_huge(
 
     w_assert1(_disk_buffer == NULL);
 
+    errno = 0;
+    // mmap ( 0, length, protection, flags, fd, 0)
     _disk_buffer = (char*) mmap(0, _disk_buffer_size,
-               PROT_READ | PROT_WRITE, /* prot */
+               (PROT_READ | PROT_WRITE), /* prot */
                flags,
                fd,   /* fd */
                0     /* off_t */
@@ -549,14 +612,39 @@ sthread_t::set_bufsize_huge(
     if (_disk_buffer == MAP_FAILED) {
         cerr 
             << __LINE__ << " " 
-            << "mmap (size=" << _disk_buffer_size << ") returns -1;"
+            << "mmap (size=" << _disk_buffer_size << ") returns "
+            <<  long(_disk_buffer)
             << " errno is " <<  errno  << " " << strerror(errno)
+            << " prot " <<  (PROT_READ | PROT_WRITE)
             << " flags " <<  flags
             << " fd " <<  fd  
             << endl;
         close(fd); 
         return RC(fcMMAPFAILED);
     }
+#if W_DEBUG_LEVEL > 4
+    else
+    {
+        fprintf(stderr, 
+    "%d mmap SUCCESS! (size= %lu, %lu KB) returns %p errno %d/%s prot 0x%x flags 0x%x fd %d\n",
+        __LINE__, 
+        _disk_buffer_size,
+        _disk_buffer_size/1024,
+        _disk_buffer, errno, strerror(errno), 
+        (PROT_READ | PROT_WRITE),
+        flags, fd);
+        fprintf(stderr, 
+    "%d mmap (size= %lu, %lu KB) (requested_size %d, %d KB) buf-requested is %d\n",
+        __LINE__,
+        _disk_buffer_size,
+        _disk_buffer_size/1024,
+        int(requested_size),
+        int(requested_size/1024),
+        int(_disk_buffer_size-requested_size) );
+
+
+    }
+#endif
 
     align_for_sm(requested_size);
     buf_start = _disk_buffer;
@@ -567,13 +655,13 @@ sthread_t::set_bufsize_huge(
 
 /********************************************************************
 
-NOTES: To minimize tlb misses:
+NOTES: HUGETLBFS: To minimize tlb misses:
 
 Make sure the region uses the largest page size available so that it
 will require the fewest tlb entries possible.
 
 If we have hugetlbfs, use the given path and get an fd for it. (This requires
-a shore config argument -- maybe compile-time?.)
+a shore config argument -- HUGETLBFS_PATH, set in shore.def).
 
 If not, do the following:
 1) mmap a region with PROT_NONE & MAP_PRIVATE, MAP_NORESERVE
@@ -643,17 +731,31 @@ sthread_t::set_bufsize(size_t size, char *&buf_start /* in/out*/,
 #endif
 
 #ifdef HAVE_HUGETLBFS
-    w_rc_t rc =  set_bufsize_huge(size, buf_start, system_page_size);
-    if( !rc.is_error() ) {
-        return rc;
+    // Ok, we have to have configured for hugefs AND we have to
+    // have set a path for it.  If we have no path string,
+    // we have chosen not to use hugetlbfs.  This is the result
+    // of setting run-time options sm_hugetlbfs_path to "NULL".
+    // So if we've set the path to "NULL", we will just use the 
+    // "normal way".
+    if(hugefs_path != NULL) {
+        w_rc_t rc =  set_bufsize_huge(size, buf_start, system_page_size);
+        if( !rc.is_error() ) {
+#if W_DEBUG_LEVEL > 10
+            cout << "Using hugetlbfs size " << size
+                << " system_page_size " << system_page_size
+                << " path " << hugefs_path << ". " << endl;
+#endif
+            return rc;
+        }
+        if(!use_normal_if_huge_fails)
+        {
+            return rc;
+        }
+        // else, try the other way
+        cerr << "Skipping hugetlbfs sue to mmap failure: " << rc << endl;
+    } else {
+        cout << "Skipping hugetlbfs based on user option. " << endl;
     }
-    if(!use_normal_if_huge_fails)
-    {
-        return rc;
-    }
-    // else, try the other way
-    cerr << "--------------------------- NO HUGE " << endl;
-    cerr << "mapping with hugetlbfs failed " << rc << endl;
 #endif
     return set_bufsize_normal(size, buf_start, system_page_size);
 }
@@ -1013,7 +1115,7 @@ w_rc_t    sthread_t::fisraw(int fd, bool &isRaw)
 
     W_DO(fstat(fd, st));    /* takes care of errors */
 
-    isRaw = st.is_device && st.is_raw_device;
+    isRaw = st.is_device ;
     return RCOK;
 }
 

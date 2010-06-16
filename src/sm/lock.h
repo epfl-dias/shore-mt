@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='LOCK_H'>
 
- $Id: lock.h,v 1.63.2.6 2010/03/19 22:20:24 nhall Exp $
+ $Id: lock.h,v 1.65 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -112,6 +112,9 @@ public:
 #endif
         );
      
+	/* force the core to acquire a lock, regardless of 
+	 * subsuming  parent locks
+	 */
     rc_t                        lock_force(
         const lockid_t&             n,
         lmode_t                     m,

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
-  $Id: page.cpp,v 1.143.2.20 2010/03/25 18:05:14 nhall Exp $
+  $Id: page.cpp,v 1.147 2010/06/15 17:30:07 nhall Exp $
 
   SHORE -- Scalable Heterogeneous Object REpository
 
@@ -412,16 +412,10 @@ page_s::space_t::acquire(int amt, int slot_bytes, xct_t* xd,
     
     int avail = usable(xd);
     int total = amt + slot_bytes;
-#ifdef BUG_SPACE_FIX
     int avail4slots = usable_for_new_slots();
-#endif
 
-#ifdef BUG_SPACE_FIX
     if (avail < total 
             || avail4slots < slot_bytes
-#else
-    if (avail < total 
-#endif
     )  
     {
 
@@ -429,9 +423,7 @@ page_s::space_t::acquire(int amt, int slot_bytes, xct_t* xd,
         DBG(<< "space_t::acquire @ " << __LINE__
             << " : avail " << avail
             << " amt " << amt
-#ifdef BUG_SPACE_FIX
             << " avail for slots " << avail4slots
-#endif
             << " slot_bytes " << slot_bytes); 
         return RC(smlevel_0::eRECWONTFIT);
     }
@@ -526,7 +518,6 @@ void page_s::space_t::release(int amt, xct_t* xd)
             (xd->state() == smlevel_1::xct_aborting
             || smlevel_0::in_recovery_undo() 
             )
-        // GNATS_38
         // NOTE: if, in recovery and there is more than one xct to roll back,
         // it uses rollback(to-lsn) to make sure they are all rolled back
         // in chronological order.  This kind of rollback happens with the
@@ -582,23 +573,6 @@ void page_s::space_t::release(int amt, xct_t* xd)
     w_assert1(nfree() >= 0 && nrsvd() >= 0 && xct_rsvd() >= 0);
 }
 
-
-/*********************************************************************
- *
- *  page_s::ntoh(vid)
- *
- *  Convert the page to host order. BUGBUG: need to be filled in.
- *
- *********************************************************************/
-void page_s::ntoh(vid_t vid)
-{
-    /*
-     *  BUGBUG: TODO: convert the generic parts of the page
-     */
-    pid._stid.vol = vid;
-}
-
-
 /*--------------------------------------------------------------*
  *  page_p::repair_rec_lsn()
  *
@@ -624,20 +598,23 @@ void
 page_p::repair_rec_lsn(bool was_dirty, lsn_t const &new_rlsn) {
     bfcb_t* bp = bf_m::get_cb(_pp);
     const lsn_t &rec_lsn = bp->curr_rec_lsn();
+	w_assert2(is_latched_by_me());
+	w_assert2(is_mine());
     if(was_dirty) {
-	// never mind!
-	w_assert0(rec_lsn <= lsn());
+        // never mind!
+        w_assert0(rec_lsn <= lsn());
     }
     else {
-	w_assert0(rec_lsn > lsn());
-	if(new_rlsn.valid()) {
-	    w_assert0(new_rlsn <= lsn());
-	    w_assert2(bp->dirty());
-	    bp->set_rec_lsn(new_rlsn);
-	}
-	else {
-	    bp->mark_clean();
-	}
+        w_assert0(rec_lsn > lsn());
+        if(new_rlsn.valid()) {
+            w_assert0(new_rlsn <= lsn());
+            w_assert2(bp->dirty());
+            bp->set_rec_lsn(new_rlsn);
+			INC_TSTAT(restart_repair_rec_lsn);
+        }
+        else {
+            bp->mark_clean();
+        }
     }
 }
 
@@ -769,21 +746,22 @@ page_p::_format(const lpid_t& pid, tag_t tag,
     lsn_t l = lsn_t(0, 1);
     xct_t *xd = xct();
     // Note : formatting a volume gets done outside a tx,
-    // so in that case, the lsn_t(0,1) is used.  If DONT_TRUST_PAGE_LSN
+    // so in that case, the lsn_t(0,1) is used.  If DONT_TRUST_PAGE_LSN (always,
+    // now)
     // is turned off, the raw page has lsn_t(0,1) when read from disk
     // for the first time, if, in fact, it's actually read.
     if(xd) {
         l = xd->last_lsn();
-        w_assert2(l.valid());
+        w_assert2(l.valid() || !log);
     }
 #if W_DEBUG_LEVEL > 1
     if(sf == st_tmp)
     {
         // We never format a volume with st_tmp
-        w_assert2(l.valid());
+        w_assert2(l.valid() || !log);
     }
     if(!l.valid()) {
-        w_assert2( xd == NULL );
+        w_assert2( xd == NULL || !log );
     }
 #endif
 
@@ -1031,8 +1009,6 @@ page_p::link_up(shpid_t new_prev, shpid_t new_next)
  *  a page format (part-2 of the page format).
  *   (Note that in redo we can be redoing the undo of a reclaim so in
  *   redo pass, idx can be anything.)
- *  NEW: now that we can use set_deadbeef and clr_deadbeef, this results
- *  in the same thing as the page format, i.e., writing to slot 0.
  *
  *  The page format is NOT compensated-around (only the allocation of the
  *  page in an extent is compensated), so if we are undoing a page allocation,
@@ -1053,16 +1029,6 @@ page_p::mark_free(slotid_t idx)
      * A transaction must be attached.
      */
     w_assert2( in_recovery_redo() || xct() );
-#if DEAD && W_DEBUG_LEVEL > 1
-    // clr_deadbeef and set_deadbeef obviate all this:
-    if( xct() && xct()->state() == smlevel_1::xct_active ) {
-        w_assert2(idx > 0);
-    } 
-    if(idx == 0) {
-        w_assert1( (xct() && xct()->state() == smlevel_1::xct_aborting)
-                || in_recovery_redo() );
-    }
-#endif
 
     /*
      *  More sanity checks
@@ -1179,36 +1145,6 @@ page_p::reclaim(slotid_t idx, const cvec_t& vec, bool log_it)
      */
     w_assert1(idx >= 0 && idx <= _pp->nslots);
 
-    // make sure we're not reading from a freed page!
-    if(is_deadbeef()) {
-      if (smlevel_0::in_recovery_redo()) {
-          clr_deadbeef(); // redo: we know this is a file page
-          fprintf(stderr, 
-              "in redo found deadbeef store_flags 0x%x tag 0x%x flag 0x%x\n",
-              get_store_flags(),
-              tag(),
-              page_flags()
-              );
-          w_assert0(0); // for debugging
-      } else {
-          // forward processing
-           xct_t* xd = xct(); 
-           if(xd && xd->state() == smlevel_1::xct_aborting)
-           {
-               clr_deadbeef(); // aborting we know this is a file page
-              // ok because we don't have any opportunity
-              // in undo to clear the header.  It only
-              // gets cleared by page format.
-           } else {
-              // What scenario is this?
-              // This is the scenario that we're trying
-              // to avoid -- in fwd processing we should 
-              // have enough checks in place to avoid this
-              // ever happening.
-              w_assert0(0);
-           }
-      }
-    }
     /*
      *  Compute # bytes needed. If idx is a new slot, we would
      *  need space for the slot as well.
@@ -1336,38 +1272,14 @@ page_p::find_slot(uint4_t space_needed,
     w_assert1( rsvd_mode() ); // t_file_p
 
     /*
-     *  Make sure the page wasn't recently deallocated
-     *  This page could have been deallocated by me, but
-     *  we won't use it.
-     *  NANCY TODO *  This deadbeef hint is to tell us if we have a page
-     *  that could not be deleted from the store for some reason
-     *  but should have been. That seems to be illegitimate.
-     *  It's possible that the given page is the first in the file.
-     */
-    if(is_deadbeef() ) {
-        w_ostrstream s;
-        s << pid() ;
-        fprintf(stderr, "**************** DEADBEEF X at line %d:  pid %s\n", 
-                __LINE__, s.c_str()
-                );
-        // Bogus histogram data gets us here.
-        pagestophere();
-        return RC(ePAGECHANGED);
-    }
-
-    /*
      *  Check for sufficient space.
      *  usable_space_for_slots() takes into account that 
      *  space reserved by this xct cannot be used to expand the
      *  slot table.
      */
-#ifdef BUG_SPACE_FIX
     if ( usable_space() < space_needed 
             ||
         usable_space_for_slots() < sizeof(slot_t)  )
-#else
-    if(  usable_space() < space_needed)   
-#endif
     {
         return RC(eRECWONTFIT);
     }
@@ -1425,28 +1337,14 @@ page_p::next_slot(
     w_assert1( rsvd_mode() ); // t_file_p
 
     /*
-     *  Make sure the page wasn't recently deallocated
-     */
-    if(  is_deadbeef()) {
-        fprintf(stderr, "**************** DEADBEEF Y at %d\n", __LINE__);
-        pagestophere();
-        w_assert1(0); // GNATS 104
-        return RC(ePAGECHANGED);
-    }
-
-    /*
      *  Check for sufficient space
      *  usable_space_for_slots() takes into account that 
      *  space reserved by this xct cannot be used to expand the
      *  slot table.
      */
     
-#ifdef BUG_SPACE_FIX
     if ( usable_space_for_slots() < sizeof(slot_t) ||
             usable_space() < space_needed)   
-#else
-    if(  usable_space() < space_needed)   
-#endif
     {
         return RC(eRECWONTFIT);
     }
@@ -1756,6 +1654,15 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
     w_assert1(idx >= 0 && idx < _pp->nslots);
     w_assert1(vecsz >= 0);
 
+	// TEMP: to catch a problem in which we are using a page splice on an
+	// extent map page, which seems wrong
+	if ((idx==0) && (pid().page == 1)) 
+	{
+			static int count(0);
+			count++;
+			DBGTHRD(<< "count " << count);
+	}
+
     slot_t& s = _pp->slot[-idx];                // slot in question
 
     // Integrity check: the range start -> start+len must be in the
@@ -1900,7 +1807,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
             /*
              *  There is enough contiguous space for delta
              */
-            if (s.offset + align(s.length) == _pp->end)  {
+            if (s.offset + page_s::slot_offset_t(align(s.length)) == _pp->end)  {
                 /*
                  *  last slot --- we can simply extend it 
                  */
@@ -2150,8 +2057,8 @@ page_p::split_slot(slotid_t idx, slot_offset_t off, const cvec_t& v1,
         <<" xct() " << xct()->tid()
     );
 
-    w_assert3(s.length == off);
-    w_assert3(t.length == (savelength1-off) + savelength2);
+    w_assert3(slot_offset_t(s.length) == off);
+    w_assert3(slot_offset_t(t.length) == (savelength1-off) + savelength2);
     W_IFDEBUG3( W_COERCE(check()) );
 
     /*
@@ -2300,7 +2207,7 @@ page_p::_shift_compress(slotid_t from,
         slot_length_t        middlelen;
         slot_offset_t        secondpartoff;
         slot_length_t        secondpartlen;
-        char*           base_p;
+        char*                base_p;
         slot_offset_t        s_old_offset;
 
         /************** from **********************/
@@ -2309,7 +2216,7 @@ page_p::_shift_compress(slotid_t from,
                 << " with tuple size " << tuple_size(from)
                 << " offset " << s.offset
                 );
-        w_assert3(from_off <= s.length);
+        w_assert3(from_off <= slot_offset_t(s.length));
         w_assert3(s.offset != -1); // it's in use
         w_assert3(s.length <= from_off + from_len); 
 
@@ -2355,7 +2262,7 @@ page_p::_shift_compress(slotid_t from,
                 << " offset " << t.offset
                 );
         w_assert3(t.offset != -1); // it's in use
-        w_assert3(to_off <= t.length);
+        w_assert3(to_off <= slot_offset_t(t.length));
 
         // copy firstpart: 0 -> to_off-1
         // copy middle from s
@@ -2513,25 +2420,15 @@ page_p::check()
     return RCOK;
   
     /*
-     *  Map area and mutex to protect it. Each Byte in map corresponds
+     *  Map area Each Byte in map corresponds
      *  to a byte in the page.
-     *
-     * FRJ: to avoid serializing on this operation, we put the temp
-     * data in thread-local storage so we no longer need a
-     * mutex. Really, it should fit on the stack just fine, but it *is*
-     * pretty large so we don't risk it.
      */
-    static __thread char map[data_sz];
+    char *map = me()->get_page_check_map(); // thread-local stg
 
-    /*
-     *  Grab the mutex
-     */
-  //    W_COERCE( mutex.acquire() );
-    
     /*
      *  Zero out map
      */
-    memset(map, 0, sizeof(map));
+    memset(map, 0, SM_PAGESIZE);
     
     /*
      *  Compute our own end and nfree counters. Mark all used bytes
@@ -2557,7 +2454,7 @@ page_p::check()
      */
     w_assert1(END <= _pp->end);
     w_assert1(_pp->space.nfree() == NFREE);
-    w_assert1(_pp->end <= (data_sz + 2 * sizeof(slot_t) - 
+    w_assert1(_pp->end <= page_s::slot_offset_t(data_sz + 2 * sizeof(slot_t) - 
                            sizeof(slot_t) * _pp->nslots));
 
     /*
@@ -2775,13 +2672,16 @@ page_p::update_bucket_info()
         // even if page is clean
 
         /*
+        // Old comment:
         // This doesn't work quite that way when we don't trust the page
         // lsn, because the extent/store head pages might be out-of-sync
         // with this page if we're in redo and
         // we later be re-formatting or reallocating this page.
-        // NANCY TODO: I don't think this is limited to the DONT_TRUST_PAGE_LSN,
+        // Upate: I (neh) don't think this is limited to the 
+        // DONT_TRUST_PAGE_LSN case,
         // because we might still have to apply a page format soon,
         // even in the do-trust-page-lsn case. 
+        //
         // In the redo scenario it doesn't really make sense to waste any
         // time keeping the histograms up-to-date anyway.  They won't
         // be used until we are done with recovery.  We could probably

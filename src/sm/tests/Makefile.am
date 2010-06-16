@@ -1,10 +1,21 @@
 ## Process this file with automake to produce Makefile.in
 include $(top_srcdir)/Makefile.generic
-RESULT_COMPARISON_FILES = file_scan-i.out htab-n10000-R.out htab-n500.out htab-n10000-R.out
+RESULT_COMPARISON_FILES = \
+						  lockid_test-out \
+						  lock_cache_test-out \
+						  htab-n500-out \
+						  htab-n10000-R-out \
+						  htab-n100000-R-out 
+						  
 EXTRA_DIST = testall EXAMPLE_SHORECONFIG $(RESULT_COMPARISON_FILES)
 
-## no-op rule for making the .out files
-$(RESULT_COMPARISON_FILES) :
+## no-op rule for making the -out files
+## this is to avoid automagic makefiles thinking that the -out
+## files are executable files to be made from the cpp files of the same
+## prefix
+$(RESULT_COMPARISON_FILES) : noop
+
+noop:
 
 CLEANFILES = ./log/* ./volumes/*
 
@@ -17,15 +28,27 @@ AM_CXXFLAGS          +=  \
 check_PROGRAMS     = file_scan$(EXEEXT) \
 		    startstop$(EXEEXT) \
 		    create_rec$(EXEEXT) \
+		    sort_stream$(EXEEXT) \
 		    file_scan_many$(EXEEXT) \
+		    log_exceed$(EXEEXT) \
+		    lockid_test$(EXEEXT) \
+		    lock_cache_test$(EXEEXT) \
+		    vtable_example$(EXEEXT) \
+		    rtree_example$(EXEEXT) \
 		    htab$(EXEEXT) 
 
 TESTS = testall
 
+lockid_test_SOURCES      = lockid_test.cpp 
+lock_cache_test_SOURCES      = lock_cache_test.cpp 
 startstop_SOURCES      = startstop.cpp 
-file_scan_SOURCES      = file_scan.cpp options.cpp 
-file_scan_many_SOURCES      = file_scan_many.cpp options.cpp 
-create_rec_SOURCES      = create_rec.cpp options.cpp 
+file_scan_SOURCES      = file_scan.cpp init_config_options.cpp 
+file_scan_many_SOURCES      = file_scan_many.cpp init_config_options.cpp 
+create_rec_SOURCES      = create_rec.cpp init_config_options.cpp 
+sort_stream_SOURCES      = sort_stream.cpp init_config_options.cpp 
+log_exceed_SOURCES      = log_exceed.cpp init_config_options.cpp 
+vtable_example_SOURCES      = vtable_example.cpp init_config_options.cpp 
+rtree_example_SOURCES      = rtree_example.cpp init_config_options.cpp 
 
 htab_SOURCES      = htab.cpp
 

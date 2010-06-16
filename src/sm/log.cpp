@@ -60,13 +60,101 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #   pragma implementation
 #endif
 
-#include <sm_int_1.h>
-#include <srv_log.h>
+#include "sm_int_1.h"
 #include "logdef_gen.cpp"
+#include "log.h"
+#include "log_core.h"
 #include "crash.h"
 #include <algorithm> // for std::swap
 #include <stdio.h> // snprintf
-#include <deque>
+
+typedef smlevel_0::fileoff_t fileoff_t;
+
+/*********************************************************************
+ *
+ *  log_i::next(lsn, r)
+ *
+ *  Read the next record into r and return its lsn in lsn.
+ *  Return false if EOF reached. true otherwise.
+ *
+ *********************************************************************/
+bool log_i::next(lsn_t& lsn, logrec_t*& r)  
+{
+    bool eof = (cursor == null_lsn);
+    if (! eof) {
+        lsn = cursor;
+        rc_t rc = log.fetch(lsn, r, &cursor);
+        
+        // release right away, since this is only
+        // used in recovery.
+        log.release();
+
+        if (rc.is_error())  {
+            last_rc = rc;
+            RC_AUGMENT(last_rc);
+            RC_APPEND_MSG(last_rc, << "trying to fetch lsn " << cursor);
+            
+            if (last_rc.err_num() == smlevel_0::eEOF)  
+                eof = true;
+            else  {
+                smlevel_0::errlog->clog << fatal_prio 
+                << "Fatal error : " << RC_PUSH(last_rc, smlevel_0::eINTERNAL) << flushl;
+            }
+        }
+    }
+    return ! eof;
+}
+
+/*********************************************************************
+ *
+ * log_m::_version_major
+ * log_m::_version_minor
+ *
+ * increment version_minor if a new log record is appended to the
+ * list of log records and the semantics, ids and formats of existing
+ * log records remains unchanged.
+ *
+ * for all other changes to log records or their semantics
+ * _version_major should be incremented and version_minor set to 0.
+ *
+ *********************************************************************/
+uint4_t const log_m::_version_major = 4;
+uint4_t const log_m::_version_minor = 0;
+const char log_m::_SLASH = '/';
+const char log_m::_master_prefix[] = "chk."; // same size as _log_prefix
+const char log_m::_log_prefix[] = "log.";
+char       log_m::_logdir[max_devname];
+
+// virtual
+void  log_m::shutdown() 
+{
+    log_core::THE_LOG->shutdown();
+    delete log_core::THE_LOG; // side effect: sets THE_LOG to NULL
+}
+
+
+NORET  log_m::~log_m() 
+{
+    // This cannot call log_core destructor or we'll get into
+    // an inf loop, thus we have to do this with virtual methods.
+}
+
+// Used by sm options-handling:
+// static
+fileoff_t  log_m::segment_size() 
+   { return log_core::THE_LOG->segment_size(); }
+// static
+fileoff_t log_m::partition_size(long psize)
+   { return log_core::partition_size(psize); }
+// static
+fileoff_t log_m::min_partition_size()
+   { return log_core::min_partition_size(); }
+
+fileoff_t log_m::max_partition_size() {
+    fileoff_t tmp = sthread_t::max_os_file_size;
+    tmp = tmp > lsn_t::max.lo() ? lsn_t::max.lo() : tmp;
+    return  partition_size(tmp);
+}
 
 // like page_p::tag_name, but doesn't W_FATAL on garbage
 static char const* page_tag_to_str(int page_tag) {
@@ -142,529 +230,365 @@ db_pretty_print(logrec_t const* rec, int /*i=0*/, char const* /*s=0*/)
     return tmp_data;
 }
 
-
-class flush_daemon_thread_t : public smthread_t {
-    ringbuf_log* _log;
-public:
-    flush_daemon_thread_t(ringbuf_log* log) : 
-         smthread_t(t_regular, "flush_daemon", WAIT_NOT_USED), _log(log) { }
-
-    virtual void run() { _log->flush_daemon(); }
-};
-
-// Make sure to allocate enough extra space that log wraps can always fit
-ringbuf_log::ringbuf_log(long bsize)
-    : _waiting_for_space(false), _waiting_for_flush(false),
-      _start(0), _end(0),
-      _segsize(ceil(bsize, SEGMENT_SIZE)), 
-      _blocksize(BLOCK_SIZE),
-      _buf(new char[_segsize]),
-      _shutting_down(false)
-{
-    DO_PTHREAD(pthread_mutex_init(&_wait_flush_lock, NULL));
-    DO_PTHREAD(pthread_cond_init(&_wait_cond, NULL));
-    DO_PTHREAD(pthread_cond_init(&_flush_cond, NULL));
-    /* Create thread (1) to flush the log */
-    _flush_daemon = new flush_daemon_thread_t(this);
-}
-
-void ringbuf_log::start_flush_daemon() 
-{
-    _flush_daemon->fork();
-}
-
-void
-ringbuf_log::shutdown() // GNATS_11 fix is to add this method
-{ 
-    // gnats 52:  RACE: We set _shutting_down and signal between the time
-    // the daemon checks _shutting_down (false) and waits.
-    //
-    // So we need to notice if the daemon got the message.
-    // It tells us it did by resetting the flag after noticing
-    // that the flag is true.
-    // There should be no interference with these two settings
-    // of the flag since they happen strictly in that sequence.
-    //
-    _shutting_down = true;
-    while (*&_shutting_down) {
-        CRITICAL_SECTION(cs, _wait_flush_lock);
-        // Use signal since the only thread that should be waiting 
-        // on the _flush_cond is the log flush daemon.
-        DO_PTHREAD(pthread_cond_broadcast(&_flush_cond));
-    }
-    _flush_daemon->join();
-    delete _flush_daemon;
-    _flush_daemon=NULL;
-}
-
-ringbuf_log::~ringbuf_log() 
-{
-    w_assert1(_durable_lsn == _curr_lsn);
-    delete [] _buf;
-    DO_PTHREAD(pthread_mutex_destroy(&_wait_flush_lock));
-    DO_PTHREAD(pthread_cond_destroy(&_wait_cond));
-    DO_PTHREAD(pthread_cond_destroy(&_flush_cond));
-}
-#if W_DEBUG_LEVEL > 1
-// A debugging structure into which we write some debugging info
-// so that when we croak we can sort of see what was going on for GNATS 58
-struct tracer {
-    int _line; // __LINE__
-    int _end; 
-    int _start; 
-    int _ce_end; 
-    int _ce_start; 
-public:
-    void set(int l, int e, int s ,int cee , int ces ) 
-    {
-        _line=l;
-        _end=e;
-        _start = s;
-        _ce_end = cee;
-        _ce_start = ces;
-    }
-};
-__thread   int lct(0);
-__thread tracer TR[0x100]; // 256
-#define CLEART { ct=0; }
-#define TRACE(l,i,u,c,p) TR[(lct++)&0xff].set(l,i,u,c,p)
-extern "C" void logdumpT()
-{
-    for(int i=0; i < lct; i++)
-    {
-        cout  << " line=" << TR[i]._line 
-            << " end=" << TR[i]._end 
-            << " start=" << TR[i]._start 
-            << " current_epoch.end=" << TR[i]._ce_end 
-            << " current_epoch.start=" << TR[i]._ce_start 
-            << endl;
-    }
-}
-#else
-#define CLEART 
-#define TRACE(l,i,u,c,p)
-#endif
-
-rc_t ringbuf_log::insert(logrec_t &rec, lsn_t* rlsn) 
-{
-   INC_TSTAT(log_inserts);
-    
-   long size = rec.length();
-   char const* data = (char const*) &rec;
-   w_assert1((unsigned long)(size) <= sizeof(logrec_t));
-
-
-  /* Copy our data into the buffer and update/create epochs. Note
-     that, while we may race the flush daemon to update the epoch
-     record, it will not touch the buffer until after we succeed so
-     there is no race with memcpy(). If we do lose an epoch update
-     race, it is only because the flush changed old_epoch.begin to
-     equal old_epoch.end. This mutex ensures we don't race with any
-     other inserts.
-   */
-  CRITICAL_SECTION(ics, _insert_lock);
-  
-  /* make sure there's actually space available, accounting for the
-     fact that flushes always work with full blocks.
-   */
-  while(*&_waiting_for_space || 
-          *&_end - *&_start + size > _segsize - 2*_blocksize) 
-  {
-      ics.pause();
-      {
-          CRITICAL_SECTION(cs, _wait_flush_lock);
-          while(*&_end - *&_start + size > _segsize - 2*_blocksize) {
-              _waiting_for_space = true;
-              // Use signal since the only thread that should be waiting 
-              // on the _flush_cond is the log flush daemon.
-              DO_PTHREAD(pthread_cond_signal(&_flush_cond));
-              DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
-          }
-      }
-      ics.resume();
-  }
-
-  /* _curr_lsn, _cur_epoch.end, and _end are all strongly related;
-     _cur_epoch.end and _end are convenience variables to avoid doing
-     expensive operations like modulus and division on the _curr_lsn:
-
-     _cur_epoch.end is the buffer position for the current lsn
-     
-     _end is the non-wrapping version of _cur_epoch.end: at log init
-     time it is set to a value in the range [0, _segsize) and is
-     incremented by every log write for the lifetime of the database.
-
-     _start and _durable_lsn have the same relationship as _end and
-     _curr_lsn
-   */
-    w_assert2(_cur_epoch.end >= 0 && _cur_epoch.end <= _segsize);
-    w_assert2(_cur_epoch.end % _segsize == _curr_lsn.lo() % _segsize);
-    w_assert2(_cur_epoch.end % _segsize == _end % _segsize);
-    w_assert2(_end >= _start);
-    w_assert2(_end - _start <= _segsize - 2*_blocksize);
-
-
-    long end = _cur_epoch.end;
-    long new_end = end + size;
-    long spillsize = new_end - _segsize;
-    lsn_t curr_lsn = _curr_lsn;
-    lsn_t next_lsn = _cur_epoch.base_lsn + new_end;
-    TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-    if(spillsize <= 0) {
-        // normal insert
-        rec.set_lsn_ck(curr_lsn);
-        memcpy(_buf+end, data, size);
-
-        // update epoch. no need for a lock if we just increment its end
-        _cur_epoch.end = new_end;
-        TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-    }
-    else if(next_lsn.lo() <= _partition_data_size) {
-        // wrap within a partition. next_lsn is still valid but not new_end
-        long partsize = size - spillsize;
-        rec.set_lsn_ck(curr_lsn);
-        memcpy(_buf+end, data, partsize);
-        memcpy(_buf, data+partsize, spillsize);
-        
-        TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-        // update epochs
-        CRITICAL_SECTION(cs, _flush_lock);
-        w_assert3(_old_epoch.start == _old_epoch.end);
-        _old_epoch = epoch(_cur_epoch.base_lsn, _cur_epoch.base, 
-                    _cur_epoch.start, _segsize);
-        _cur_epoch.base_lsn += _segsize;
-        _cur_epoch.base += _segsize;
-        _cur_epoch.start = 0;
-        _cur_epoch.end = new_end = spillsize;
-        TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-    }
-    else {
-        /* new partition! need to update next_lsn/new_end to reflect this
-
-	   LOG_RESERVATIONS
-
-	   Also, consume whatever (now-unusable) space was left in the
-	   old partition so it doesn't seem to be available.
-	 */
-	long leftovers = _partition_data_size - curr_lsn.lo();
-	w_assert2(leftovers >= 0);
-	if(leftovers && !reserve_space(leftovers))
-	    return RC(eOUTOFLOGSPACE);
-	
-        curr_lsn = first_lsn(next_lsn.hi()+1);
-        next_lsn = curr_lsn + size;
-        long new_base = _cur_epoch.base + _segsize;
-        rec.set_lsn_ck(curr_lsn);
-        memcpy(_buf, data, size);
-
-        TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-        // update epochs
-        CRITICAL_SECTION(cs, _flush_lock);
-        w_assert3(_old_epoch.start == _old_epoch.end);
-        _old_epoch = _cur_epoch;
-        _cur_epoch = epoch(curr_lsn, new_base, 0, new_end=size);
-        TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-    }
-
-    // all done. let the world know
-    if(rlsn) *rlsn = curr_lsn;
-    _curr_lsn = next_lsn;
-    _end = _cur_epoch.base + new_end;
-    
-    TRACE(__LINE__,_end, _start, _cur_epoch.end, _cur_epoch.start);
-    w_assert2(_cur_epoch.end >= 0 && _cur_epoch.end <= _segsize);
-    w_assert2(_cur_epoch.end % _segsize == _curr_lsn.lo() % _segsize);
-    w_assert2(_cur_epoch.end % _segsize == _end % _segsize);
-    w_assert2(_end >= _start);
-    w_assert2(_end - _start <= _segsize - 2*_blocksize);
-
-#ifdef USING_VALGRIND
-    // I did once have this at the beginning but then we
-    // croak because we haven't called set_lsn_ck yet
-    if(RUNNING_ON_VALGRIND)
-    {
-        check_definedness(&rec, rec.length());
-        check_valgrind_errors(__LINE__, __FILE__);
-    }
-#endif
-
-    ADD_TSTAT(log_bytes_generated,size);
-    return RCOK;
-}
-
-rc_t ringbuf_log::flush(lsn_t lsn, bool block) 
-{
-    ASSERT_FITS_IN_POINTER(lsn_t);
-    // else our reads to _durable_lsn would be unsafe
-
-    // don't let them flush past end of log -- they might wait forever...
-    lsn = std::min(lsn, (*&_curr_lsn)+ -1);
-    
-    // already durable?
-    if(lsn >= *&_durable_lsn) {
-        if (!block) {
-            *&_waiting_for_flush = true;
-            DO_PTHREAD(pthread_cond_signal(&_flush_cond));
-        }
-        else {
-            CRITICAL_SECTION(cs, _wait_flush_lock);
-            while(lsn >= *&_durable_lsn) {
-                *&_waiting_for_flush = true;
-                // Use signal since the only thread that should be waiting 
-                // on the _flush_cond is the log flush daemon.
-                DO_PTHREAD(pthread_cond_signal(&_flush_cond));
-                DO_PTHREAD(pthread_cond_wait(&_wait_cond, &_wait_flush_lock));
-            }
-        }
-    } else {
-        INC_TSTAT(log_dup_sync_cnt);
-    }
-    return RCOK;
-}
-
-void ringbuf_log::flush_daemon() 
-{
-    /* Algorithm: attempt to flush the buffer XFER_SIZE bytes at a
-       time. If we empty out the buffer, block until either enough
-       bytes get written or a thread specifically requests a flush.
-     */
-    lsn_t last_flush_lsn;
-    bool success = false;
-    while(1) {
-
-        // wait for a kick. Kicks come at regular intervals from
-        // inserts, but also at arbitrary times when threads request a
-        // flush.
-        {
-            CRITICAL_SECTION(cs, _wait_flush_lock);
-            if(success && (*&_waiting_for_space || *&_waiting_for_flush)) {
-                _waiting_for_flush = _waiting_for_space = false;
-                DO_PTHREAD(pthread_cond_broadcast(&_wait_cond)); // wake up anyone waiting on log flush
-            }
-
-            if(*&_shutting_down) {
-                _shutting_down = false;
-                break;
-            }
-        
-            // sleep. We don't care if we get a spurious wakeup
-            if(!success && !*&_waiting_for_space && !*&_waiting_for_flush) {
-                // Use signal since the only thread that should be waiting 
-                // on the _flush_cond is the log flush daemon.
-                DO_PTHREAD(pthread_cond_wait(&_flush_cond, &_wait_flush_lock));
-                INC_TSTAT(log_sync_cnt);
-            }
-        }
-
-        lsn_t lsn = flush_cycle(last_flush_lsn);
-        success = (lsn != last_flush_lsn);
-        last_flush_lsn = lsn;
-    }
-
-    // make sure the buffer is completely empty before leaving...
-    for(lsn_t lsn; 
-        (lsn=flush_cycle(last_flush_lsn)) != last_flush_lsn; 
-        last_flush_lsn=lsn) ;
-}
-
-lsn_t ringbuf_log::flush_cycle(lsn_t old_mark) 
-{
-    // anything new?
-    if(_curr_lsn == old_mark)
-        return old_mark;
-    
-    // flush
-    lsn_t base_lsn_before, base_lsn_after;
-    long base, start1, end1, start2, end2;
-    {
-        CRITICAL_SECTION(cs, _flush_lock);
-        base_lsn_before = _old_epoch.base_lsn;
-        base_lsn_after = _cur_epoch.base_lsn;
-        base = _cur_epoch.base;
-        if(_old_epoch.start == _old_epoch.end) {
-            // no wrap -- flush only the new
-            start2 = _cur_epoch.start;
-            end2 = _cur_epoch.end;            
-            _cur_epoch.start = end2;
-
-            start1 = start2; // fake start1 so the start_lsn calc below works
-            end1 = start2;
-            
-            base_lsn_before = base_lsn_after;
-        }
-        else if(base_lsn_before.file() == base_lsn_after.file()) {
-            // wrapped within partition -- flush both
-            start2 = _cur_epoch.start;
-            end2 = _cur_epoch.end;            
-            _cur_epoch.start = end2;
-
-            start1 = _old_epoch.start;
-            end1 = _old_epoch.end;
-            _old_epoch.start = end1;
-            
-            w_assert1(base_lsn_before + _segsize == base_lsn_after);
-        }
-        else {
-            // new partition -- flushing only the old
-            start2 = 0;
-            end2 = 0; // don't fake end2 because end_lsn needs to see '0' 
-
-            start1 = _old_epoch.start;
-            end1 = _old_epoch.end;
-            _old_epoch.start = end1;
-
-            w_assert1(base_lsn_before.file()+1 == base_lsn_after.file());
-        }
-    }
-
-    lsn_t start_lsn = base_lsn_before + start1;
-    lsn_t end_lsn   = base_lsn_after + end2;
-    long  new_start = base + end2;
-    {
-        CRITICAL_SECTION(cs, _comp_lock);
-        _flush_lsn = end_lsn;
-    }
-
-    w_assert1(end_lsn == first_lsn(start_lsn.hi()+1)
-              || end_lsn.lo() - start_lsn.lo() == (end1-start1) + (end2-start2));
-    _flush(start_lsn, start1, end1, start2, end2);
-    _durable_lsn = end_lsn;
-    _start = new_start;
-
-    return end_lsn;
-}
-
-
-
-rc_t ringbuf_log::compensate(lsn_t orig_lsn, lsn_t undo_lsn) 
-{
-    // somewhere in the calling code, we didn't actually log anything.
-    // so this would be a compensate to myself.  i.e. a no-op
-    if(orig_lsn == undo_lsn)
-        return RCOK;
-
-    // FRJ: this assertion wasn't there originally, but I don't see
-    // how the situation could possibly be correct
-    w_assert1(orig_lsn <= _curr_lsn);
-    
-    // no need to grab a mutex if it's too late
-    if(orig_lsn < _flush_lsn)
-      return RC(eBADCOMPENSATION);
-    
-    CRITICAL_SECTION(cs, _comp_lock);
-    // check again; did we just miss it?
-    lsn_t flsn = _flush_lsn;
-    if(orig_lsn < flsn)
-      return RC(eBADCOMPENSATION);
-    
-    /* where does it live? the buffer is always aligned with a
-       buffer-sized chunk of the partition, so all we need to do is
-       take a modulus of the lsn to get its buffer position. It may be
-       wrapped but we know it's valid because we're less than a buffer
-       size from the current _flush_lsn -- nothing newer can be
-       overwritten until we release the mutex.
-     */
-    long pos = orig_lsn.lo() % _segsize;
-    if(pos >= _segsize - logrec_t::hdr_sz) 
-        return RC(eBADCOMPENSATION); // split record. forget it.
-
-    // aligned?
-    w_assert1((pos & 0x7) == 0);
-    
-    // grab the record and make sure it's valid
-    logrec_t* s = (logrec_t*) &_buf[pos];
-
-    // valid length?
-    w_assert1((s->length() & 0x7) == 0);
-    
-    // split after the log header? don't mess with it
-    if(pos + long(s->length()) > _segsize)
-        return RC(eBADCOMPENSATION);
-    
-    lsn_t lsn_ck = s->get_lsn_ck();
-    if(lsn_ck != orig_lsn) {
-        // this is a pretty rare occurrence, and I haven't been able
-        // to figure out whether it's actually a bug
-        fprintf(stderr, "\nlsn_ck = %d.%lld, orig_lsn = %d.%lld\n",
-                lsn_ck.hi(), 
-                (long long int)(lsn_ck.lo()), 
-                orig_lsn.hi(), 
-                (long long int)(orig_lsn.lo()));
-        return RC(eBADCOMPENSATION);
-    }
-    w_assert1(s->prev() == lsn_t::null || s->prev() >= undo_lsn);
-
-    // Not quite sure what this is, but apparently you can't compensate it...
-    if(s->is_undoable_clr())
-        return RC(eBADCOMPENSATION);
-
-    // success!
-    DBGTHRD(<<"COMPENSATING LOG RECORD " << undo_lsn << " : " << *s);
-    s->set_clr(undo_lsn);
-    return RCOK;
-}
-
 log_m::log_m()
-    : _min_chkpt_rec_lsn(first_lsn(1)), _space_available(0),
-      _space_rsvd_for_chkpt(0), _reservations_active(false),
-      _partition_size(0), _partition_data_size(0), _log_corruption(false),
+    : 
+      _min_chkpt_rec_lsn(first_lsn(1)), 
+      _space_available(0),
+      _space_rsvd_for_chkpt(0), 
+      _partition_size(0), 
+      _partition_data_size(0), 
+      _log_corruption(false),
       _waiting_for_space(false)
 {
     pthread_mutex_init(&_space_lock, 0);
     pthread_cond_init(&_space_cond, 0);
 }
 
+
 /*********************************************************************
  * 
- *  srv_log::set_master(master_lsn, min_rec_lsn, min_xct_lsn)
+ *  log_core::set_master(master_lsn, min_rec_lsn, min_xct_lsn)
  *
  *********************************************************************/
 void log_m::set_master(lsn_t mlsn, lsn_t min_rec_lsn, lsn_t min_xct_lsn) 
 {
     CRITICAL_SECTION(cs, _partition_lock);
     lsn_t min_lsn = std::min(min_rec_lsn, min_xct_lsn);
+
+    // This used to descend to raw_log or unix_log:
+    w_assert1(log_core::THE_LOG != NULL);
     _write_master(mlsn, min_lsn);
-    _old_master_lsn = _master_lsn;
+
     _master_lsn = mlsn;
     _min_chkpt_rec_lsn = min_lsn;
 }
 
-lsn_t log_m::curr_lsn() const 
+rc_t  
+log_m::new_log_m(log_m   *&the_log,
+                         const char *path,
+                         int wrbufsize,
+                         bool  reformat)
 {
-  // no lock needed -- atomic read of a monotonically increasing value
-  return _curr_lsn;
+    FUNC(log_m::new_log_m);
+
+    w_assert1(strlen(path) < sizeof(_logdir));
+    strcpy(_logdir, path);
+
+    rc_t rc = log_core::new_log_m(the_log, wrbufsize, reformat);
+
+    w_assert1(the_log != NULL);
+
+    if(!rc.is_error())  {
+        log_core::THE_LOG->start_flush_daemon();
+    }
+    return rc.reset();
 }
 
-lsn_t log_m::durable_lsn() const {
-    ASSERT_FITS_IN_POINTER(lsn_t);
-    // else need to join the insert queue
-
-    return _durable_lsn;
+/*********************************************************************
+ *
+ *  log_core::make_log_name(idx, buf, bufsz)
+ *
+ *  Make up the name of a log file in buf.
+ *
+ *********************************************************************/
+const char *
+log_m::make_log_name(uint4_t idx, char* buf, int bufsz)
+{
+    // this is a static function w_assert2(_partition_lock.is_mine()==true);
+    w_ostrstream s(buf, (int) bufsz);
+    s << _logdir << _SLASH
+      << _log_prefix << idx << ends;
+    w_assert1(s);
+    return buf;
 }
-lsn_t log_m::master_lsn() const {
-    ASSERT_FITS_IN_POINTER(lsn_t);
-    // else need to grab the partition mutex
 
-    return _master_lsn;
+rc_t                
+log_m::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn) 
+    { return log_core::THE_LOG->scavenge(min_rec_lsn, min_xct_lsn); }
+
+void                
+log_m:: release()  
+    { log_core::THE_LOG->release(); }
+
+rc_t 
+log_m::fetch(lsn_t &lsn, logrec_t* &rec, lsn_t* nxt) 
+    { return log_core::THE_LOG->fetch(lsn, rec, nxt); }
+
+rc_t 
+log_m::insert(logrec_t &r, lsn_t* ret)
+{ 
+    // If log corruption is turned on,  zero out
+    // important parts of the log to fake crash (by making the
+    // log appear to end here).
+    if (_log_corruption) {
+        smlevel_0::errlog->clog << error_prio 
+        << "Generating corrupt log record at lsn: " << curr_lsn() << flushl;
+        r.corrupt();
+        // Now turn it off.
+        _log_corruption = false;
+    }
+    return log_core::THE_LOG->insert(r, ret); 
 }
-lsn_t log_m::old_master_lsn() const {
-    ASSERT_FITS_IN_POINTER(lsn_t);
-    // else need to grab the partition mutex
 
-    return _old_master_lsn;
+rc_t 
+log_m::flush(lsn_t lsn, bool block)
+    { return log_core::THE_LOG->flush(lsn, block); }
+
+rc_t 
+log_m::compensate(lsn_t orig_lsn, lsn_t undo_lsn) 
+    { return log_core::THE_LOG->compensate(orig_lsn, undo_lsn); }
+
+/*********************************************************************
+ * 
+ *  log_m::_make_master_name(master_lsn, min_chkpt_rec_lsn, buf, bufsz)
+ *
+ *  Make up the name of a master record in buf.
+ *
+ *********************************************************************/
+void
+log_m::_make_master_name(
+    const lsn_t&         master_lsn, 
+    const lsn_t&        min_chkpt_rec_lsn,
+    char*                 buf,
+    int                        bufsz,
+    bool                old_style)
+{
+    w_ostrstream s(buf, (int) bufsz);
+
+    s << _logdir << _SLASH << _master_prefix;
+    lsn_t         array[2];
+    array[0] = master_lsn;
+    array[1] = min_chkpt_rec_lsn;
+
+    _create_master_chkpt_string(s, 2, array, old_style);
+    s << ends;
+    w_assert1(s);
 }
 
-lsn_t log_m::min_chkpt_rec_lsn() const {
-    ASSERT_FITS_IN_POINTER(lsn_t);
-    // else need to grab the partition mutex
+void
+log_m::_write_master(lsn_t l, lsn_t min) 
+{
+    /*
+     *  create new master record
+     */
+    char _chkpt_meta_buf[CHKPT_META_BUF];
+    _make_master_name(l, min, _chkpt_meta_buf, CHKPT_META_BUF);
+    DBGTHRD(<< "writing checkpoint master: " << _chkpt_meta_buf);
 
-    return _min_chkpt_rec_lsn;
+    FILE* f = fopen(_chkpt_meta_buf, "a");
+    if (! f) {
+        w_rc_t e = RC(eOS);    
+        smlevel_0::errlog->clog << fatal_prio 
+            << "ERROR: could not open a new log checkpoint file: "
+            << _chkpt_meta_buf << flushl;
+        W_COERCE(e);
+    }
+
+    {        /* write ending lsns into the master chkpt record */
+        lsn_t         array[PARTITION_COUNT];
+#if 0
+        int j=0;
+        for(int i=0; i < PARTITION_COUNT; i++) {
+            const partition_t *p = this->_partition(i);
+            if(p->num() > 0 && (p->last_skip_lsn().hi() == p->num())) {
+                array[j++] = p->last_skip_lsn();
+            }
+        }
+#else
+        int j = log_core::THE_LOG->get_last_lsns(array);
+#endif
+        if(j > 0) {
+            w_ostrstream s(_chkpt_meta_buf, CHKPT_META_BUF);
+            _create_master_chkpt_contents(s, j, array);
+        } else {
+            memset(_chkpt_meta_buf, '\0', 1);
+        }
+        int length = strlen(_chkpt_meta_buf) + 1;
+        DBG(<< " #lsns=" << j
+            << " write this to master checkpoint record: " <<
+                _chkpt_meta_buf);
+
+        if(fwrite(_chkpt_meta_buf, length, 1, f) != 1) {
+            w_rc_t e = RC(eOS);    
+            smlevel_0::errlog->clog << fatal_prio 
+                << "ERROR: could not write log checkpoint file contents"
+                << _chkpt_meta_buf << flushl;
+            W_COERCE(e);
+        }
+    }
+    fclose(f);
+
+    /*
+     *  destroy old master record
+     */
+    _make_master_name(_master_lsn, 
+                _min_chkpt_rec_lsn, _chkpt_meta_buf, CHKPT_META_BUF);
+    (void) unlink(_chkpt_meta_buf);
+}
+
+/*********************************************************************
+ *
+ * log_m::_create_master_chkpt_string
+ *
+ * writes a string which parse_master_chkpt_string expects.
+ * includes the version, and master and min chkpt rec lsns.
+ *
+ *********************************************************************/
+
+void
+log_m::_create_master_chkpt_string(
+                ostream&        s,
+                int                arraysize,
+                const lsn_t*        array,
+                bool                old_style)
+{
+    w_assert1(arraysize >= 2);
+    if (old_style)  {
+        s << array[0] << '.' << array[1];
+
+    }  else  {
+        s << 'v' << _version_major << '.' << _version_minor ;
+        for(int i=0; i< arraysize; i++) {
+                s << '_' << array[i];
+        }
+    }
+}
+
+/*********************************************************************
+ *
+ * log_m::_check_version
+ *
+ * returns LOGVERSIONTOONEW or LOGVERSIONTOOOLD if the passed in
+ * version is incompatible with this sources version
+ *
+ *********************************************************************/
+
+rc_t
+log_m::_check_version(uint4_t major, uint4_t minor)
+{
+        if (major == _version_major && minor <= _version_minor)
+                return RCOK;
+
+        int err = (major < _version_major)
+                        ? eLOGVERSIONTOOOLD : eLOGVERSIONTOONEW;
+
+        smlevel_0::errlog->clog << fatal_prio 
+            << "ERROR: log version too "
+            << ((err == eLOGVERSIONTOOOLD) ? "old" : "new")
+            << " sm ("
+            << _version_major << " . " << _version_minor
+            << ") log ("
+            << major << " . " << minor
+            << flushl;
+
+        return RC(err);
+}
+
+
+void
+log_m::_create_master_chkpt_contents(
+                ostream&        s,
+                int                arraysize,
+                const lsn_t*        array
+                )
+{
+    for(int i=0; i< arraysize; i++) {
+            s << '_' << array[i];
+    }
+    s << ends;
+}
+
+
+rc_t
+log_m::_parse_master_chkpt_contents(
+                istream&            s,
+                int&                    listlength,
+                lsn_t*                    lsnlist
+                )
+{
+    listlength = 0;
+    char separator;
+    while(!s.eof()) {
+        s >> separator;
+        if(!s.eof()) {
+            w_assert9(separator == '_' || separator == '.');
+            s >> lsnlist[listlength];
+            DBG(<< listlength << ": extra lsn = " << 
+                lsnlist[listlength]);
+            if(!s.fail()) {
+                listlength++;
+            }
+        }
+    }
+    return RCOK;
+}
+
+
+/*********************************************************************
+ *
+ * log_m::_parse_master_chkpt_string
+ *
+ * parse and return the master_lsn and min_chkpt_rec_lsn.
+ * return an error if the version is out of sync.
+ *
+ *********************************************************************/
+rc_t
+log_m::_parse_master_chkpt_string(
+                istream&            s,
+                lsn_t&              master_lsn,
+                lsn_t&              min_chkpt_rec_lsn,
+                int&                    number_of_others,
+                lsn_t*                    others,
+                bool&                    old_style)
+{
+    uint4_t major = 1;
+    uint4_t minor = 0;
+    char separator;
+
+    s >> separator;
+
+    if (separator == 'v')  {                // has version, otherwise default to 1.0
+        old_style = false;
+        s >> major >> separator >> minor;
+        w_assert9(separator == '.');
+        s >> separator;
+        w_assert9(separator == '_');
+    }  else  {
+        old_style = true;
+        s.putback(separator);
+    }
+
+    s >> master_lsn >> separator >> min_chkpt_rec_lsn;
+    w_assert9(separator == '_' || separator == '.');
+
+    if (!s)  {
+        return RC(eBADMASTERCHKPTFORMAT);
+    }
+
+    number_of_others = 0;
+    while(!s.eof()) {
+        s >> separator;
+        if(separator == '\0') break; // end of string
+
+        if(!s.eof()) {
+            w_assert9(separator == '_' || separator == '.');
+            s >> others[number_of_others];
+            DBG(<< number_of_others << ": extra lsn = " << 
+                others[number_of_others]);
+            if(!s.fail()) {
+                number_of_others++;
+            }
+        }
+    }
+
+    return _check_version(major, minor);
 }
 
 
 /* Compute size of the biggest checkpoint we ever risk having to take...
  */
-long log_m::max_chkpt_size() const {
+long log_m::max_chkpt_size() const 
+{
     /* BUG: the number of transactions which might need to be
        checkpointed is potentially unbounded. However, it's rather
        unlikely we'll ever see more than 10k at any one time...
@@ -676,246 +600,176 @@ long log_m::max_chkpt_size() const {
     return FUDGE + bf_tab_size + xct_tab_size;
 }
 
-
-void ringbuf_log::set_size(fileoff_t size) 
+w_rc_t
+log_m::_read_master( 
+        const char *fname,
+        int prefix_len,
+        lsn_t &tmp,
+        lsn_t& tmp1,
+        lsn_t* lsnlist,
+        int&   listlength,
+        bool&  old_style
+)
 {
-    /* The log consists of PARTITION_COUNT files, each with space for
-       some integer number of log buffers plus one extra block for
-       writing skip records.
+    rc_t         rc;
+    {
+        /* make a copy */
+        int        len = strlen(fname+prefix_len) + 1;
+        char *buf = new char[len];
+        memcpy(buf, fname+prefix_len, len);
+        w_istrstream s(buf);
+
+        rc = _parse_master_chkpt_string(s, tmp, tmp1, 
+                                       listlength, lsnlist, old_style);
+        delete [] buf;
+        if (rc.is_error()) {
+            smlevel_0::errlog->clog << fatal_prio 
+            << "bad master log file \"" << fname << "\"" << flushl;
+            W_COERCE(rc);
+        }
+        DBG(<<"_parse_master_chkpt_string returns tmp= " << tmp
+            << " tmp1=" << tmp1
+            << " old_style=" << old_style);
+    }
+
+    /*  
+     * read the file for the rest of the lsn list
      */
-    fileoff_t usable_psize = size/PARTITION_COUNT - BLOCK_SIZE;
-    // _partition_data_size = floor(usable_psize, (_segsize-BLOCK_SIZE));
-    _partition_data_size = floor(usable_psize, (_segsize));
-    if(_partition_data_size == 0) {
-        fprintf(stderr, 
-"log size is too small: size %ld usable_psize %ld, _segsize %ld, blocksize 0x%x\n",
-                size, usable_psize, _segsize, BLOCK_SIZE);
-        W_FATAL(eOUTOFLOGSPACE);
+    {
+        char*         buf = new char[smlevel_0::max_devname];
+        if (!buf)
+            W_FATAL(fcOUTOFMEMORY);
+        w_auto_delete_array_t<char> ad_fname(buf);
+        w_ostrstream s(buf, int(smlevel_0::max_devname));
+        s << _logdir << _SLASH << fname << ends;
+
+        FILE* f = fopen(buf, "r");
+        if(f) {
+            char _chkpt_meta_buf[CHKPT_META_BUF];
+            int n = fread(_chkpt_meta_buf, 1, CHKPT_META_BUF, f);
+            if(n  > 0) {
+                /* Be paranoid about checking for the null, since a lack
+                   of it could send the istrstream driving through memory
+                   trying to parse the information. */
+                void *null = memchr(_chkpt_meta_buf, '\0', CHKPT_META_BUF);
+                if (!null) {
+                    smlevel_0::errlog->clog << fatal_prio 
+                        << "invalid master log file format \"" 
+                        << buf << "\"" << flushl;
+                    W_FATAL(eINTERNAL);
+                }
+                    
+                w_istrstream s(_chkpt_meta_buf);
+                rc = _parse_master_chkpt_contents(s, listlength, lsnlist);
+                if (rc.is_error())  {
+                    smlevel_0::errlog->clog << fatal_prio 
+                        << "bad master log file contents \"" 
+                        << buf << "\"" << flushl;
+                    W_COERCE(rc);
+                }
+            }
+            fclose(f);
+        } else {
+            /* backward compatibility with minor version 0: 
+             * treat empty file ok
+             */
+            w_rc_t e = RC(eOS);
+            smlevel_0::errlog->clog << fatal_prio
+                << "ERROR: could not open existing log checkpoint file: "
+                << buf << flushl;
+            W_COERCE(e);
+        }
     }
-    _partition_size = _partition_data_size + BLOCK_SIZE;
-    /*
-    fprintf(stderr, 
-"size %ld usable_psize %ld _segsize %ld _part_data_size %ld _part_size %ld\n",
-            size,
-            usable_psize,
-            _segsize,
-            _partition_data_size,
-            _partition_size
-           );
-   */
-    // initial free space estimate... refined once log recovery is complete
-    release_space(recoverable_space(PARTITION_COUNT));
-    if(!verify_chkpt_reservation() || _space_rsvd_for_chkpt > _partition_data_size) {
-	fprintf(stderr,
-		"log partitions too small compared to buffer pool:\n"
-		"	%lld bytes per partition available\n"
-		"	%lld bytes needed for checkpointing dirty pages\n",
-		(long long)_partition_data_size, (long long)_space_rsvd_for_chkpt);
-	W_FATAL(eOUTOFLOGSPACE);
-    }
+    return RCOK;
 }
 
-
-
-rc_t        log_m::new_log_m(log_m        *&the_log,
-                         const char *path,
-                         fileoff_t _max_logsz,
-                         int wrbufsize,
-                         char  *shmbase,
-                         bool  reformat)
+fileoff_t log_m::take_space(fileoff_t volatile* ptr, int amt) 
 {
-    rc_t rc = srv_log::new_log_m(the_log, path, _max_logsz, wrbufsize, shmbase, reformat);
-    if(!rc.is_error())
-        the_log->start_flush_daemon();
-    return rc.reset();
-}
-
-void log_m::activate_reservations() {
-#if USE_LOG_RESERVATIONS
-    /* With recovery complete we now activate log reservations.
-
-       In fact, the activation should be as simple as setting the mode to
-       t_forward_processing, but we also have to account for any space
-       the log already occupies. We don't have to double-count
-       anything because nothing will be undone should a crash occur at
-       this point.
-     */
-    w_assert1(operating_mode == t_forward_processing);
-    w_assert1(!_reservations_active);
-    // FRJ: not true if any logging occurred during recovery
-    //    w_assert1(PARTITION_COUNT*_partition_data_size == _space_available + _space_rsvd_for_chkpt);
-
-    // knock off space used by full partitions
-    long oldest_pnum = _min_chkpt_rec_lsn.hi();
-    long newest_pnum = curr_lsn().hi();
-    long full_partitions = newest_pnum - oldest_pnum; // can be zero
-    _space_available -= recoverable_space(full_partitions);
-
-    // and knock off the space used so far in the current partition
-    _space_available -= curr_lsn().lo();
-    _reservations_active = true;
-#endif
-}
-
-smlevel_0::fileoff_t log_m::space_left() const { return *&_space_available; }
-
-typedef smlevel_0::fileoff_t fileoff_t;
-static fileoff_t take_space(fileoff_t volatile* ptr, int amt) {
     fileoff_t ov = *ptr;
     while(1) {
-	if(ov < amt)
-	    return 0;
-	fileoff_t nv = ov - amt;
-	fileoff_t cv = atomic_cas_64((uint64_t*)ptr, ov, nv);
-	if(ov == cv)
-	    return amt;
-	
-	ov = cv;
+        if(ov < amt)
+            return 0;
+        fileoff_t nv = ov - amt;
+        fileoff_t cv = atomic_cas_64((uint64_t*)ptr, ov, nv);
+        if(ov == cv)
+            return amt;
+        ov = cv;
     }
 }
 
 fileoff_t log_m::reserve_space(fileoff_t amt) {
+
+#if USE_LOG_RESERVATIONS
     return (amt > 0)? take_space(&_space_available, amt) : 0;
+#else
+	return (_space_available > amt) ? _space_available - amt : 0; 
+#endif
 }
 
 fileoff_t log_m::consume_chkpt_reservation(fileoff_t amt) {
+#if USE_LOG_RESERVATIONS
     if(operating_mode != t_forward_processing)
-	return amt; // not yet active -- pretend it worked
-    
-    return (amt > 0)? take_space(&_space_rsvd_for_chkpt, amt) : 0;
+       return amt; // not yet active -- pretend it worked
+
+    return (amt > 0)? 
+        take_space(&_space_rsvd_for_chkpt, amt) : 0;
+#else
+	return amt; // anything > 0 means ok
+#endif
 }
 
 // make sure we have enough log reservation (conservative)
-bool log_m::verify_chkpt_reservation() {
+bool log_m::verify_chkpt_reservation() 
+{
+#if USE_LOG_RESERVATIONS
     fileoff_t space_needed = max_chkpt_size();
     while(*&_space_rsvd_for_chkpt < 2*space_needed) {
-	if(reserve_space(space_needed)) {
-	    // abuse take_space...
-	    take_space(&_space_rsvd_for_chkpt, -space_needed);
-	}
-	else if(*&_space_rsvd_for_chkpt < space_needed) {
-	    /* oops...
+        if(reserve_space(space_needed)) {
+            // abuse take_space...
+            take_space(&_space_rsvd_for_chkpt, -space_needed);
+        } else if(*&_space_rsvd_for_chkpt < space_needed) {
+            /* oops...
 
-	       can't even guarantee the minimum of one checkpoint
-	       needed to reclaim log space and solve the problem
-	     */
-	    W_FATAL(eOUTOFLOGSPACE);
-	}
-	else {
-	    // must reclaim a log partition
-	    return false;
-	}
+               can't even guarantee the minimum of one checkpoint
+               needed to reclaim log space and solve the problem
+             */
+            W_FATAL(eOUTOFLOGSPACE);
+        } else {
+            // must reclaim a log partition
+            return false;
+        }
     }
+#endif
     return true;
 }
 
-struct waiting_xct {
-    fileoff_t* needed;
-    pthread_cond_t* cond;
-    waiting_xct(fileoff_t *amt, pthread_cond_t* c)
-	: needed(amt), cond(c)
-    {
-    }
-};
-
-static std::deque<waiting_xct*> _log_space_waiters;
-
-void log_m::release_space(fileoff_t amt) {
-    w_assert0(amt >= 0);
-    /* NOTE: The use of _waiting_for_space is purposefully racy
-       because we don't want to pay the cost of a mutex for every
-       space release (which should happen every transaction
-       commit...). Instead waiters use a timeout in case they fall
-       through the cracks.
-
-       Waiting transactions are served in FIFO order; those which time
-       out set their need to -1 leave it for release_space to clean
-       it up.
-     */
-    if(_waiting_for_space) {
-	pthread_mutex_lock(&_space_lock);
-	while(amt > 0 && _log_space_waiters.size()) {
-	    bool finished_one = false;
-	    waiting_xct* wx = _log_space_waiters.front();
-	    if( ! wx->needed) {
-		finished_one = true;
-	    }
-	    else {
-		fileoff_t can_give = std::min(amt, *wx->needed);
-		*wx->needed -= can_give;
-		amt -= can_give;
-		if(! *wx->needed) {
-		    pthread_cond_signal(wx->cond);
-		    finished_one = true;
-		}
-	    }
-	    
-	    if(finished_one) {
-		delete wx;
-		_log_space_waiters.pop_front();
-	    }
-	}
-	if(_log_space_waiters.empty())
-	    _waiting_for_space = false;
-	
-	pthread_mutex_unlock(&_space_lock);
-    }
-    
-    atomic_add_long((uint64_t*) &_space_available, amt);
+void log_m::release_space(fileoff_t amt) 
+{
+    log_core::THE_LOG->release_space(amt);
 }
 
-rc_t log_m::wait_for_space(fileoff_t &amt, timeout_in_ms timeout) {
-    // if they're asking too much don't even bother
-    if(amt > _partition_data_size)
-	return RC(eOUTOFLOGSPACE);
+#if USE_LOG_RESERVATIONS
+rc_t log_m::wait_for_space(fileoff_t &amt, timeout_in_ms timeout) 
+{
+    return log_core::THE_LOG->wait_for_space(amt, timeout);
+}
+#else
+rc_t log_m::wait_for_space(fileoff_t &, timeout_in_ms ) 
+{
+	return RCOK;
+}
+#endif
 
-    // wait for a signal or 100ms, whichever is longer...
-    w_assert0(amt > 0);
-    struct timespec when;
-    if(timeout != WAIT_FOREVER)
-	sthread_t::timeout_to_timespec(timeout, when);
+void            
+log_m::activate_reservations()
+{
+    log_core::THE_LOG->activate_reservations();
+}
 
-    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-    waiting_xct* wait = new waiting_xct(&amt, &cond);
-    pthread_mutex_lock(&_space_lock);
-    _waiting_for_space = true;
-    _log_space_waiters.push_back(wait);
-    while(amt) {
-	/* First time through, someone could have freed up space
-	   before we acquired this mutex. 2+ times through, maybe our
-	   previous rounds got us enough that the normal log
-	   reservation can supply what we still need.
-	 */
-	if(reserve_space(amt)) {
-	    amt = 0;
-
-	    // nullify our entry. Non-racy beause amt > 0 and we hold the mutex
-	    wait->needed = 0;
-
-	    // clean up in case it's pure false alarms
-	    while(_log_space_waiters.size() && ! _log_space_waiters.back()->needed) {
-		delete _log_space_waiters.back();
-		_log_space_waiters.pop_back();
-	    }
-	    break;
-	}
-	request_checkpoint();
-	if(timeout == WAIT_FOREVER) {
-	    fprintf(stderr, "* - * - * tid %d.%d waiting forever for %ld bytes of log\n",
-		    xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
-	    pthread_cond_wait(&cond, &_space_lock);
-	}
-	else {
-	fprintf(stderr, "* - * - * tid %d.%d waiting with timeout for %ld bytes of log\n",
-		xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
-	    int err = pthread_cond_timedwait(&cond, &_space_lock, &when);
-	    if(err == ETIMEDOUT) 
-		break;
-	}
-    }
-    fprintf(stderr, "* - * - * tid %d.%d done waiting (%ld bytes still needed)\n",
-		xct()->tid().get_hi(), xct()->tid().get_lo(), amt);
-
-    pthread_mutex_unlock(&_space_lock);
-    return amt? RC(sthread_t::stTIMEOUT) : RCOK;
+rc_t                
+log_m::file_was_archived(const char *file)
+{
+	// TODO: should check that this is the oldest, 
+	// and that we indeed asked for it to be archived.
+	return log_core::THE_LOG->file_was_archived(file);
 }

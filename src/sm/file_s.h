@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='FILE_S_H'>
 
- $Id: file_s.h,v 1.37.2.8 2010/02/05 20:39:45 nhall Exp $
+ $Id: file_s.h,v 1.40 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -120,11 +120,8 @@ private:
  */
 struct file_p_hdr_t {
     clust_id_t    cluster;
-// See DUMMY_CLUSTER_ID in page.h
-// It is the default value of the cluster id here.
-// We aren't supporting clustering so this is presently
-// overridden with 0xdeadbeef for debugging page-allocation problems
-// with file pages.
+	// See DUMMY_CLUSTER_ID in file.cpp, page.h 
+	// It is the default value of the cluster id here.
 };
 
 inline const char* record_t::hdr() const

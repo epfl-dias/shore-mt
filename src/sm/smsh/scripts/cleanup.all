@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: cleanup.all,v 1.10.4.1 2009/06/23 01:01:46 nhall Exp $
+#  $Id: cleanup.all,v 1.13 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -57,7 +57,7 @@ set scripts [list \
      lgrec.1 lgrec.2 lgrec.3 \
      multi.1 multi.2 \
      trans.1 trans.2 \
-    deadlock.1 deadlock.2 deadlock.3 deadlock.4 \
+    deadlock.1 deadlock.2 deadlock.4 \
     lock.1 \
      recovery.1 record_create_abort.1 \
     lock.hier lock.hier_sm \

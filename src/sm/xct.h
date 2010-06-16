@@ -61,9 +61,28 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
+#if W_DEBUG_LEVEL > 4
+// You can rebuild with this turned on 
+// if you want comment log records inserted into the log
+// to help with deciphering the log when recovery bugs
+// are nasty.
+#define  X_LOG_COMMENT_ON 1
+#define  ADD_LOG_COMMENT_SIG ,const char *debugmsg
+#define  ADD_LOG_COMMENT_USE ,debugmsg
+#define  LOG_COMMENT_USE(x)  ,x
+
+#else
+
+#define  X_LOG_COMMENT_ON 0
+#define  ADD_LOG_COMMENT_SIG
+#define  ADD_LOG_COMMENT_USE
+#define  LOG_COMMENT_USE(x) 
+#endif
+
 class xct_dependent_t;
 
-/**\brief Tells whether the log is on or off for this xct at this moment.
+/**\cond skip */
+/**\internal Tells whether the log is on or off for this xct at this moment.
  * \details
  * This is used internally for turning on & off the log during 
  * top-level actions.
@@ -78,6 +97,7 @@ public:
     void         set_xct_log_off() { _xct_log_off = true; }
     void         set_xct_log_on() { _xct_log_off = false; }
 };
+/**\endcond skip */
 
 class lockid_t; // forward
 class sdesc_cache_t; // forward
@@ -99,7 +119,15 @@ class smthread_t; // forward
 class logrec_t; // forward
 class page_p; // forward
 
+/**\brief A transaction. Internal to the storage manager.
+ * \ingroup LOGSPACE
+ *
+ * This class may be used in a limited way for the handling of 
+ * out-of-log-space conditions.  See \ref LOGSPACE.
+ */
 class xct_t : public smlevel_1 {
+
+/**\cond skip */
     friend class xct_i;
     friend class xct_impl; 
     friend class smthread_t;
@@ -115,7 +143,9 @@ class xct_t : public smlevel_1 {
 
 protected:
     enum commit_t { t_normal = 0, t_lazy = 1, t_chain = 2 };
+/**\endcond skip */
 public:
+/**\cond skip */
     typedef xct_state_t         state_t;
 
 public:
@@ -175,7 +205,6 @@ public:
     static int                  cleanup(bool dispose_prepared=false); 
                                  // returns # prepared txs not disposed-of
 
-    tid_t                       tid() const { return _tid; }
 
     bool                        is_instrumented() {
                                    return (__stats != 0);
@@ -209,6 +238,8 @@ protected:
     void                        set_undo_nxt(const lsn_t &) ;
 
 public:
+/**\endcond skip */
+    tid_t                       tid() const { return _tid; }
 
     // used by checkpoint, restart:
     const lsn_t&                last_lsn() const;
@@ -222,20 +253,59 @@ public:
     static xct_t*               look_up(const tid_t& tid);
     static tid_t                oldest_tid();        // with min tid value
     static tid_t                youngest_tid();        // with max tid value
+/**\cond skip */
     static void                 update_youngest_tid(const tid_t &);
+/**\endcond skip */
 
     // used by sm.cpp:
     static w_base_t::uint4_t    num_active_xcts();
 
+/**\cond skip */
     // used for compensating (top-level actions)
     const lsn_t&                anchor(bool grabit = true);
+    void                        release_anchor(bool compensate
+			                       ADD_LOG_COMMENT_SIG
+                                   );
+
+    // -------------------------------------------------------------
+    // start_crit and stop_crit are used by the io_m to
+    // ensure that at most one thread of the attached transaction
+    // enters the io_m at a time. That was the original idea; now it's
+    // making sure that at most one thread that's in an sm update operation
+    // enters the io_m at any time (allowing concurrent read-only activity). 
+    //
+    // start_crit grabs the xct's 1thread_log mutex if it doesn't
+    // already hold it.  False means we don't actually grab the
+    // anchor, so it's not really starting a top-level action.
+
     void                        start_crit() { (void) anchor(false); }
-    void                        release_anchor(bool compensate=true);
-    void                        stop_crit() { (void) release_anchor(false); }
-    void                        compensate(const lsn_t&, bool undoable = false);
+    // stop_crit frees the xct's 1thread_log mutex if the depth of
+    // anchor()/release() calls reaches 0.
+    // False means we don't compensate, 
+    // so it's not really finishing a top-level action.
+
+    void                        stop_crit() {(void) release_anchor(false
+											LOG_COMMENT_USE( "stopcrit"));}
+    // -------------------------------------------------------------
+    
+    void                        compensate(const lsn_t&, 
+                                          bool undoable
+										  ADD_LOG_COMMENT_SIG
+                                          );
     // for recovery:
     void                        compensate_undo(const lsn_t&);
+/**\endcond skip */
 
+    // For handling log-space warnings
+    // If you've warned wrt a tx once, and the server doesn't
+    // choose to abort that victim, you don't want every
+    // ssm prologue to warn thereafter. This allows the
+    // callback function to turn off the warnings for the (non-)victim. 
+    void                         log_warn_disable() { _warn_on = true; } 
+    void                         log_warn_resume() { _warn_on = false; }
+    bool                         log_warn_is_on() { return _warn_on; } 
+
+/**\cond skip */
 
 public:
     // used in sm.cpp
@@ -310,15 +380,22 @@ protected:
 
 
 public:
-    ///////////////////////////////////////////////////////////
-    // used for OBJECT_CC: TODO: remove from sm.cpp also
-    // if not used elsewhere
-    ///////////////////////////////////////////////////////////
     concurrency_t                get_lock_level(); // non-const: acquires mutex 
     void                         lock_level(concurrency_t l);
 
     int                          num_threads();          
     rc_t                         check_one_thread_attached() const;   
+    void                         attach_update_thread() {
+                                    w_assert2(_updating_operations >= 0);
+                                    atomic_inc(_updating_operations);
+                                 }
+    void                         detach_update_thread() {
+                                    atomic_dec(_updating_operations);
+                                    w_assert2(_updating_operations >= 0);
+                                 }
+    int volatile                 update_threads() const { 
+                                    return _updating_operations;
+    } 
 
 protected:
     // For use by lock manager:
@@ -343,6 +420,7 @@ public:
     static void                  release_xlist_mutex();
     static void                  assert_xlist_mutex_not_mine();
     static void                  assert_xlist_mutex_is_mine();
+    static bool                  xlist_mutex_is_mine();
 
     /* "poisons" the transaction so cannot block on locks (or remain
        blocked if already so), instead aborting the offending lock
@@ -384,6 +462,7 @@ private:
     const tid_t                  _tid;
     timeout_in_ms                _timeout; // default timeout value for lock reqs
     xct_impl *                   i_this;
+    bool                         _warn_on;
     xct_lock_info_t*             _lock_info;
 
     /* 
@@ -396,42 +475,64 @@ private:
      */
     bool                          _lock_cache_enable;
 
-    // the 1thread_xct mutex is used to ensure that only one thread
-    // is using the xct structure on behalf of a transaction 
-    // TBD whether this should be a spin- or block- lock:
-    queue_based_lock_t              _1thread_xct;
+    // Count of number of threads are doing update operations.
+    // Used by start_crit and stop_crit.
+    volatile int                 _updating_operations; 
 
 public:
     void                         acquire_1thread_xct_mutex(); // serialize
     void                         release_1thread_xct_mutex(); // concurrency ok
 
+/**\endcond skip */
 };
 
-struct auto_release_anchor {
+/**\cond skip */
+class auto_release_anchor_t {
+private:
     xct_t* _xd;
     lsn_t _anchor;
     bool _and_compensate;
+    int    _line; // for debugging
+
     operator lsn_t const&() const { return _anchor; }
-    auto_release_anchor(bool and_compensate=true)
-	: _xd(xct()), _and_compensate(and_compensate)
+public:
+
+    auto_release_anchor_t(bool and_compensate, int line)
+        : _xd(xct()), _and_compensate(and_compensate), _line(line)
     {
 	if(_xd)
 	    _anchor = _xd->anchor(_and_compensate);
     }
     void compensate() {
 	if(_xd)
-	    _xd->compensate(_anchor);
+	    _xd->compensate(_anchor, false
+				LOG_COMMENT_USE("auto_release_anchor_t")
+				);
 	_xd = 0; // cancel pending release in destructor
     }
-    ~auto_release_anchor() {
-	if(_xd)
-	    _xd->release_anchor(_and_compensate);
-    }
+    ~auto_release_anchor_t(); // in xct.cpp
 };
+/**\endcond skip */
 
 /*
  * Use X_DO inside compensated operations
  */
+#if X_LOG_COMMENT_ON
+#define X_DO1(x,anchor,line)             \
+{                           \
+    w_rc_t __e = (x);       \
+    if (__e.is_error()) {        \
+        w_assert3(xct());        \
+        W_COERCE(xct()->rollback(anchor));        \
+        xct()->release_anchor(true, line );    \
+        return RC_AUGMENT(__e); \
+    } \
+}
+#define to_string(x) # x
+#define X_DO(x,anchor) X_DO1(x,anchor, to_string(x))
+
+#else
+
 #define X_DO(x,anchor)             \
 {                           \
     w_rc_t __e = (x);       \
@@ -442,7 +543,9 @@ struct auto_release_anchor {
         return RC_AUGMENT(__e); \
     } \
 }
+#endif
 
+/**\cond skip */
 class xct_log_switch_t : public smlevel_0 {
     /*
      * NB: use sparingly!!!! EVERYTHING DONE UNDER
@@ -473,12 +576,18 @@ public:
         }
     }
 };
+/**\endcond skip */
 
 /* XXXX This is somewhat hacky becuase I am working on cleaning
    up the xct_i xct iterator to provide various levels of consistency.
    Until then, the "locking option" provides enough variance so
    code need not be duplicated or have deep call graphs. */
 
+/**\brief Iterator over transaction list.
+ *
+ * This is exposed for the purpose of coping with out-of-log-space 
+ * conditions. See \ref LOGSPACE.
+ */
 class xct_i  {
 public:
     // NB: still not safe, since this does not
@@ -487,36 +596,73 @@ public:
     // FRJ: Making it safe -- all non-debug users lock it down
     // manually right now anyway; the rest *should* to avoid bugs.
 
-    void never_mind() {
-        w_assert3(locked);
-        xct_t::release_xlist_mutex();
+    /// True if this thread holds the transaction list mutex.
+    bool locked_by_me() const {
+        if(xct_t::xlist_mutex_is_mine()) {
+            W_IFDEBUG1(if(_may_check) w_assert1(_locked);)
+            return true;
+        }
+        return false;
     }
+
+    /// Release transaction list mutex if this thread holds it.
+    void never_mind() {
+        // Be careful here: must leave in the
+        // state it was when we constructed this.
+        if(_locked && locked_by_me()) {
+            *(const_cast<bool *>(&_locked)) = false; // grot
+            xct_t::release_xlist_mutex();
+        }
+    }
+    /// Get transaction at cursor.
     xct_t* curr() const { return unsafe_iterator.curr(); }
+    /// Advance cursor.
     xct_t* next() { return unsafe_iterator.next(); }
 
-    static bool init_locked(bool locked) 
+    /**\cond skip */
+    // Note that this is called to INIT the attribute "locked"
+    static bool init_locked(bool lockit) 
     {
-        if(locked) {
+        if(lockit) {
             W_COERCE(xct_t::acquire_xlist_mutex());
         }
-        return locked;
+        return lockit;
     }
+    /**\endcond skip */
+
+    /**\brief Constructor.
+    *
+    * @param[in] locked_accesses Set to true if you want this
+    * iterator to be safe, false if you don't care or if you already
+    * hold the transaction-list mutex.
+    */
     NORET xct_i(bool locked_accesses)
-        : locked(init_locked(locked_accesses))
-        , unsafe_iterator(xct_t::_xlist)
+        : _locked(init_locked(locked_accesses)),
+        _may_check(locked_accesses),
+        unsafe_iterator(xct_t::_xlist)
     {
+        w_assert1(_locked == locked_accesses);
+        _check(_locked);
     }
 
+    /// Desctructor. Calls never_mind() if necessary.
     NORET ~xct_i() { 
-        if(locked) {
+        if(locked_by_me()) {
+          _check(true);
           never_mind(); 
-          xct_t::assert_xlist_mutex_not_mine(); // NANCY : added
+          _check(false);
         }
     }
 
 private:
+    void _check(bool b) const  {
+          if(!_may_check) return;
+          if(b) xct_t::assert_xlist_mutex_is_mine(); 
+          else  xct_t::assert_xlist_mutex_not_mine(); 
+    }
     // FRJ: make sure init_locked runs before we actually create the iterator
-    const bool            locked;
+    const bool            _locked;
+    const bool            _may_check;
     w_list_i<xct_t,queue_based_lock_t> unsafe_iterator;
 
     // disabled
@@ -525,6 +671,7 @@ private:
 };
     
 
+/**\cond skip */
 // For use in sm functions that don't allow
 // active xct when entered.  These are functions that
 // apply to local volumes only.
@@ -554,6 +701,7 @@ public:
 private:
     xct_t*        _xct;
 };
+/**\endcond skip */
 
 /*<std-footer incl-file-exclusion='XCT_H'>  -- do not edit anything below this line -- */
 

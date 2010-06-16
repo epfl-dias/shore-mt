@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: newsort.cpp,v 1.42.2.11 2010/03/19 22:20:24 nhall Exp $
+ $Id: newsort.cpp,v 1.47 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -61,6 +61,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "lgrec.h"
 #include "sm.h"
 #include "pin.h"
+#include "prologue.h"
 
 #include <w_heap.h>
 #include <umemcmp.h>
@@ -69,6 +70,18 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #ifdef USE_PURIFY
 #include <purify.h>
 #endif
+
+typedef ssm_sort::sort_keys_t sort_keys_t;
+typedef ssm_sort::key_info_t key_info_t;
+typedef ssm_sort::key_cookie_t key_cookie_t;
+typedef ssm_sort::factory_t factory_t;
+typedef ssm_sort::skey_t skey_t;
+typedef ssm_sort::object_t object_t;
+typedef ssm_sort::CF CF;
+typedef ssm_sort::MOF MOF;
+typedef ssm_sort::UMOF UMOF;
+typedef ssm_sort::CSKF CSKF;
+typedef ssm_sort::run_mgr run_mgr;
 
 // static
 key_cookie_t key_cookie_t::null(0);
@@ -106,7 +119,6 @@ extern "C" void sortstophere()
 
 const int max_keys_handled = 5; // TODO: make more flexible
 
-class run_mgr;
 class tape_t;
 
 typedef Heap<tape_t *, run_mgr> RunHeap;
@@ -117,10 +129,9 @@ template class w_auto_delete_t<RunHeap>;
 
 class no_factory_t : public factory_t {
 public:
-   void freefunc(const void *, smsize_t ) { 
-       DBG(<<"NONE.freefunc");
-   }
-   void* allocfunc(smsize_t) { W_FATAL_MSG(fcINTERNAL, << "allocfunc"); return 0; }
+   void freefunc(const void *, smsize_t ) { }
+   void* allocfunc(smsize_t) { 
+       W_FATAL_MSG(fcINTERNAL, << "allocfunc"); return 0; }
 } _none;
 factory_t* factory_t::none = &_none;
 
@@ -137,7 +148,7 @@ public:
         }
         void *p =  new double[size_in_dbl];
         if(!p) W_FATAL(fcOUTOFMEMORY);
-        DBG(<<"_cpp_vector.alloc(sz=" << l << ") new " << p );
+        DBG(<<"cpp_char_factory_t.allocfunc(sz=" << l << ") new " << p );
         _nallocs++;
         return (void *)p;
    }
@@ -147,7 +158,7 @@ public:
 #endif
    ) { 
         _nfrees++;
-        DBG(<<"_cpp_vector.freefunc(sz=" << t << ") delete " << p);
+        DBG(<<"cpp_char_factory_t.freefunc(sz=" << t << ") delete " << p);
         double *d = (double *)p;
         delete[] d;
    }
@@ -156,7 +167,6 @@ factory_t* factory_t::cpp_vector = &_cpp_vector;
 int cpp_char_factory_t::_nallocs =0;
 int cpp_char_factory_t::_nfrees =0;
 
-#define INSTRUMENT_SORT
 #ifdef INSTRUMENT_SORT
 
 #define INC_STAT_SORT(x)       INC_TSTAT(x)
@@ -223,12 +233,18 @@ class limited_space : public smlevel_top, public factory_t
     // They account for their memory use, and
     // they have the means to guarantee not to
     // use more than some given amount of memory.
+    //
+    // run_mgr::_prepare_key is the starting point for
+    // factories: it choose to use either the run_mgr's limited_space
+    // or to use cpp_vector if it's clear that the limited_space isn't
+    // usable under the circumstances (it rand out of room, or
+    // the key is bigger than a page, for example).
 
     // The memory chunks allocated here are 8-byte aligned
 private:
-    double *        _d_scratch;        // 8-byte-aligned scratch buffer
-    char *        _scratch;       // ptr to unused portion of scratch buffer
-    char *        _reset_point;   // between sort phases, we reset to here
+    double *        _d_scratch;     // 8-byte-aligned scratch buffer
+    char *          _scratch;       // ptr to unused portion of scratch buffer
+    char *          _reset_point;   // between sort phases, we reset to here
     smsize_t        _left;          // how much left in the scratch buffer
     smsize_t        _buffer_sz;     // original size of scratch buffer in bytes
     smsize_t        _buf_hiwat;     // original size of scratch buffer in bytes
@@ -432,11 +448,15 @@ public:
     NORET sm_object_t() : object_t() { invalidate(); }
     NORET sm_object_t(file_p&fp, slotid_t s):object_t() 
             { _construct(fp, s); }
+    /// points to buffer pool
     void  construct(file_p&fp, slotid_t s)
             { _construct(fp, s); }
-    void  construct(const void *hdr, smsize_t hdrlen, factory_t* hf,
-            const void *body, smsize_t bodylen, factory_t* _bf) {
-                    _construct(hdr, hdrlen, hf, body, bodylen, _bf);
+    /// points to scratch memory
+    void  construct_from_bufs(
+            const void *hdr, smsize_t hdrlen, factory_t* hf,
+            const void *body, smsize_t bodylen, factory_t* _bf
+            ) {
+                _construct(hdr, hdrlen, hf, body, bodylen, _bf);
             }
 
     void  replace(const object_t& o) { _replace(o); }
@@ -1131,14 +1151,13 @@ public:
 
     void move_sort_keys(meta_header_t& other);
 private:
-    static __thread ordinal_number_t __ordinal;
 }; /* class meta_header_t */
 
-__thread int ___metarecs(0);
-__thread int ___metarecs_in(0);
-
 void 
-meta_header_t::marshal_sortkeys(factory_t& fact) 
+meta_header_t::marshal_sortkeys(
+        factory_t& fact // preferred factory to use.  Is _scratch_space
+                        // or, failing that, cpp_vector
+        ) 
 {
     for(int k=0; k < nkeys(); k++) {
         sm_skey_t& sk = sort_key_non_const(k);
@@ -1213,12 +1232,11 @@ meta_header_t::move_sort_keys(meta_header_t& other)
     other.whole_object_non_const().invalidate();
 }
 
-__thread meta_header_t::ordinal_number_t meta_header_t::__ordinal = 0;
 
 inline void 
-meta_header_t::set_ordinal() { __persistent_part._ordinal = ++__ordinal; }
+meta_header_t::set_ordinal() { __persistent_part._ordinal = ++me()->get__ordinal(); }
 inline void 
-meta_header_t::clr_ordinal() { __ordinal = 0; }
+meta_header_t::clr_ordinal() { me()->get__ordinal() = 0; }
 
 class tape_t : public smlevel_top 
 {
@@ -1569,7 +1587,7 @@ void  tape_t::check_tape_file(bool W_IFDEBUG3(printall)) const
 #endif
 }
 
-class run_mgr : public smlevel_top, xct_dependent_t 
+class ssm_sort::run_mgr : public smlevel_top, xct_dependent_t 
 {
 public:
     /* Required for Heap */
@@ -1577,7 +1595,7 @@ public:
 
 private:
     /****************** data members **************************/
-    limited_space &_scratch_space;
+    limited_space &    _scratch_space;
     stid_t             _ifid;
 
     int                _NRUNS;
@@ -1622,11 +1640,11 @@ private:
                 // while collecting runs from input file.
     w_rc_t         _prepare_key( 
                     sm_object_t&        obj,
-                         int         k, 
-                    file_p&     small,
-                    const record_t&        rec,
-                    bool&        compare_in_pieces, // out
-                    sm_skey_t&        kd //out
+                    int                 k, 
+                    file_p&             small,
+                    const record_t&     rec,
+                    bool&               compare_in_pieces, // out
+                    sm_skey_t&          kd //out
                     );
 
                 // called by output_single_run and merge
@@ -2000,9 +2018,8 @@ static inline smsize_t rec_size(const record_t* rec)
 
 /*
  * Called when orig record is first read read in
- * for initial processing.
+ * for initial processing (quicksort phase).
  */
-
 w_rc_t 
 run_mgr::put_rec(file_p &fp, slotid_t slot)
 {
@@ -2066,20 +2083,24 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
     object.construct(fp, slot);
     {
         /*
+         * MOF CALLBACK
+         *
          * Apply Marshal Object Function (MOF) if provided; in any case,
          * set up whole_object() to point to disk or to marshalled 
          * stuff.
          */
-
         MOF marshal = info.marshal_func();
         if(marshal != sort_keys_t::noMOF) {
             DBG(<<"MOF " << rid);
+            // statically allocated: factory_t::none
             sm_object_t newobject;
+
             callback_prologue();
             W_DO( (*marshal)(rid, object, info.marshal_cookie(), &newobject) );
             callback_epilogue();
             INC_STAT_SORT(sort_mof_cnt);
 
+            // does object.freespace and takes on newobject's factory.
             object.replace(newobject);
         }
     }
@@ -2093,8 +2114,11 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
 
     for(int k=0; k<nkeys; k++) {
         DBG(<<"inspecting key " << k);
-        CSKF create_sort_key = info.keyinfo(k);
+        CSKF create_sort_key = info.keycreate(k);
 
+        /*
+         * CSKF CALLBACK for SORT KEYS
+         */
         sm_skey_t&        key = rec_curr->sort_key_non_const(k);
 
         key.invalidate();
@@ -2102,6 +2126,7 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
         if(create_sort_key!= sort_keys_t::noCSKF) {
             INC_STAT_SORT(sort_getinfo_cnt);
             DBG(<<"CSKF " << rid);
+            // statically allocated: factory_t::none
             skey_t         newkey;
 
             rec_curr->assert_consistent();
@@ -2111,9 +2136,11 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
                     rid,
                     object,
                     info.cookie(k),
-                    _scratch_space,
+                    _scratch_space,  // to populate newkey if not from object
                     &newkey) );
             callback_epilogue();
+
+            // does key.freespace and takes on newkey's factory.
             key.replace(newkey);
 
             rec_curr->assert_consistent();
@@ -2184,6 +2211,8 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
         DBG(<<" is_for_index");
         w_assert3(nkeys == 1);
         /* 
+         * CSKF CALLBACK for INDEX KEY
+         *
          * Call back to get the index key if necessary.
          * We *could* do this only in output_metarec,
          * avoiding excess callbacks for duplicates, but
@@ -2197,24 +2226,29 @@ run_mgr::put_rec(file_p &fp, slotid_t slot)
         smsize_t        ikeysize=sortkey.size();
         DBG(<<"sortkey(0).size is " << ikeysize);
 
-        CSKF lex = info.lexify();
+        CSKF lex_ikey = info.lexify_index_key();
 
         if((ikeysize > 0) &&
            // non-null real key
-            (lex != sort_keys_t::noCSKF)) {
+            (lex_ikey != sort_keys_t::noCSKF)) {
 
             DBG(<<" lexify " << rid);
 
             INC_STAT_SORT(sort_lexindx_cnt); 
 
             rec_curr->assert_consistent();
+
+            // statically allocated : factory_t::none
             skey_t                indexkey;
+
             callback_prologue();
-            W_DO( (*lex)( rid,
-                object, info.lexify_cookie(), 
-                _scratch_space,
+            W_DO( (*lex_ikey)(rid,
+                object, 
+                info.lexify_index_key_cookie(), 
+                _scratch_space, // to populate indexkey if not from object
                 &indexkey) );
             callback_epilogue();
+            // does index_key_non_const().freespace, takes on indexkey's factory.
             rec_curr->index_key_non_const().replace(indexkey);
             rec_curr->assert_consistent();
         }  else {
@@ -2364,7 +2398,7 @@ run_mgr::_output_metarec(
     rid_t&                result_rid
 )
 {
-    ___metarecs++;
+    me()->get___metarecs()++;
     t->inc_count_put();
     FUNC(run_mgr::_output_metarec);
     w_auto_delete_array_t<char>         autodeltmp;
@@ -2490,18 +2524,24 @@ run_mgr::_output_metarec(
         if(info.carry_obj()) {
             sm_object_t &object = m->whole_object_non_const();
             {
+                /* UMOF CALLBACK */
                 /* Prepare the object for writing to disk */
                 lpid_t anon(ifid(), m->shpid());
                 rid_t  rid(anon, m->slotid());
                 UMOF unmarshal = info.unmarshal_func();
                 if(unmarshal != sort_keys_t::noUMOF) {
+                    // statically allocated. factory_t::none
                     sm_object_t newobject;
                     callback_prologue();
-                    W_DO( (*unmarshal)(rid, object, info.marshal_cookie(), 
-                        &newobject) );
+                    W_DO( (*unmarshal)(
+                                rid, 
+                                object, 
+                                info.marshal_cookie(), 
+                                &newobject) );
                     w_assert3( !object.is_in_buffer_pool());
                     callback_epilogue();
                     INC_STAT_SORT(sort_umof_cnt);
+                    // does object.freespace, takes on new object
                     object.replace(newobject);
                 }
             }
@@ -2582,7 +2622,7 @@ check_reclist_for_duplicates(meta_header_t * W_IFDEBUG2(l)[],
 w_rc_t 
 run_mgr::flush_run(bool flush_to_tmpfile)
 {   
-    ___metarecs=0;
+    me()->get___metarecs()=0;
     if(_aborted) return RC(eABORTED);
     {
         xct_t *_victim_ignored = 0;
@@ -2681,14 +2721,13 @@ run_mgr::flush_run(bool flush_to_tmpfile)
         t->add_run_last(rid.pid.page, rid.slot);
         t->release_page(t->metafp());
     }
-    DBG(<<" this run: have output " << ___metarecs << " metarecs");
+    DBG(<<" this run: have output " << me()->get___metarecs() << " metarecs");
     return RCOK;
 }
 
 
 /* was static & not thread safe */
-__thread long randx = 1;        
-/* NANCY TODO : use other random methods we have */
+__thread long randx = 1; /* NANCY TODO : use other random methods we have */
 
 /*
  * Called by flush_run 
@@ -2833,21 +2872,21 @@ error:
  *
  */
 
-class blob 
+class blob  : public w_base_t
 {
     rid_t                  _rid1;
-    const char*                  _key1;
+    const char*            _key1;
     pin_i                  _p1;
-    int                          k; // active key
-    smsize_t                  _last1; // end of comparision
-    smsize_t                  _s1;        // start offset into record
-    smsize_t                  _ps1; // start -- offset into page
-    smsize_t                  _pl1; // pinned/available length
-    smsize_t                  _len1;
+    int                    k; // active key
+    smsize_t               _last1; // end of comparision
+    smsize_t               _s1;        // start offset into record
+    smsize_t               _ps1; // start -- offset into page
+    smsize_t               _pl1; // pinned/available length
+    smsize_t               _len1;
 
-    int                          _save_pin_count;
-    bool                  _in_large_object; // true -> we're
-                                    // scanning large pages
+    int                    _save_pin_count;
+    bool                   _in_large_object; // true -> we're
+                                // scanning large pages
                                 // else in header or in small object
                                 // or in allocated mem;
     
@@ -3101,10 +3140,36 @@ tape_t::prepare_tape_buffer(meta_header_t *m)
 #endif
 }
 
+/**\brief Prepare (for heap insertion) the object_t at the front of the tape.
+ * @param[in] info Arguments to the sort_file
+ * @param[in] R Needed for callback_prologue and callback_epilogue
+ * @param[in] fact Preferred factory used; if fails to allocate, uses
+ *             cpp_vector 
+ *
+ * Called in second and subsequent phases (heapsort/merge phases).
+ *
+ * Read in the next record from the tape; set up the _meta->object
+ * to reference that record; allocate scratch space as necessary and
+ * marshal the object.  In other words, do whatever we need to do
+ * with this record (populating an sm_object_t for it) so that we can
+ * do a key-comparison with it). Actually, we insert it into a heap,
+ * which does the key comparison to maintain the heap condition.
+ *
+ * The populated sm_object_t is in tape_t::_meta->_whole_object.
+ *
+ * \note: if we marshalled in put_rec (Quicksort phase) but
+ * didn't unmarshal into the temp files for the various runs,
+ * we will have changed the marshal function here to noMOF
+ * for this phase.  If user did provide an unmarshal function,
+ * we'll have unmarshalled to the temp files and we'll re-marshal here.
+ *
+ */
 w_rc_t 
-tape_t::prime_record(const sort_keys_t &info,
+tape_t::prime_record(
+        const sort_keys_t &info,
         run_mgr &R,
-        factory_t &fact)
+        factory_t &fact // called with _scratch_space, preferred factory
+        )
 {
     DBG(<<"PRIME_RECORD_FOR_INPUT "  << *this);
 
@@ -3141,7 +3206,7 @@ tape_t::prime_record(const sort_keys_t &info,
     slotid_t         slot = _rid.slot;
 
     DBG(<<" prime_record getting rec " << metafp().pid() << "." << slot );
-    ___metarecs_in++;
+    me()->get___metarecs_in()++;
 
     inc_count_get();
 
@@ -3217,9 +3282,12 @@ tape_t::prime_record(const sort_keys_t &info,
                     W_FATAL(eOUTOFMEMORY);
                 }
             }
-            object.construct(buf, header_length, f,
-                        buf + limited_space::_align(header_length),
-                        body_length, factory_t::none);
+            object.construct_from_bufs(
+                    // header allocated from f
+                    buf, header_length, f,
+                    // body is within header so don't deallocate
+                    buf + limited_space::_align(header_length),
+                    body_length, factory_t::none);
                     
         }
     }
@@ -3519,15 +3587,22 @@ tape_t::prime_record(const sort_keys_t &info,
      * marshal function if apropos.  
      */
     {
+        /* MOF CALLBACK */
         lpid_t anon(R.ifid(), _meta->shpid());
         rid_t rid(anon, _meta->slotid());
         MOF marshal = info.marshal_func();
         if(marshal != sort_keys_t::noMOF) {
+            // statically allocated. factory_t::none
             sm_object_t newobject;
+
             R.callback_prologue();
-            W_DO( (*marshal)(rid, object, info.marshal_cookie(), &newobject) );
+            W_DO( (*marshal)(rid, 
+                        object, 
+                        info.marshal_cookie(), 
+                        &newobject) );
             R.callback_epilogue();
             INC_STAT_SORT(sort_mof_cnt);
+            // does object.freespace, takes on newobject
             object.replace(newobject);
         } else if(info.carry_obj() && !info.deep_copy())  {
             // TODO: carry and !deep copy-->  and
@@ -3594,6 +3669,7 @@ run_mgr::_KeyCmp(const meta_header_t *_k1, const meta_header_t* _k2) const
     }
 
     INC_STAT_SORT(sort_keycmp_cnt);
+    /* CF CALLBACK */
     callback_prologue();
 
     int partial_result = 0;
@@ -3720,7 +3796,7 @@ run_mgr::_KeyCmp(const meta_header_t *_k1, const meta_header_t* _k2) const
            sort_by_rid = true;
            DBG(<<" unique or null_unique");
         } else if(info.is_stable()) {
-            r = (k1.ordinal() > k2.ordinal())? 1 : -1;
+           r = (k1.ordinal() > k2.ordinal())? 1 : -1;
            DBG(<<" stable");
         } else if(info.is_for_index()) {
             DBG(<<" for_index");
@@ -4021,7 +4097,7 @@ run_mgr::_output_index_rec(
             blob                  b1(tmprid);
             const char *          key1;
             char *                r = result;                 
-            smsize_t                 pl1;
+            smsize_t              pl1;
 
             b1.prime(m->index_key());
 
@@ -4045,7 +4121,7 @@ run_mgr::_output_index_rec(
 
     if(!rc.is_error()) {
         /* 
-         * get the oid -- we only do this for physical IDs
+         * get the oid 
          */
         data.reset().put(&rid, sizeof(rid));
 
@@ -4310,7 +4386,7 @@ ss_m::sort_file(
     int                             tmp_space // # pages VM to use for scratch 
 )
 {
-    SM_PROLOGUE_RC(ss_m::sort_file, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::sort_file, in_xct, read_write, 0);
 
     w_rc_t rc = 
     _sort_file(fid,     sorted_fid, nvids, vid, 
@@ -4439,7 +4515,7 @@ ss_m::_sort_file(
          * Sort key, as used by sort - noCSKF
          * Some other key - whether or not munged
          */
-        if(info1.lexify()== sort_keys_t::noCSKF)  {
+        if(info1.lexify_index_key()== sort_keys_t::noCSKF)  {
             //  index key is sort key
         } else {
             //  anything to check? TOOD
@@ -4460,15 +4536,15 @@ ss_m::_sort_file(
     for(int k=0; k<nkeys; k++) {
         if(! info1.is_fixed(k)) {
             // Must supply a CSKF
-            if( (!info1.keyinfo(k)) ||
-                (info1.keyinfo(k) == sort_keys_t::noCSKF)) {
+            if( (!info1.keycreate(k)) ||
+                (info1.keycreate(k) == sort_keys_t::noCSKF)) {
                 DBG(<<"");
                 return RC(eBADARGUMENT);
             }
         } else {
             // fixed
-            if(info1.keyinfo(k) &&
-                (info1.keyinfo(k) != sort_keys_t::noCSKF)) {
+            if(info1.keycreate(k) &&
+                (info1.keycreate(k) != sort_keys_t::noCSKF)) {
                 /*
                  * Why do we have this supplied? it won't be called
                  * DBG(<<"");
@@ -4540,10 +4616,16 @@ ss_m::_sort_file(
             } else if (info1.keycmp(k) == sort_keys_t::f4_cmp) {
                 len = sizeof(w_base_t::f4_t);
             } else if(info1.keycmp(k) == sort_keys_t::string_cmp) {
+#if 0
+                // Not necessarily true. If isn't lexico, we might
+                // lexify and THEN use string_cmp on the result.
                 if(! info1.is_lexico(k)) {
                     DBG(<<"");
+                    // String comparison should be marked as already
+                    // lexicographically ordered
                     return RC(eBADARGUMENT);
                 }
+#endif
             }
             if(len && info1.is_fixed(k) && (info1.length(k) != len)) {
                 DBG(<<"");
@@ -5018,7 +5100,7 @@ if(0) {  // TODO: implement this
             w_assert3(runheap->NumElements() == 0);
 
 
-            ___metarecs_in = 0;
+            me()->get___metarecs_in() = 0;
 
             /* 
              * Prepare the first records on each tape, if there
@@ -5141,9 +5223,6 @@ if(0) {  // TODO: implement this
     return RCOK;
 }
 
-// GNATS 81: doesn't seem to matter if we use OLDWAY
-#define  OLDWAY 
-
 w_rc_t
 run_mgr::_merge(
     RunHeap*        runheap,
@@ -5155,7 +5234,7 @@ run_mgr::_merge(
 )
 {
     if(_aborted) return RC(eABORTED);
-    ___metarecs = 0;
+    me()->get___metarecs() = 0;
 
     /*
      * Merge: Pluck off the smallest record from the heads
@@ -5201,12 +5280,7 @@ run_mgr::_merge(
                 <<" runheap->NumElements()=" << runheap->NumElements()
             );
 
-#ifdef OLDWAY
         top = runheap->RemoveFirst();
-#else
-        tape_t*&        toploc = runheap->First();
-        top = toploc; // copy the ptr
-#endif
 
         nrecords_processed++;
         const meta_header_t *tm = top->meta();
@@ -5299,18 +5373,25 @@ run_mgr::_merge(
                         // it's large and needs a deep copy.
                         // See if we need to unmarshal:
                         if(info.carry_obj()) {
+                            /* UMOF CALLBACK */
                             /* Prepare the object for writing to disk */
                             UMOF unmarshal = info.unmarshal_func();
                             if(unmarshal != sort_keys_t::noUMOF) {
                                 sm_object_t&obj = 
                                     non_const-> whole_object_non_const();
+
+                                // statically allocated: factory_t::none
                                 sm_object_t newobj;
+
                                 callback_prologue();
-                                W_DO( (*unmarshal)(orig, obj,
-                                    info.marshal_cookie(), &newobj) );
+                                W_DO( (*unmarshal)(orig, 
+                                    obj,
+                                    info.marshal_cookie(), 
+                                    &newobj) );
                                 callback_epilogue();
                                 INC_STAT_SORT(sort_umof_cnt);
 
+                                // does obj.freespace(), takes on newobj
                                 obj.replace(newobj);
 
                                 /* NB: might not be consistent now */
@@ -5372,12 +5453,7 @@ run_mgr::_merge(
 
         // get its next rid, put that into the heap
         if( top->curr_run_empty() ) {
-#ifdef OLDWAY
             // Don't have to mess with the heap
-#else
-            //NEW RemoveFirst
-            top = runheap->RemoveFirst();
-#endif
             top->release_page(top->metafp());
         } else {
             // there's another record in the run --
@@ -5386,20 +5462,14 @@ run_mgr::_merge(
             W_DO(top->prime_record( info, *this, _scratch_space)); 
                         // fill in the metadata and bump meta-rid
             DBG(<<"pushing onto heap tp " << top->get_store());
-#ifdef OLDWAY
             W_DO(insert(runheap, top, nkeys()));
-#else
-            //NEW:  toploc = top;  Same tape.  Just re-run
-            //      the comparisons and re-heapify it.
-            runheap->ReplacedFirst(); 
-#endif
             w_assert3(runheap->NumElements() > 0);
         }
         DBG(<<"end of loop");
     }
     /*{*/DBG(<<"_merge : nrecords_processed =" << nrecords_processed 
-            << " metarecs read in " << ___metarecs_in
-            << " metarecs out " << ___metarecs
+            << " metarecs read in " << me()->get___metarecs_in()
+            << " metarecs out " << me()->get___metarecs()
             << "}");
     if(!last_pass) {
         // Either we've written something to the output tape
@@ -5461,12 +5531,13 @@ w_rc_t
 stringCSKF(
     const rid_t&         ,
     const object_t&        obj,
-    key_cookie_t         cookie,  // type info
+    key_cookie_t         cookie,  // interpreted as a Boolean value,
+    // true meaning that the key is in the header 
     factory_t&                 ,
     skey_t*                 out
 )
 {
-    bool in_hdr = (cookie.c == key_cookie_t(1).c) ? true : false;
+    bool in_hdr = (cookie.make_ptr() == key_cookie_t(1).make_ptr());
     // For this test, we assume that the 
     // entire hdr or body is the string key.
 
@@ -5486,11 +5557,11 @@ hilbert (
     const rid_t&        ,  // record id
     const object_t&         obj,
     key_cookie_t            cookie,  //  type info for whole object
-    factory_t&                 internal,
+    factory_t&             internal,
     skey_t*                out
 ) 
 {
-    struct hilbert_cooky *h = (struct hilbert_cooky *)cookie.c;
+    struct hilbert_cooky *h = (struct hilbert_cooky *)cookie.make_ptr();
     w_assert1(obj.is_in_buffer_pool());
 
     // length of output
@@ -5566,8 +5637,8 @@ ss_m::_new_sort_file(
 ) 
 {
     // Do NOT enter SM
-    key_info_t                     kinfo = ki; 
-    sort_keys_t         kl(1); // 1 key
+    key_info_t            kinfo = ki; 
+    sort_keys_t           kl(1); // 1 key
 
     key_cookie_t          cookies(0);
     nbox_t                _universe_(kinfo.universe);
@@ -5663,7 +5734,8 @@ ss_m::_new_sort_file(
 // Compares bytes as unsigned quantities
 //
 int 
-sort_keys_t::string_cmp(uint4_t klen1, const void* kval1, uint4_t klen2, const void* kval2)
+sort_keys_t::string_cmp(
+        uint4_t klen1, const void* kval1, uint4_t klen2, const void* kval2)
 {
     unsigned char* p1 = (unsigned char*) kval1;
     unsigned char* p2 = (unsigned char*) kval2;
@@ -5905,7 +5977,7 @@ w_rc_t sort_keys_t::i1_lex(const void *d, smsize_t , void * res){
 
 /*
  * generic_CSKF: either copies or lexifies a key.
- * It takes teh cookie to be a ptr to a generic_CSKF_cookie,
+ * It takes the cookie to be a ptr to a generic_CSKF_cookie,
  * which tells it which lexify function to call (if any),
  * and also tells it the length and offset of the key.
  * One normally expects the user to provide the entire
@@ -5913,8 +5985,6 @@ w_rc_t sort_keys_t::i1_lex(const void *d, smsize_t , void * res){
  * for simplifying the handling of basic types for backward
  * compatibility.
  */
-
-
 w_rc_t 
 sort_keys_t::generic_CSKF(
     const rid_t&    ,
@@ -5924,9 +5994,10 @@ sort_keys_t::generic_CSKF(
     skey_t*         out
 )
 {
-    generic_CSKF_cookie *c = (generic_CSKF_cookie *)cookie.c;
+    generic_CSKF_cookie *c = (generic_CSKF_cookie *)cookie.make_ptr();
     if(c->length <= 0) { return RCOK; }
 
+    /* LEXFUNC CALLBACK */
     LEXFUNC  lex;
     lex = c->func;
 
@@ -6291,7 +6362,9 @@ object_t::contig_body_size() const
     }
 }
 
-/***************************************************************************/
+/**************************************************************************
+ skey_t
+**************************************************************************/
 void            
 skey_t::_invalidate() 
 {
@@ -6315,7 +6388,7 @@ skey_t::ptr(smsize_t offset) const
             return _obj->body(_offset + offset);
         }
     } else {
-            return (void *)((char *)(_buf) + _offset + offset);
+        return (void *)((char *)(_buf) + _offset + offset);
     }
 }
 void            
@@ -6331,11 +6404,10 @@ void
 skey_t::assert_nobuffers()const
 {
     // Should be the case regardless of _valid
-
     if(is_in_obj()) {
-            _obj->assert_nobuffers();
+        _obj->assert_nobuffers();
     } else {
-            w_assert1(_buf == 0);
+        w_assert1(_buf == 0);
     }
 }
 
@@ -6371,9 +6443,9 @@ skey_t::_replace(const skey_t&other)
     assert_nobuffers();
     if(other.is_in_obj()) {
         // Get around constness
-            _construct(other._obj, other._offset, other._length, other._in_hdr);
+        _construct(other._obj, other._offset, other._length, other._in_hdr);
     } else {
-            _construct(other._buf, other._offset, other._length, other._fact);
+        _construct(other._buf, other._offset, other._length, other._fact);
     }
 }
 
@@ -6389,9 +6461,9 @@ skey_t::_replace_relative_to_obj(const object_t &o, const skey_t&other)
 
     if(other.is_in_obj()) {
         // Get around constness
-            _construct(&o, other._offset, other._length, other._in_hdr);
+        _construct(&o, other._offset, other._length, other._in_hdr);
     } else {
-            _construct(other._buf, other._offset, other._length, other._fact);
+        _construct(other._buf, other._offset, other._length, other._fact);
     }
 }
 
@@ -6400,9 +6472,9 @@ skey_t::copy_out(vec_t&dest)  const
 {
     w_assert3(is_valid());
     if(is_in_obj()) {
-            W_DO(_obj->copy_out(_in_hdr, _offset, _length, dest));
+        W_DO(_obj->copy_out(_in_hdr, _offset, _length, dest));
     } else {
-            dest.copy_from(ptr(0), _length);
+        dest.copy_from(ptr(0), _length);
     }
     return RCOK;
 }

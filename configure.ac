@@ -476,10 +476,6 @@ AC_CHECK_FUNCS([strerror])
 AC_CHECK_SIZEOF(pthread_t,[],[])
 
 
-##  Checks for libraries.
-##  For folks who have Tcl installed in a "normal" place..
-## define HAVE_LIBtcl.. and preprend -ltcl to LIBS:
-AC_CHECK_LIB([tcl], [tclCreateCommand])
 
 ## define PTHREAD_SEMAPHORE if the system
 ## supports the real-time extensions
@@ -992,10 +988,12 @@ AC_CHECK_FUNCS([uname])
 # -------------------------------------------------------------------------
 #
 # handle --enable-checkrc --disable-checkrc
-# Needed at config time to tell make what flags to put on the compiles,
-# and what symbols, -DW_TRACE
+#   --enable-checkrc causes #define W_DEBUG_RC 1
+#   --disable-checkrc causes #define W_DEBUG_RC 0
 #
-# enabling this feature is equiv to TRACECODE  ON
+# #if W_DEBUG_RC==1 the enforcement of w_rc_t::verify() is done.
+# #if W_DEBUG_RC==0 the enforcement of w_rc_t::verify() is skipped.
+# all this is in fc/w_rc.h
 #
 # -------------------------------------------------------------------------
 # p. 198
@@ -1013,11 +1011,13 @@ AC_DEFINE_UNQUOTED(W_DEBUG_RC, $checkrc,[track return-code checking])
 # -------------------------------------------------------------------------
 #
 # handle --enable-trace --disable-trace
-# Needed at config time to tell make what flags to put on the compiles,
-# and what symbols, -DW_TRACE
+# --enable-trace is equiv to  #define TRACECODE 1,
+# which, in turn (in shore-config.h), causes #define W_TRACE,
+# which, in turn fc/w_base.h causes #define W_IFTRACE to be non-vacuous
 #
-# enabling this feature is equiv to TRACECODE  ON
-#
+# --disable-trace is equiv to 
+# #undef W_TRACE and
+# #define W_IFTRACE /**/
 # -------------------------------------------------------------------------
 # p. 198
 AC_ARG_ENABLE([trace],

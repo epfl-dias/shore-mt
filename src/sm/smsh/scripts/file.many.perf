@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: file.many.perf,v 1.10 2006/06/01 17:09:44 nhall Exp $
+#  $Id: file.many.perf,v 1.12 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -37,7 +37,7 @@ set id_width %08d
 set nfiles 3 
 set total 1000000
 set nobjeach [expr $total / $nfiles ]
-echo $nobjeach objects per file
+verbose $nobjeach objects per file
 
 proc doscans { numfiles nobj p } {
     global fid
@@ -57,7 +57,7 @@ proc doscans { numfiles nobj p } {
 	    }
 	}
     } 1]
-    echo scan time (prefetch=$p): $t
+    verbose scan time (prefetch=$p): $t
     for {set j 0} {$j < $numfiles} {incr j}  {
 	sm scan_file_destroy $scan($j)
     }
@@ -108,67 +108,67 @@ set buffer "$buffer$buffer"
 
 source $script_dir/vol.init
 
-echo "********************************"
-echo " fileType: $fileType, logging: $logging"
-echo "********************************"
+verbose "********************************"
+verbose " fileType: $fileType, logging: $logging"
+verbose "********************************"
 
 set prefetch 1
 set noprefetch 0
 
 
 sm begin_xct
-echo testing sequential
+verbose testing sequential
 set testTime [time {test1 $fileType $nfiles $nobjeach} 1]
-echo
-echo sequential: write time = $testTime
+verbose
+verbose sequential: write time = $testTime
 set dummy [sm gather_stats reset]
 doscans $nfiles $nobjeach $prefetch
 
 set dummy [sm gather_stats reset]
 set dummyX [sm gather_xct_stats reset]
-echo [select_stat $dummy bf_prefetches ]
-echo [select_stat $dummy bf_prefetch_requests ]
-echo [select_stat $dummyX page_fix_cnt ]
+verbose [select_stat $dummy bf_prefetches ]
+verbose [select_stat $dummy bf_prefetch_requests ]
+verbose [select_stat $dummyX page_fix_cnt ]
 sm force_buffers true
 
 doscans $nfiles $nobjeach $noprefetch
 set dummy [sm gather_stats reset]
 set dummyX [sm gather_xct_stats reset]
-echo [select_stat $dummy bf_prefetches ]
-echo [select_stat $dummy bf_prefetch_requests ]
-echo [select_stat $dummyX page_fix_cnt ]
+verbose [select_stat $dummy bf_prefetches ]
+verbose [select_stat $dummy bf_prefetch_requests ]
+verbose [select_stat $dummyX page_fix_cnt ]
 
-echo destroying files...
+verbose destroying files...
 cleanup $nfiles
 sm commit_xct
 
 sm force_buffers true
 
 sm begin_xct
-echo testing round robin...
+verbose testing round robin...
 set dummy [sm gather_stats reset]
 set testTime [time {test2 $fileType $nfiles $nobjeach} 1 ]
-echo
-echo round robin: write time = $testTime
+verbose
+verbose round robin: write time = $testTime
 
 set dummy [sm gather_stats reset]
 doscans $nfiles $nobjeach $prefetch
 set dummy [sm gather_stats reset]
-echo [select_stat $dummy bf_prefetches ]
-echo [select_stat $dummy bf_prefetch_requests ]
-echo [select_stat $dummy page_fix_cnt ]
+verbose [select_stat $dummy bf_prefetches ]
+verbose [select_stat $dummy bf_prefetch_requests ]
+verbose [select_stat $dummy page_fix_cnt ]
 sm force_buffers true
 
 doscans $nfiles $nobjeach $noprefetch
 set dummy [sm gather_stats reset]
-echo [select_stat $dummy bf_prefetches ]
-echo [select_stat $dummy bf_prefetch_requests ]
-echo [select_stat $dummy page_fix_cnt ]
+verbose [select_stat $dummy bf_prefetches ]
+verbose [select_stat $dummy bf_prefetch_requests ]
+verbose [select_stat $dummy page_fix_cnt ]
 
-echo destroying files...
+verbose destroying files...
 cleanup $nfiles
 sm commit_xct
 
-echo done.
+verbose done.
 unset nfiles nobjeach fid
 

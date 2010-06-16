@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in
-SUBDIRS = smsh tests
+SUBDIRS = tests smsh
 include $(top_srcdir)/Makefile.generic
 EXTRA_DIST = e_error.dat\
 	 sm_stats.dat logdef.dat \
@@ -75,13 +75,12 @@ include_HEADERS = \
 	file.h file_s.h \
 	histo.h keyed.h lexify.h \
 	lgrec.h lid.h \
-	lock.h lock_core.h lock_s.h lock_s_inline.h lock_x.h \
-	log.h log_buf.h logrec.h \
+	lock.h lock_cache.h lock_core.h lock_s.h lock_s_inline.h lock_x.h \
+	log.h log_core.h partition.h logrec.h \
 	page.h page_alias.h page_h.h page_s.h \
 	pin.h \
 	pmap.h \
 	prologue.h \
-	raw_log.h \
 	restart.h restart_s.h \
 	rtree.h rtree_p.h \
 	scan.h sdesc.h \
@@ -92,9 +91,7 @@ include_HEADERS = \
 	smstats.h \
 	smthread.h \
 	sort.h sort_s.h \
-	srv_log.h \
 	sysdefs.h \
-	unix_log.h \
 	vol.h \
 	xct.h xct_dependent.h xct_impl.h \
 	zkeyed.h 
@@ -116,8 +113,8 @@ libsm_a_SOURCES      =  \
 	lgrec.cpp \
 	lid.cpp \
 	lock.cpp lock_core.cpp \
-	log.cpp log_base.cpp log_buf.cpp logrec.cpp logstub.cpp \
-	raw_log.cpp unix_log.cpp srv_log.cpp \
+	log.cpp logrec.cpp logstub.cpp \
+	partition.cpp log_core.cpp \
 	sort.cpp newsort.cpp \
 	page.cpp \
 	pin.cpp \

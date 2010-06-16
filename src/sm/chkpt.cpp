@@ -290,13 +290,13 @@ void chkpt_m::take()
     w_auto_delete_t<logrec_t> logrec(new logrec_t);
 
     /*
-     * GNATS_18: checkpoints are fuzzy
-     * but must be serialized.
+     * checkpoints are fuzzy
+     * but must be serialized wrt each other.
      *
      * Acquire the mutex to serialize prepares and
      * checkpoints. 
      *
-     * NB: EVERTHING BETWEEN HERE AND RELEASING THE MUTEX
+     * NB: EVERYTHING BETWEEN HERE AND RELEASING THE MUTEX
      * MUST BE W_COERCE (not W_DO).
      */
     chkpt_serial_m::chkpt_acquire();
@@ -447,7 +447,6 @@ void chkpt_m::take()
              *  Loop over all buffer pages
              */
             int count = chunk;
-            // BUG_CHKPT_MIN_REC_LSN_FIX
             // Have the minimum rec_lsn of the bunch
             // returned iff it's less than the value passed in
             W_COERCE( bf->get_rec_lsn(i, count, pid, rec_lsn, min_rec_lsn) );
@@ -512,8 +511,6 @@ void chkpt_m::take()
     }
 
 
-    // GNATS_13 : moved this acquire outside the
-    // loop so we don't suffer a double-acquire
     W_COERCE(xct_t::acquire_xlist_mutex());
     /*
      *  Checkpoint the transaction table, and record
@@ -636,6 +633,8 @@ void chkpt_m::take()
      *  the master, recovery would have to start from the master LSN
      *  in any case.
      */
+    // if (min_rec_lsn == lsn_t::max) min_rec_lsn = master;
+    // if (min_xct_lsn == lsn_t::max) min_xct_lsn = master;
     if (min_rec_lsn > master) min_rec_lsn = master;
     if (min_xct_lsn > master) min_xct_lsn = master;
 

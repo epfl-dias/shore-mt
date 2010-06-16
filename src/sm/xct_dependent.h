@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='XCT_DEPENDENT_H'>
 
- $Id: xct_dependent.h,v 1.6.2.4 2010/01/28 04:54:21 nhall Exp $
+ $Id: xct_dependent.h,v 1.8 2010/06/08 22:28:59 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -42,9 +42,9 @@ public:
     smlevel_1::xct_state_t        old_state,
     smlevel_1::xct_state_t        new_state) = 0;
 
-    xct_t*		xd() const { return _xd; }
+    xct_t*                xd() const { return _xd; }
 protected:
-    NORET            xct_dependent_t(xct_t* xd);
+    NORET               xct_dependent_t(xct_t* xd);
 
     /* Our parent class won't be initialized yet at the time our
        constructor is called, so it's a Very Bad Thing to go adding
@@ -53,15 +53,15 @@ protected:
 
        If they forget to register our destructor will assert.
      */
-    void		register_me(); // called because our 
+    void        register_me(); // called because our 
 private:
     friend class xct_impl;
     // Must protect the list when detaching; the
     // only way to do that is through the xct_t, so
     // we need a ptr to it here:
-    xct_t *                _xd;
-    w_link_t            _link;
-    bool		_registered;
+    xct_t *     _xd;
+    w_link_t    _link;
+    bool        _registered;
 };
 
 /*<std-footer incl-file-exclusion='XCT_DEPENDENT_H'>  -- do not edit anything below this line -- */

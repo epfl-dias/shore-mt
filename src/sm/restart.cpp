@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: restart.cpp,v 1.134.2.16 2010/03/25 18:05:15 nhall Exp $
+ $Id: restart.cpp,v 1.136 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -374,6 +374,8 @@ restart_m::analysis_pass(
          *  Scan next record
          */
         LOGTRACE1( << lsn << " A: " << r );
+        w_assert1(lsn == r.lsn_ck());
+
         if(lsn.hi() != cur_segment) {
             cur_segment = lsn.hi();
             smlevel_0::errlog->clog << info_prio  
@@ -807,6 +809,7 @@ restart_m::redo_pass(
 
         bool redone = false;
         LOGTRACE1( << lsn << " R: " << r );
+        w_assert1(lsn == r.lsn_ck());
         if ( r.is_redo() ) {
             if (r.null_pid()) {
                 /*
@@ -894,16 +897,17 @@ restart_m::redo_pass(
                      *   must always be redone and therefore all records after
                      *   it must be redone.
                      *
-                     *   (BUGBUG NANCY TODO: this causes problems with
+                     * ATTENTION!!!!!! case 2 causes problems with
                      *   tmp file pages that can get reformatted as tmp files,
                      *   then converted to regular followed by a restart with
                      *   no chkpt after the conversion and flushing of pages
-                     *   to disk.)
-                     *   
-                     * These are selected by the preprocessor symbol
-                     * DONT_TRUST_PAGE_LSN (defined in shore.def).
+                     *   to disk, and so it has been disabled. That is to
+                     *   say:
+                     *
+                     *   DO NOT BUILD WITH
+                     *   DONT_TRUST_PAGE_LSN defined . In any case, I
+                     *   removed the code for its defined case.
                      */
-#ifndef DONT_TRUST_PAGE_LSN
                     store_flag_t store_flags = st_bad;
                     DBG(<< "TRUST_PAGE_LSN");
                     W_COERCE( page.fix(page_updated,
@@ -925,27 +929,6 @@ restart_m::redo_pass(
                     LOGTRACE1(<<"Lsn " << lsn << " page's lsn " << page_lsn
                             << " will redo: " << int(page_lsn < lsn));
                     if (page_lsn < lsn) 
-#else
-                    DBG(<< "DON'T TRUST_PAGE_LSN");
-                    uint4_t page_flags = 0;
-                    if (r.type() == logrec_t::t_page_init
-                        || r.type() == logrec_t::t_page_format) {
-                        page_flags = page_p::t_virgin;
-                    }
-                    smlevel_0::store_flag_t store_flags = smlevel_0::st_bad;
-                    W_COERCE( page.fix(page_updated, 
-                            page_p::t_any_p, 
-                            LATCH_EX, 
-                            page_flags, 
-                            store_flags,  // store flags
-                            true // ignore store id
-                            ) );
-
-                    lsn_t page_lsn = page.lsn();
-                    DBG(<<" page lsn " << page_lsn);
-                    if (page_lsn < lsn ||  (page_flags & page_p::t_virgin)) 
-#endif /* ifndef DONT_TRUST_PAGE_LSN */
-            
                     {
                         /*
                          *  Redo must be performed if page has lower lsn 
@@ -983,7 +966,7 @@ restart_m::redo_pass(
                          *  Perform the redo. Do not generate log.
                          */
                         {
-			    bool was_dirty = page.is_dirty();
+                bool was_dirty = page.is_dirty();
                             redone = true;
                             // remember the tid for space resv hack.
                             _redo_tid = r.tid();
@@ -1013,13 +996,13 @@ restart_m::redo_pass(
                                and recovery/redo, tmp-page and other unlogged-
                                update cases have to expend a little more
                                effort to keep the rec_lsn accurate.
-			       
-			       FRJ: in our case the correct rec_lsn is
-			       anything not later than the new
-			       page_lsn (as if it had just been logged
-			       the first time, back in the past)
+                   
+                   FRJ: in our case the correct rec_lsn is
+                   anything not later than the new
+                   page_lsn (as if it had just been logged
+                   the first time, back in the past)
                              */
-			    page.repair_rec_lsn(was_dirty, lsn);
+                page.repair_rec_lsn(was_dirty, lsn);
                         }
                             
                         if (xd) me()->detach_xct(xd);

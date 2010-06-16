@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: zkeyed.cpp,v 1.49.2.8 2010/03/19 22:20:28 nhall Exp $
+ $Id: zkeyed.cpp,v 1.50 2010/05/26 01:20:49 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -75,11 +75,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 #include <zkeyed.h>
-
-void zkeyed_p::ntoh()
-{
-    /* nothing to do */
-}
 
 MAKEPAGECODE(zkeyed_p, page_p)
 

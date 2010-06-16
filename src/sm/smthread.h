@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SMTHREAD_H'>
 
- $Id: smthread.h,v 1.97.2.17 2010/03/25 18:05:17 nhall Exp $
+ $Id: smthread.h,v 1.98 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -58,7 +58,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 /*  -- do not edit anything above this line --   </std-header>*/
 
 /**\file smthread.h
- * \ingroup Macros
+ * \ingroup MACROS
  */
 
 #ifndef W_H
@@ -79,6 +79,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  * - WAIT_IMMEDIATE : do not block
  * - WAIT_SPECIFIED_BY_XCT : use the per-transaction custom timeout value
  * - WAIT_SPECIFIED_BY_THREAD : use the per-smthread custom timeout value
+ *
+ * To set the smthread_t's timeout, use smthread_t::lock_timeout.
  */
 enum special_timeout_in_ms_t {
     WAIT_FOREVER = sthread_t::WAIT_FOREVER,
@@ -119,7 +121,7 @@ typedef w_bitvector_t<256>    sm_thread_map_t;
 
 /**\brief Fingerprint for this smthread.
  * \details
- * Each smthread_t has a unique fingerprint. This is used by the
+ * Each smthread_t has a fingerprint. This is used by the
  * deadlock detector.  The fingerprint is a bitmap; each thread's
  * bitmap is unique, the deadlock detector ORs fingerprints together
  * to make a "digest" of the waits-for-map.
@@ -127,6 +129,11 @@ typedef w_bitvector_t<256>    sm_thread_map_t;
  * associate them with threads.
  *
  * This class provides synchronization (protection) for updating the map.
+ *
+ * \note: If you want to be sure the fingerprints are unique, for the 
+ * purpose of minimizing false-positives in the lock manager's deadlock 
+ * detector, look at the code in smthread_t::_initialize_fingerprint(),
+ * where you can enable some debugging code.
  */
 class  atomic_thread_map_t : public sm_thread_map_t {
 private:
@@ -184,14 +191,29 @@ typedef void st_proc_t(void*);
 class sm_stats_info_t; // forward
 /**\endcond skip */
 
-/**\brief Storage Manager client thread.
+/**\brief Storage Manager thread.
  * \ingroup SSMINIT
  * \details
  * \attention
  * All threads that use storage manager functions must be of this type
- * or of a derived type.
+ * or of type derived from this.
  *
- * This is because the storage manager keeps its own thread-local state.
+ * Associated with an smthread_t is a POSIX thread (pthread_t).  
+ * This class is in essence a wrapper around POSIX threads.  
+ * The maximum number of threads a server can create depends on the
+ * availability of resources internal to the pthread implementation,
+ * (in addition to system-wide parameters), so it is not possible 
+ * \e a \e priori to determine whether creation of a new thread will
+ * succeed.  
+ * Failure will result in a fatal error.
+ *
+ * The storage manager keeps its own thread-local state and provides for
+ * a little more control over the starting of threads than does the
+ * POSIX interface:  you can do meaningful work between the time the
+ * thread is \e created and the time it starts to \e run.
+ * The thread constructor creates the underlying pthread_t, which then
+ * awaits permission (a pthread condition variable) 
+ * to continue (signalled by smthread_t::fork).
  */
 class smthread_t : public sthread_t {
     friend class smthread_init_t;
@@ -214,6 +236,59 @@ class smthread_t : public sthread_t {
         xct_log_t*        _xct_log;
         sm_stats_info_t*  _TL_stats; // thread-local stats
 
+        // for lock_head_t::my_lock::get_me
+        queue_based_lock_t::ext_qnode _me1;
+        // for DEF_LOCK_X_TYPE(2)
+        queue_based_lock_t::ext_qnode _me2;
+        // for DEF_LOCK_X_TYPE(3)
+        queue_based_lock_t::ext_qnode _me3;
+
+        /**\var queue_based_lock_t::ext_qnode _1thread_xct_me;
+         * \brief Queue node for holding mutex to serialize access to xct 
+         * structure.  Used in xct_impl.cpp
+         */
+        queue_based_lock_t::ext_qnode _1thread_xct_me;
+        /**\var static __thread queue_based_lock_t::ext_qnode _1thread_log_me;
+         * \brief Queue node for holding mutex to serialize access to log.
+         * Used in xct_impl.cpp
+         */
+        queue_based_lock_t::ext_qnode _1thread_log_me;
+        /**\var static __thread queue_based_lock_t::ext_qnode _xct_t_me_node;
+         * \brief Queue node for holding mutex to prevent 
+         * mutiple-thread/transaction where disallowed. Used in xct.cpp
+         */
+        queue_based_lock_t::ext_qnode _xct_t_me_node;
+        /**\var static __thread queue_based_lock_t::ext_qnode _xlist_mutex_node;
+         * \brief Queue node for holding mutex to serialize 
+         * access transaction list. Used in xct.cpp
+         */
+        queue_based_lock_t::ext_qnode _xlist_mutex_node;
+
+        /**\var static __thread queue_based_block_lock_t::ext_qnode log_me_node;
+         * \brief Queue node for holding partition lock.
+         */
+        queue_based_block_lock_t::ext_qnode _log_me_node;
+
+        /**\var static __thread meta_header_t::ordinal_number_t __ordinal;
+         * \brief Used in newsort.cpp
+         */
+        typedef uint4_t        ordinal_number_t;
+        ordinal_number_t __ordinal;
+        /**\var static __thread int __metarecs, __metarecs_in;
+         * \brief Used in newsort.cpp
+         */
+        int __metarecs;
+        int __metarecs_in;
+
+        // force this to be 8-byte aligned:
+        /**\var static __thread char _kc_buf[] 
+         * \brief Used in lexify.cpp for scramble/unscramble scratch space.
+         */
+        double  _kc_buf_double[smlevel_0::page_sz/sizeof(double)]; // not initialized
+        cvec_t  _kc_vec;
+        // Used by page.cpp check()
+        char    _page_check_map[SM_PAGESIZE]; // a little bigger than needed
+
         void    create_TL_stats();
         void    clear_TL_stats();
         void    destroy_TL_stats();
@@ -230,8 +305,20 @@ class smthread_t : public sthread_t {
             _sdesc_cache(0), 
             _lock_hierarchy(0), 
             _xct_log(0), 
-            _TL_stats(0)
+            _TL_stats(0),
+            __ordinal(0),
+            __metarecs(0),
+            __metarecs_in(0)
         { 
+            _me1._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _me2._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _me3._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _1thread_xct_me._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _1thread_log_me._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _xct_t_me_node._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _xlist_mutex_node._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+            _log_me_node._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+
             create_TL_stats();
         }
         ~tcb_t() { destroy_TL_stats(); }
@@ -334,7 +421,7 @@ public:
     /**\brief Iterator over all smthreads. Thread-safe and so use carefully.
      * \details
      * @param[in] f Callback function.
-     * For each smthread, this calls the callback function f.
+     * For each smthread, this calls the callback function \a f.
      * Because this grabs a lock on the list of all shore threads, 
      * whether or not they are smthreads, this prevents new threads
      * from starting and old ones from finishing, so don't use with
@@ -347,8 +434,8 @@ public:
      * \ingroup SSMXCT
      * @param[in] x Transaction to attach to the thread
      * \details
-     * Attach this thread to the transaction \e x or, equivalently,
-     * attach \e x to this thread.
+     * Attach this thread to the transaction \a x or, equivalently,
+     * attach \a x to this thread.
      * \note "this" thread need not be the running thread.
      *
      * Only one transaction may be attached to a thread at any time.
@@ -359,8 +446,8 @@ public:
      * \ingroup SSMXCT
      * @param[in] x Transaction to detach from the thread.
      * \details
-     * Detach this thread from the transaction \e x or, equivalently,
-     * detach \e x from this thread.
+     * Detach this thread from the transaction \a x or, equivalently,
+     * detach \a x from this thread.
      * \note "this" thread need not be the running thread.
      *
      * If the transaction is not attached, returns error.
@@ -373,7 +460,24 @@ public:
     timeout_in_ms        lock_timeout() { 
                     return tcb().lock_timeout; 
                 }
-    /// set lock_timeout value
+    /**\brief Set lock_timeout value
+     * \details
+     * You can give a value WAIT_FOREVER, WAIT_IMMEDIATE, or
+     * a positive millisecond value. 
+     * Every lock request made with WAIT_SPECIFIED_BY_THREAD will
+     * use this value.
+     *
+     * A transaction can be given its own timeout on ss_m::begin_xct.
+     * The transaction's lock timeout is used for every lock request
+     * made with WAIT_SPECIFIED_BY_XCT. 
+     * A transaction begun with WAIT_SPECIFIED_BY_THREAD will use
+     * the thread's lock_timeout for the transaction timeout.
+     *
+     * All internal storage manager lock requests use WAIT_SPECIFIED_BY_XCT.
+     * Since the transaction can defer to the per-thread timeout, the
+     * client has control over which timeout to use by choosing the
+     * value given at ss_m::begin_xct.
+     */
     inline 
     void             lock_timeout(timeout_in_ms i) { 
                     tcb().lock_timeout = i;
@@ -404,28 +508,28 @@ public:
     // are stored in the smthread and collected when the smthread's tcb is
     // destroyed.
     
-/**\def GET_TSTAT(x) me()->TL_stats().sm.x
+/**\def GET_TSTAT(x) 
  *\brief Get per-thread statistic named x
 */
 #define GET_TSTAT(x) me()->TL_stats().sm.x
 
-/**\def INC_TSTAT(x) me()->TL_stats().sm.x++
+/**\def INC_TSTAT(x) 
  *\brief Increment per-thread statistic named x by y
  */
 #define INC_TSTAT(x) me()->TL_stats().sm.x++
 
 
-/**\def INC_TSTAT_BFHT(x) me()->TL_stats().bfht.bf_htab_x++
+/**\def INC_TSTAT_BFHT(x) 
  *\brief Increment per-thread statistic named x by y
  */
 #define INC_TSTAT_BFHT(x) me()->TL_stats().bfht.bf_htab #x++
 
-/**\def ADD_TSTAT(x,y) me()->TL_stats().sm.x += (y)
+/**\def ADD_TSTAT(x,y) 
  *\brief Increment statistic named x by y
  */
 #define ADD_TSTAT(x,y) me()->TL_stats().sm.x += (y)
 
-/**\def SET_TSTAT(x,y) me()->TL_stats().sm.x = (y)
+/**\def SET_TSTAT(x,y) 
  *\brief Set per-thread statistic named x to y
  */
 #define SET_TSTAT(x,y) me()->TL_stats().sm.x = (y)
@@ -492,19 +596,44 @@ private:
 public:
     void             prepare_to_block();
 
-    /* functions to get/set whether this thread should generate log warnings */
-    /* TODO NANCY: DOCUMENT */
-    bool            generate_log_warnings() const { 
-                            return _generate_log_warnings; }
-    void            set_generate_log_warnings(bool b) { 
-                            _generate_log_warnings=b; }
+    /* \brief Find out if log warning checks are to be made. Default is true.
+     */
+    bool            generate_log_warnings()const{return _gen_log_warnings;}
+    /* \brief Enable/disable log-space warning checks
+     */
+    void            set_generate_log_warnings(bool b){_gen_log_warnings=b;}
+
+    /**\brief  TLS variables Exported to sm.
+     */
+    queue_based_lock_t::ext_qnode& get_me3() { return tcb()._me3; }
+    queue_based_lock_t::ext_qnode& get_me2() { return tcb()._me2; }
+    queue_based_lock_t::ext_qnode& get_me1() { return tcb()._me1; }
+    queue_based_lock_t::ext_qnode& get_log_me_node() { 
+                                               return tcb()._log_me_node;}
+    queue_based_lock_t::ext_qnode& get_xlist_mutex_node() { 
+                                               return tcb()._xlist_mutex_node;}
+    queue_based_lock_t::ext_qnode& get_1thread_log_me() {
+                                               return tcb()._1thread_log_me;}
+    queue_based_lock_t::ext_qnode& get_1thread_xct_me() {
+                                               return tcb()._1thread_xct_me;}
+    queue_based_lock_t::ext_qnode& get_xct_t_me_node() {
+                                               return tcb()._xct_t_me_node;}
+    tcb_t::ordinal_number_t &      get__ordinal()  { return tcb().__ordinal; }
+    int&                           get___metarecs() { 
+                                               return tcb().__metarecs; }
+    int&                           get___metarecs_in() { 
+                                               return tcb().__metarecs_in; }
+    char *                         get_kc_buf()  { return (char *)&(tcb()._kc_buf_double[0]); }
+    cvec_t*                        get_kc_vec()  { return &(tcb()._kc_vec); }
+    char *                         get_page_check_map() {
+                                         return &(tcb()._page_check_map[0]);  }
 private:
 
     /* sm-specif block / unblock implementation */
     volatile bool   _unblocked;
     bool            _waiting;
 
-    bool            _generate_log_warnings;
+    bool            _gen_log_warnings;
 
     inline
     tcb_t           &tcb() { return _tcb; }

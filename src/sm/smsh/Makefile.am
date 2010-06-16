@@ -9,11 +9,13 @@ EXTRA_DIST = test-short testall testall.maintainer \
 
 CLEANFILES = ./log/* ./volumes/*
 
+
 AM_CXXFLAGS          += -I$(top_srcdir)/src/fc \
 		       -I$(top_srcdir)/src/sthread \
 		       -I$(top_srcdir)/src/common \
-		       -I$(top_srcdir)/src/sm \
-		       -I$(TCL_INCLUDE)
+		       -I$(top_srcdir)/src/sm 
+
+AM_CXXFLAGS    += -I$(TCL_INCLUDE)
 
 check_PROGRAMS     = smsh$(EXEEXT) random_kick$(EXEEXT)
 
@@ -44,6 +46,7 @@ LDADD      = \
 	$(top_builddir)/src/sthread/libsthread.a  \
 	$(top_builddir)/src/fc/libfc.a  \
 	$(TCL_LIB)  $(LOCALLDADD)
+# note: TCL_LIB must be defined in top/Makefile.local
 
 smsh.pure: $(smsh_SOURCES:.cpp=.o)
 	$(PURIFY_BIN)/purify $(PURIFY_FLAGS)  -collector=$(PURIFY_COLLECTOR)  $(CXX) -o $@ $(smsh_SOURCES:.cpp=.o) $(LDADD) $(LIBS)

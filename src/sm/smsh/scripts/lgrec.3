@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: lgrec.3,v 1.23.4.3 2010/01/28 04:54:34 nhall Exp $
+#  $Id: lgrec.3,v 1.25 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -99,7 +99,7 @@ while {[expr { $i < 5000}]} {
 			dstatsnoaudit $volid
 			# echo SPACE at CAUGHT - WITH AUDIT
 			# dstats $volid
-			verbose CHECK check_volume_page_types $volid
+			verbose CHECK-A check_volume_page_types $volid 
 			sm check_volume_page_types $volid
 
 
@@ -121,7 +121,7 @@ while {[expr { $i < 5000}]} {
             break
         } else {
             verbose 1 $r $fid $i 10 long
-			verbose CHECK check_volume_page_types $volid
+			verbose CHECK-B check_volume_page_types $volid
 			sm check_volume_page_types $volid
         }
         if {$both} {
@@ -142,7 +142,7 @@ while {[expr { $i < 5000}]} {
 				dstatsnoaudit $volid
 				# echo SPACE at CAUGHT - WITH AUDIT
 				# dstats $volid
-				verbose CHECK check_volume_page_types $volid
+				verbose CHECK-C check_volume_page_types $volid 
 				sm check_volume_page_types $volid
 
                 if {$do_abort} {
@@ -162,7 +162,7 @@ while {[expr { $i < 5000}]} {
 				break
             } else {
                 verbose 2 $s $fid $i 10 long
-				verbose CHECK check_volume_page_types $volid
+				verbose CHECK-E check_volume_page_types $volid 
 				sm check_volume_page_types $volid
                 if {$do_bail} {
                     verbose  aborting at 2-bail...

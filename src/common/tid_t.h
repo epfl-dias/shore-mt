@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='TID_T_H'>
 
- $Id: tid_t.h,v 1.66.2.7 2010/03/19 22:19:19 nhall Exp $
+ $Id: tid_t.h,v 1.68 2010/06/15 17:28:29 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -66,7 +66,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /**\brief Transaction ID
  *
- * \ingroup IDs
+ * \ingroup IDS
  * \details
  * Transaction IDs are 64-bit quantities.
  * They can be constructed of and used as a pair
@@ -99,8 +99,7 @@ public:
     bool invalid() const { return _data == 0; }
 
     datum_t atomic_incr() {
-    // GNATS 59: make this atomic
-        return atomic_add_nv(_data, 1);
+        return atomic_inc_nv(_data);
     }
     tid_t &atomic_assign_max(const tid_t &tid) {
         datum_t old_value = _data;
@@ -184,7 +183,13 @@ inline istream& operator>>(istream& i, tid_t& t)
 
 #include "w_opaque.h"
 
+/**\typedef opaque_quantity<max_gtid_len> gtid_t
+ * \brief Global transaction Identifier used for Two-Phase Commit
+ */
 typedef opaque_quantity<max_gtid_len> gtid_t;
+/**\typedef opaque_quantity<max_server_handle_len> server_handle_t; 
+ * \brief Coordinator Handle used for Two-Phase Commit
+ * */
 typedef opaque_quantity<max_server_handle_len> server_handle_t;
 
 /*<std-footer incl-file-exclusion='TID_T_H'>  -- do not edit anything below this line -- */

@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='ERRLOG_H'>
 
- $Id: errlog.h,v 1.17.2.4 2010/03/19 22:17:16 nhall Exp $
+ $Id: errlog.h,v 1.18 2010/05/26 01:20:21 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -108,8 +108,9 @@ extern ostream& info_prio(ostream& o);
 extern ostream& debug_prio(ostream& o);
 extern void setprio(ostream&, LogPriority);
 extern logstream *is_logstream(ostream &);
-/** \brief A strstream-based log output stream. It responds to
- * these iomanip functions :
+/** \brief A strstream-based log output stream. 
+ * \details
+ * Responds to these iomanip functions :
  *  emerg_prio, 
  *  fatal_prio, 
  *  internal_prio, 

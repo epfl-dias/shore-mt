@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='RTREE_H'>
 
- $Id: rtree.h,v 1.74.2.4 2010/01/28 04:54:10 nhall Exp $
+ $Id: rtree.h,v 1.75 2010/05/26 01:20:41 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -74,17 +74,17 @@ struct rtld_desc_t {
     nbox_t*  universe;  // universal bounding box of spatial objects indexed
 
     rtld_desc_t() {
-    h_fill = 65;
-    h_expn = 120;
-    h = true;
-    universe = NULL;
+        h_fill = 65;
+        h_expn = 120;
+        h = true;
+        universe = NULL;
     }
 
     rtld_desc_t(nbox_t* u, int2_t hff, int2_t hef) {
-    h_fill = hff;
-    h_expn = hef;
+        h_fill = hff;
+        h_expn = hef;
         h = (hff<100 && hef>100)?1:0;
-    universe = u;
+        universe = u;
     }
 };
 

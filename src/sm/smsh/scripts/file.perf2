@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: file.perf2,v 1.5.2.4 2010/02/05 20:39:32 nhall Exp $
+#  $Id: file.perf2,v 1.7 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -77,10 +77,10 @@ set hdr [format $id_width 1]
 proc destroyodd {fid where}  {
     global rid nrecs
     for {set i 1} {$i <= $nrecs} {incr i; incr i} {
-		echo destroying $i $rid($i) $where
+		verbose destroying $i $rid($i) $where
 		set err [catch {sm destroy_rec $rid($i)} caught]
 		if {$err} {
-		    echo CAUGHT FAILURE TO DESTROY REC: $err $caught
+		    verbose CAUGHT FAILURE TO DESTROY REC: $err $caught
 		}
 		set rid($i) "r(0.0.0.0)"
     }
@@ -95,10 +95,10 @@ proc dotest {fid numTests}  {
 	time {
 	    for {set i 1} {$i <= $nrecs} {incr i}  {
 			set rid($i) [sm create_rec $fid $hdr $objsize $buffer]
-			echo created rid $i : $rid($i)
+			verbose created rid $i : $rid($i)
 			incr i
 			set rid($i) "r(0.0.0.0)"
-			echo skipped rid $i : $rid($i)
+			verbose skipped rid $i : $rid($i)
 	    }
 	    # destroy in same xct
 	    destroyodd $fid "in test"
@@ -168,31 +168,31 @@ proc scanit { f } {
     set i 0
     while {$pin != "NULL"} {
 		set rid [sm pin_rid $pin] 
-		echo found $rid
+		verbose found $rid
 		set pin [sm scan_file_next $scan 0]
 		set i [expr {$i+1} ]
     }
     catch { sm scan_file_destroy $scan } error
-    echo $error
-    echo scan found $i records
+    verbose $error
+    verbose scan found $i records
 }
 
-echo "Prepare file with odd records only  ************************************************"
+verbose "Prepare file with odd records only  ************************************************"
 sm begin_xct
     set fid [sm create_file $volid $fileType]
     for {set i 1} {$i <= $nrecs} {incr i}  {
 		set rid($i) [sm create_rec $fid $hdr $objsize $buffer]
-		echo created $rid($i)
+		verbose created $rid($i)
     }
 
     verbose STATS for creating file :
     set n [sm gather_xct_stats]
     verbose [pnzstats $n]
 
-    # echo "SCANNING ... **************"
+    # verbose "SCANNING ... **************"
 	# scanit $fid
 
-    echo "Destroying odd recs... **************"
+    verbose "Destroying odd recs... **************"
     destroyodd $fid "in main script"
     set n [sm gather_xct_stats]
     verbose STATS for creating and destroying:
@@ -200,7 +200,7 @@ sm begin_xct
 sm commit_xct
 
 
-echo "dotest  ************************************************"
+verbose "dotest  ************************************************"
 
 set testTime [dotest $fid $numTests]
 

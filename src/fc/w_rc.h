@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_RC_H'>
 
- $Id: w_rc.h,v 1.65.2.17 2010/03/19 22:17:20 nhall Exp $
+ $Id: w_rc.h,v 1.67 2010/06/15 17:24:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -57,16 +57,55 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#include "w_error.h"
-
 #ifdef __GNUG__
 #pragma interface
 #endif
 
+
+#include "w_error.h"
+
 /**\file w_rc.h
- *\ingroup Macros
+ *\ingroup MACROS
  */
 
+/**\addtogroup MACROS 
+ *
+ * Not all macros are included here.
+ * 
+ */
+
+/**\addtogroup IDIOMS 
+ * \details
+ *
+ * The storage manager is written with programming idioms that make sure 
+ * all return codes are checked, and users of the storage manager are
+ * strongly encouraged to use these idioms.
+ *
+ *
+ * The macros support writing and reading of methods and functions that
+ * return an w_rc_t (return code), which are defined in w_rc.h.  Return
+ * codes are described in some detail \ref ERRNUM.  There you may also
+ * see how to create your own return codes for server modules.
+ * \code
+ w_rc_t
+ method(args...)
+ {
+     W_DO(ss_m::create_file(...));
+	 return RCOK;
+ }
+ \endcode
+ *
+ * The W_DO macro returns whatever the called function returns if
+ * that return code was an error code, otherwise, it falls through
+ * to the code below the macro call. This is the most-often used
+ * idiom.
+ *
+ * The RC_* macros  let you construct a return code for a return value
+ * from a function.  The normal, non-error return code is RCOK.
+ *
+ * See the examples as well as \ref MACROS in w_rc.h.
+ *
+ */
 class w_rc_i; // forward
 
 /**\brief Return code for most functions and methods.
@@ -376,7 +415,6 @@ inline w_error_t*
 w_rc_t::delegate()
 {
     w_error_t* t = ptr();
-    // GNATS_14 : this was being set to 0
     _err = w_error_t::no_error;
     return t;
 }

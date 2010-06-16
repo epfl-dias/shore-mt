@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: lock.cpp,v 1.147.2.16 2010/03/25 18:05:13 nhall Exp $
+ $Id: lock.cpp,v 1.151 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -65,7 +65,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <sm_int_1.h>
 #include <lock_x.h>
 #include <lock_core.h>
-
 #include <new>
 
 #define W_VOID(x) x
@@ -78,6 +77,7 @@ template class w_list_t<lock_head_t>;
 template class w_list_t<XctWaitsForLockElem>;
 template class w_list_i<XctWaitsForLockElem>;
 #endif
+
 
 lock_m::lock_m(int sz)
 {
@@ -436,6 +436,10 @@ lock_m::_lock(
     if (xd) {
         // The lock info is created with the xct constructor.
         theLockInfo = xd->lock_info();
+
+        // This ensures that no two threads can be locking
+        // on behalf of the same xct at the same time.
+        W_COERCE(theLockInfo->lock_info_mutex.acquire());
         
         // Where in the hierarchy
         // is the lock requested relative to the xct's
@@ -448,9 +452,6 @@ lock_m::_lock(
             n.truncate(theLockInfo->lock_level());
         }
 
-        // This ensures that no two threads can be locking
-        // on behalf of the same xct at the same time.
-        W_COERCE(theLockInfo->lock_info_mutex.acquire());
         acquired=true;
 
         // check to see if the exact lock we need is 
@@ -518,19 +519,24 @@ lock_m::_lock(
 
                     if (! force)  {
                         lmode_t held = *hmode[i];
-                        if (held == SH || held == EX || held == UD || (held == SIX && m == SH))  {
+                        if (held == SH || held == EX || 
+                                held == UD || (held == SIX && m == SH))  {
                             if (held == SIX && n.lspace() > h[i].lspace()) {
-                                // need to release the mutex, since _query_implicit acquires it
-                                // and it also makes it safe to use W_DO macros
+                                // need to release the mutex, since 
+                                // _query_implicit acquires it
+                                // and it also makes it safe to 
+                                // use W_DO macros
                                 W_VOID(theLockInfo->lock_info_mutex.release());
                                 acquired = false;
 
-                                W_DO( _query_implicit(n, prev_mode, xd->tid()) );
-                                if (n.lspace() == lockid_t::t_record && h[i].lspace() < lockid_t::t_page)  {
+                                W_DO(_query_implicit(n, prev_mode, xd->tid()));
+                                if (n.lspace() == lockid_t::t_record && 
+                                        h[i].lspace() < lockid_t::t_page)  {
                                     lpid_t        tmp_lpid;
                                     n.extract_lpid(tmp_lpid);
                                     lockid_t tmp_lockid(tmp_lpid);
-                                    W_DO( _query_implicit(tmp_lockid, prev_pgmode, xd->tid()) );
+                                    W_DO( _query_implicit(tmp_lockid, 
+                                                prev_pgmode, xd->tid()) );
                                 }  else  {
                                     prev_pgmode = prev_mode;
                                 }
@@ -556,6 +562,7 @@ lock_m::_lock(
                 }
             }
         }  else  {
+            DBGTHRD(<< "  Lock cache disabled or is user lock. Initialize h[]");
             // just initialize h[] when the cache is disabled
             for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
                 if (!get_parent(h[i-1], h[i]))
@@ -567,8 +574,18 @@ lock_m::_lock(
 #ifdef SM_DORA
         }
 #endif
+        DBGTHRD(<< "  i" << i << " is closest correctly-held ancestor :" << h[i]);
+        DBGTHRD(<< "Entire array:");
+        for(int ii=0;  ii < lockid_t::NUMLEVELS; ii++ ) {
+            // note: h[0] is n, the requested lock
+            // note: h[i+1] is the parent of h[i]
+            DBGTHRD(<< "  h[" << ii << "] = " << h[ii]);
+        }
+        if(theLastLockReq) {
+            DBGTHRD(<< "theLastLockReq :" << *theLastLockReq);
+        }
 
-        w_assert9(i < lockid_t::NUMLEVELS || (i == lockid_t::NUMLEVELS && 
+        w_assert3(i < lockid_t::NUMLEVELS || (i == lockid_t::NUMLEVELS && 
                  (h[i-1].lspace() == lockid_t::t_vol || 
                   h[i-1].lspace() == lockid_t::t_user1)));
         
@@ -592,28 +609,63 @@ lock_m::_lock(
             lmode_t                need = (j == 0 ? m : pmode);
             lock_request_t*        req = 0;
 
+            DBG(<< "level j=" << j << " need mode " << need);
+
             w_rc_t::errcode_t rce(eOK);
             do {
-                rce = _core->acquire(xd, h[j], 0, &req, need, 
-                        prev_mode, duration, timeout, ret);
+                rce = _core->acquire_lock(xd, 
+                        h[j], /* lockid_t in the hierarchy */
+                        NULL /* lock */, 
+                        &req, /* out: request */
+                        need,  /* needed mode */
+                        prev_mode,  /* out: previously-held mode */
+                        duration, 
+                        timeout, 
+                        ret /* out: new mode */
+                        );
             } while (rce && (rce == eRETRY));
 
+#if W_DEBUG_LEVEL >= 8
+            if (rce && rce == eDEADLOCK) {
+                w_ostrstream s;
+                s  << _n << " mode " << m;
+                fprintf(stderr, 
+                    "Deadlock detected acquiring %s\n", s.c_str());
+            }
+#endif
             if (rce) {
                 rc = RC(rce);
                 goto done;
             }
 
+            // save the previous mode for the page lock when we get to the page
+            // level in the hierarchy
             if (h[j].lspace() == lockid_t::t_page)
                 prev_pgmode = prev_mode;
 
             bool brake = (ret == SH || ret == EX || ret == UD); 
 
             if (duration == t_instant) {
-                W_COERCE( _core->release(theLockInfo, h[j], 
+#if W_DEBUG_LEVEL > 0
+                w_assert1(MUTEX_IS_MINE(theLockInfo->lock_info_mutex));
+                // this check is for trying to track down gnats 115,
+                // wherein Ryan says that we get unwanted escalation.
+                // I'm trying to be sure that t_instant locks aren't
+                // affecting the situation.
+                // It should be impossible for two threads of an xct
+                // to acquire t_instant locks at the same time, therefore
+                // driving up the ref count and making the instant locks
+                // hang around.  This assert is part of checking that.
+                if(prev_mode == NL) {
+                    w_assert1(req->get_count() == 1);
+                }
+#endif
+                W_COERCE( _core->release_lock(theLockInfo, h[j], 
                             req->get_lock_head(), req, false) );
 
             } else if (duration >= t_long && 
-                    xd->lock_cache_enabled() && !n.is_user_lock())  {
+                    xd->lock_cache_enabled() && !n.is_user_lock())  
+            {
                 if (hmode[j])
                     *hmode[j] = ret;
                 else if (h[j].lspace() <= lockid_t::t_page)  {
@@ -630,6 +682,9 @@ lock_m::_lock(
                             req->set_num_children ( dontEscalate );
                         }
                     }  else  {
+                        // prev_mode == NL means we just acquired this lock
+                        // for the first time, "this lock" meaning h[j] for
+                        // whatever j we are now addressing.
                         if (prev_mode == NL)
                             theLastLockReq->inc_num_children();
 
@@ -662,7 +717,8 @@ lock_m::_lock(
                                 lock_request_t*         escalate_req = 0;
 
                                 do {
-                                    escalate_rc = _core->acquire(xd, h[j+1], 0, 
+                                    escalate_rc = _core->acquire_lock(xd, 
+                                            h[j+1], 0, 
                                             &escalate_req, new_pmode,
                                             new_prev_mode, duration, 0, ret);
                                 }  while (escalate_rc && 
@@ -703,16 +759,14 @@ lock_m::_lock(
                 theLastLockReq = req;
 
                 if (h[j].lspace() <= lockid_t::t_page && (brake || ret == SIX)){
-                    //fprintf(stderr, 
-                    //"*** WARNING *** Should have cleared the lock cache but didn't\n");
-                    int k;
-#if DEAD
-                    /**\todo TODO NANCY I think this is Ryan's change - ask him about it
-                     */
-                    for (k = h[j].lspace(); k < lockid_t::t_page;)
-                        theLockInfo->cache[++k].reset();
-#endif
-                    for (k = j-1; k >= 0; k--)
+                    // remove from the cache the locks subsumed by
+                    // this lock. This was originally done in order
+                    // not to waste space in the limited-sized cache.
+                    // It still makes sense to do this if 
+                    // escalation is being used.
+                    _core->compact_cache(theLockInfo, h[j]);
+
+                    for (int k = j-1; k >= 0; k--)
                         hmode[k] = NULL;
                 }
             } 
@@ -750,8 +804,8 @@ lock_m::_lock(
          * was commented-out.
          * Of course, in redo we don't have to acquire the lock even though
          * we call this method.
-         * TODO NANCY: put this comment in the architecture document
-         * TODO NANCY: also note that we could acquire a lock for
+         *
+         * Also note that we could acquire a lock for
          * page alloc/dealloc in undo of a file page allocation, as happens
          * in gnats 77 scenario.
          */
@@ -789,7 +843,7 @@ lock_m::unlock(const lockid_t& n)
         do {
             DBGTHRD(<< "  while get_parent true" << h[1-c] << " " << h[c]);
             c = 1 - c;
-            rc = _core->release(xd->lock_info(), h[1-c], 0, 0, false);
+            rc = _core->release_lock(xd->lock_info(), h[1-c], 0, 0, false);
             if (rc.is_error())
                 break;
         } while (get_parent(h[1-c], h[c]));
@@ -834,7 +888,7 @@ rc_t lock_m::unlock_duration(
                 W_DO( smlevel_0::io->free_ext_after_xct(extid) );
                 lockid_t        name(extid);
                 W_COERCE(theLockInfo->lock_info_mutex.acquire());
-                W_DO( _core->release(theLockInfo, name, 0, 0, true) );
+                W_DO( _core->release_lock(theLockInfo, name, 0, 0, true) );
                 W_VOID(theLockInfo->lock_info_mutex.release());
             }
         }  while (rc.err_num() == eFOUNDEXTTOFREE);
@@ -856,7 +910,7 @@ rc_t lock_m::dont_escalate(const lockid_t& n, bool passOnToDescendants)
 
     if (xd)  {
         W_COERCE(xd->lock_info()->lock_info_mutex.acquire());
-        W_EDO(_core->acquire(xd, n, 0, &req, NL, 
+        W_EDO(_core->acquire_lock(xd, n, 0, &req, NL, 
                 prev_mode, t_long, xd->timeout_c(), ret));
 
         w_assert1(req);

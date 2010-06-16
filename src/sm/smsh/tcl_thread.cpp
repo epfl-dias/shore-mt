@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: tcl_thread.cpp,v 1.139.2.25 2010/03/19 22:20:31 nhall Exp $
+ $Id: tcl_thread.cpp,v 1.142 2010/06/15 17:30:09 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -82,8 +82,6 @@ w_list_t<tcl_thread_t, queue_based_block_lock_t>
     tcl_thread_t::threadslist(W_LIST_ARG(tcl_thread_t, link), &tcl_thread_t::thread_mutex);
 
 class xct_i;
-extern w_rc_t out_of_log_space (xct_i*, xct_t *&,
-    smlevel_0::fileoff_t, smlevel_0::fileoff_t);
 
 // For debugging
 extern "C" void tcl_assert_failed();
@@ -335,14 +333,50 @@ t_fork_thread(ClientData, Tcl_Interp* ip, int ac, TCL_AV char* av[])
 }
 
 /*
- * Named barriers: these allow us to have N threads, N>2
- * synchronize. Unnamed ones are necessarily for 2 threads.
- * Unnamed barriers have the same syntax as the original
- * sync/sync_thread commands.
- * Named barriers require:
- * define_named_sync <name> N
- * named_sync <name>
- * undef_named_sync <name> [silent]
+ * Old sync commands:
+ * sync [comment] (that way when one of these is waiting, you can tell
+ *                 which sync command it's waiting on)
+ * sync_thread t1 t2 t3 ...
+ *                in sequence, it issues syncs with these threads.
+ *                No comment.
+ *                Order is important, and makes it hard to get this to work
+ *                in a true concurrent environment.
+ *
+ * New sync commands:
+ *
+ * Named barriers: these allow us to synchronize N threads, N>2.  Described 
+ *               below Unnamed barriers.
+ *
+ * Unnamed barriers are necessarily for 2 threads.
+ *               Unnamed barriers have the same syntax as the original
+ *               sync/sync_thread commands and are a re-implementation 
+ *               of those commands.   
+ *
+ *               Each thread has an implicit unnamed barrier for itself.
+ *
+ *               That's what the old command "sync" is waiting on now. 
+ *               The old command "sync_thread t1" now syncs on that thread's
+ *               implicit unnamed barrier, and
+ *               sync_thread t1 t2 t3 does those syncs in order.
+ *               So it's not very useful for more than 2 threads unless you
+ *               can guarantee that the threads won't be waiting on 
+ *               each other.
+ *
+ *               Commands: sync, sync_thread
+ *
+ * Named barriers: these allow us to synchronize N threads, N>2, such that
+ *               none proceeds until all have synced to that barrier.
+ *               Named barriers must be defined before use, and must be
+ *               undefined to free up their resources.
+ *
+ *               Commands:
+ *
+ *                define_named_sync <name> N
+ *                named_sync <name> [comment for debugging]
+ *                undef_named_sync <name> [silent]
+ *
+ * NOTE: scripts/vol.init defines 10 named sync points, 1,2,...,10
+ * for the associated number of threads.
  *
  * When the main tcl thread goes away, it removes all 
  * named barriers, so the undef isn't required, but it can be
@@ -399,12 +433,20 @@ void barrier_t::wait()
 }
 
 void remove_all_barriers() {
-    w_list_i<barrier_t, queue_based_lock_t> iter(barriers);
-    barrier_t *b = NULL;
-    CRITICAL_SECTION(cs, &barrier_mutex);
-    while( (b = iter.next() ) ) {
-        b->detach();
-    }
+	barrier_t *b = NULL;
+	do {
+		// We should be safe because it is only
+		// at the end of the main thread that we
+		// do this.
+		{
+			CRITICAL_SECTION(cs, &barrier_mutex);
+			w_list_i<barrier_t, queue_based_lock_t> iter(barriers);
+			b = iter.next();
+		}
+		if(b) {
+			delete b;
+		}
+	} while(b);
 }
 
 barrier_t *find_barrier(const char *name)
@@ -469,7 +511,8 @@ t_named_sync(ClientData, Tcl_Interp* ip, int ac, TCL_AV char* av[])
         comment = av[2];
     }
     // to shut the compiler up:
-    if(comment) ;
+    if(comment && 0) fprintf(stderr,"shut the compiler up\n") ;
+
 
     barrier_t *b = find_barrier(av[1]);
     if(!b) {
@@ -494,7 +537,7 @@ t_sync(ClientData, Tcl_Interp* ip, int ac, TCL_AV char* av[])
         comment = av[1];
     }
     // to shut the compiler up:
-    if(comment) ;
+    if(comment && 0) fprintf(stderr,"shut the compiler up\n") ;
 
     ((tcl_thread_t *)sthread_t::me())->sync();
 
@@ -935,6 +978,7 @@ static void create_stdcmd(Tcl_Interp* ip)
     Tcl_CreateCommand(ip, TCL_CVBUG "define_named_sync", t_define_named_sync, 0, 0);
     Tcl_CreateCommand(ip, TCL_CVBUG "undef_named_sync", t_undef_named_sync, 0, 0);
     Tcl_CreateCommand(ip, TCL_CVBUG "named_sync", t_named_sync, 0, 0);
+    // alias for named_sync:
     Tcl_CreateCommand(ip, TCL_CVBUG "named_sync_thread", t_named_sync, 0, 0);
 
     Tcl_CreateCommand(ip, TCL_CVBUG "yield", t_yield, 0, 0);
@@ -952,9 +996,10 @@ class  __shared {
 public:
     char                line[1000];
     int                 stdin_hdl;
+    int                 line_number;
 
     __shared( int fd) : stdin_hdl(fd)
-    { line[0] = '\0'; };
+        { line[0] = '\0';  line_number=0;}
 
     w_rc_t    read();
 };
@@ -962,6 +1007,7 @@ public:
 w_rc_t    __shared::read()
 {
     cin.getline(line, sizeof(line) - 2);
+    line_number++;
     return RCOK;
 }
 
@@ -984,14 +1030,14 @@ static void process_stdin(Tcl_Interp* ip)
             if (! prompt) {
                 if (! partial)  cout << "% " << flush;
             } else {
-            if (Tcl_Eval(ip, TCL_CVBUG prompt) != TCL_OK)  {
-                cerr << Tcl_GetStringResult(ip) << endl;
-                Tcl_AddErrorInfo(ip,
-                 TCL_CVBUG "\n    (script that generates prompt)");
-                if (! partial) cout << "% " << flush;
-            } else {
-                ::fflush(stdout);
-            }
+                if (Tcl_Eval(ip, TCL_CVBUG prompt) != TCL_OK)  {
+                    cerr << Tcl_GetStringResult(ip) << endl;
+                    Tcl_AddErrorInfo(ip,
+                         TCL_CVBUG "\n    (script that generates prompt)");
+                    if (! partial) cout << "% " << flush;
+                } else {
+                    ::fflush(stdout);
+                }
             }
 
             // wait for stdin to have data
@@ -999,7 +1045,8 @@ static void process_stdin(Tcl_Interp* ip)
             DBG(<< "stdin is ready");
         }
         else {
-            cin.getline(shared.line, sizeof(shared.line) - 2);
+            // cin.getline(shared.line, sizeof(shared.line) - 2);
+			shared.read();
         }
 
         shared.line[sizeof(shared.line)-2] = '\0';
@@ -1142,7 +1189,7 @@ void tcl_thread_t::run()
             assert(sm == 0);
             // Try without callback function.
             if(log_warn_callback) {
-               sm = new ss_m(out_of_log_space);
+               sm = new ss_m(out_of_log_space, get_archived_log_file);
             } else {
                sm = new ss_m();
             }
@@ -1443,8 +1490,8 @@ tcl_thread_t::tcl_thread_t(
       parent_vars(0),
       parent_procs(0)
 {
-    atomic_add(num_tcl_threads, 1);
-    atomic_add(num_tcl_threads_ttl, 1);
+    atomic_inc(num_tcl_threads);
+    atomic_inc(num_tcl_threads_ttl);
 
 /*
 cerr << __func__ << " " << __LINE__ << " " << __FILE__
@@ -1508,8 +1555,8 @@ tcl_thread_t::tcl_thread_t(
       parent_vars(_parent_vars),
       parent_procs(_parent_procs)
 {
-    atomic_add(num_tcl_threads, 1);
-    atomic_add(num_tcl_threads_ttl, 1);
+    atomic_inc(num_tcl_threads);
+    atomic_inc(num_tcl_threads_ttl);
     /* give thread a unique name, not just "tcl_thread" */
     {
         w_ostrstream_buf    o(40);        // XXX magic number
@@ -1541,7 +1588,7 @@ tcl_thread_t::tcl_thread_t(
 
 tcl_thread_t::~tcl_thread_t()
 {
-    atomic_add(num_tcl_threads, -1);
+    atomic_dec(num_tcl_threads);
 
     w_assert1(ip==NULL);
 

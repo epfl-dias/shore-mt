@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='LOGREC_H'>
 
- $Id: logrec.h,v 1.63.2.7 2010/03/19 22:20:24 nhall Exp $
+ $Id: logrec.h,v 1.67 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -59,6 +59,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 class nbox_t;
 class rangeset_t;
+
+typedef smlevel_0::lock_mode_t lock_mode_t;
 
 #include "logfunc_gen.h"
 #include <xct.h>
@@ -371,7 +373,7 @@ struct prepare_lock_t
     // -tid is stored in the log rec hdr
     // -all locks are long-term
 
-    lock_mode_t    mode; // for this group of locks
+	lock_mode_t    mode; // for this group of locks
     uint4_t     num_locks; // in the array below
     enum            { max_locks_logged = (logrec_t::data_sz - sizeof(lock_mode_t) - sizeof(uint4_t)) / sizeof(lockid_t) };
 
@@ -401,7 +403,7 @@ struct prepare_all_lock_t
     // 
     struct LockAndModePair {
         lockid_t    name;
-        lock_mode_t    mode; // for this lock
+		lock_mode_t    mode; // for this lock
     };
 
     uint4_t             num_locks; // in the array below

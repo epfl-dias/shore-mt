@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: sort_funcs.cpp,v 1.22.2.5 2010/03/19 22:20:31 nhall Exp $
+ $Id: sort_funcs.cpp,v 1.26 2010/05/26 01:20:52 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -27,11 +27,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 */
 
+
+
 #include "w_defines.h"
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#define SM_SOURCE
 
 /*
  * A set of applications functions -- to be moved into the
@@ -106,10 +107,14 @@ compare_index_file(
             DBG(<<"rc=" << rc);
             return RC_AUGMENT(rc);
         }
+		// Adjust key vector's length so we can print it
+		// and use the key to count duplicates
+        key.reset().put(stringbuffer, klen);
 
         w_assert3(elen == sizeof(rid));
 
-        DBG(<< i <<": index key length " << klen << " el length " << elen << " el=rid=" << rid);
+        DBG(<< i <<": index key length " 
+				<< klen << " el length " << elen << " el=rid=" << rid);
         DBG(<< i <<": file next rid is " << pin->rid());
 
         /* Compare rid with the oid we find in the file record */
@@ -157,9 +162,26 @@ compare_index_file(
         }
         if(myrid != rid) {
             if(!hasnokey) {
-                cerr << "Mismatch !!! File item # " << i
-                << " hasnokey is " << int(hasnokey)
+				scan_index_i*    scan2 = new scan_index_i(idx,
+                  scan_index_i::eq, key,
+                  scan_index_i::eq, key,
+                  true /* nullsok */
+                  );
+
+				bool i2eof;
+				int j=0;
+				w_rc_t rc2;
+				while ( !(rc2=scan2->next(i2eof)).is_error() && !i2eof ) j++; 
+                cerr << "Mismatch !!! "
+				<< " File item # " << i
+				<<": pin rid " << pin->rid()
+                << " hasnokey = " << int(hasnokey)
+                << " key " << key
+                << " klen " << klen
+				<< " duplicates of key = " << j-1
+                << endl
                 << " hdr contains value " << hdrkk
+                << endl
                 << " body contains rid " << myrid
                 << " while index item contains rid " << rid
                 << endl;
@@ -358,205 +380,217 @@ delete_index_entries(
     smsize_t keyoffset
 )
 {
-    char    stringbuffer[MAXBV];
+    char    _stringbuffer[MAXBV+ALIGNON];
+    char    *stringbuffer = (char *)align((u_long)_stringbuffer) ;
     scan_file_i  scanf(fid, ss_m::t_cc_file);
 
-    bool     feof;
+    bool      feof;
     w_rc_t    rc;
     pin_i*    pin;
     vec_t     key, elem;
-    smsize_t     klen, elen;
-    rid_t    rid;
-    int     i=0;
-    while ( !(rc=scanf.next(pin, 0, feof)).is_error() && !feof ) {
-    i++;
+    smsize_t  klen, elen;
+    rid_t     rid;
+    int       i=0;
 
-    smsize_t ridoffset = pin->body_size() - sizeof(rid_t);
-    klen = ridoffset - keyoffset;
+	while ( !(rc=scanf.next(pin, 0, feof)).is_error() && !feof ) {
+		i++;
 
-    smsize_t offset = keyoffset;
+		smsize_t ridoffset = pin->body_size() - sizeof(rid_t);
+		klen = ridoffset - keyoffset;
+		smsize_t offset = keyoffset;
 
-    /* Get key from file record */
-    while(pin->start_byte()+pin->length() <= offset){ 
-        rc = pin->next_bytes(feof); 
-        if(rc.is_error()) {
-            DBG(<<"rc=" << rc);
-            return RC_AUGMENT(rc);
-        }
-        w_assert3(!feof);
-    }
-    offset -=  pin->start_byte();
-    // not handling logical case...
-        smsize_t amt = pin->length() - offset;
-        DBG(<<"offset=" <<offset << " amt=" << amt);
-        memcpy(&stringbuffer, pin->body() + offset, amt);
+		DBG(<<" body size " << pin->body_size()
+				<< " rid offset " << ridoffset
+				<< " key offset " << keyoffset
+				<< " key len " << klen
+				);
 
-    if(offset + klen > pin->length()) {
-        rc = pin->next_bytes(feof); 
-        if(rc.is_error()) {
-        DBG(<<"rc=" << rc);
-        return RC_AUGMENT(rc);
-        }
-        w_assert3(!feof);
-        offset = 0;
-        DBG(<<"offset=" <<offset << " amt=" << amt);
-        memcpy(stringbuffer+amt, pin->body(), klen - amt);
-    }
-    key.reset().put(stringbuffer, klen);
+		/* Get key from file record */
+		while(pin->start_byte()+pin->length() <= offset){ 
+			rc = pin->next_bytes(feof); 
+			if(rc.is_error()) {
+				DBG(<<"rc=" << rc);
+				return RC_AUGMENT(rc);
+			}
+			w_assert3(!feof);
+		}
+		DBG(<<"pin->start_byte() " << pin->start_byte());
+		offset -=  pin->start_byte();
+		// not handling logical case...
+		smsize_t amt = pin->length() - offset;
+		DBG(<<"memcpy(stringbuffer, body() + " <<offset << ", " << amt <<")");
+		memcpy(stringbuffer, pin->body() + offset, amt);
 
-    offset = ridoffset;
+		if(offset + klen > pin->length()) {
+			rc = pin->next_bytes(feof); 
+			if(rc.is_error()) {
+				DBG(<<"rc=" << rc);
+				return RC_AUGMENT(rc);
+			}
+			w_assert3(!feof);
+			offset = 0;
+			DBG(<<"memcpy(stringbuffer +" << amt
+					<< ", body(),  " << klen-amt <<")");
+			memcpy(stringbuffer+amt, pin->body(), klen - amt);
+		}
 
-    /* Get oid from file record */
-    while(pin->start_byte()+pin->length() <= offset){ 
-        rc = pin->next_bytes(feof); 
-        if(rc.is_error()) {
-        DBG(<<"rc=" << rc);
-        return RC_AUGMENT(rc);
-        }
-        w_assert3(!feof);
-    }
-    offset -=  pin->start_byte();
+		key.reset().put(stringbuffer, klen);
+		DBG(<<"key extracted from orig file: klen=" <<klen << " key=" << key);
 
-    if(offset + sizeof(rid_t) > pin->length()) {
-        smsize_t amt = pin->length() - offset;
-        DBG(<<"offset=" <<offset << " amt=" << amt);
-        memcpy(&rid, pin->body() + offset, amt);
-        rc = pin->next_bytes(feof); 
-        if(rc.is_error()) {
-        DBG(<<"rc=" << rc);
-        return RC_AUGMENT(rc);
-        }
-        w_assert3(!feof);
-        offset = 0;
-        DBG(<<"offset=" <<offset << " amt=" << amt);
-        memcpy((char *)(&rid)+amt, pin->body(), sizeof(rid_t) - amt);
-    } else {
-        DBG(<<"copy out rid starting from offset " << offset);
-        memcpy(&rid, pin->body() + offset, sizeof(rid_t));
-    }
-    w_assert3(rid == pin->rid());
+		offset = ridoffset;
+
+		/* Get oid from file record */
+		while(pin->start_byte()+pin->length() <= offset){ 
+			rc = pin->next_bytes(feof); 
+			if(rc.is_error()) {
+			DBG(<<"rc=" << rc);
+				return RC_AUGMENT(rc);
+			}
+			w_assert3(!feof);
+		}
+		offset -=  pin->start_byte();
+
+		if(offset + sizeof(rid_t) > pin->length()) {
+			smsize_t amt = pin->length() - offset;
+			DBG(<<"offset=" <<offset << " amt=" << amt);
+			memcpy(&rid, pin->body() + offset, amt);
+			rc = pin->next_bytes(feof); 
+			if(rc.is_error()) {
+			DBG(<<"rc=" << rc);
+			return RC_AUGMENT(rc);
+			}
+			w_assert3(!feof);
+			offset = 0;
+			DBG(<<"offset=" <<offset << " amt=" << amt);
+			memcpy((char *)(&rid)+amt, pin->body(), sizeof(rid_t) - amt);
+		} else {
+			DBG(<<"copy out rid starting from offset " << offset);
+			memcpy(&rid, pin->body() + offset, sizeof(rid_t));
+		}
+		w_assert3(rid == pin->rid());
+		DBG(<<"rid extracted from orig file: " <<rid);
 
 #ifdef W_TRACE
-// _w_debug.setflags("sort_funcs.cpp btree.cpp btree_impl.cpp btree_p.cpp");
+	// _w_debug.setflags("sort_funcs.cpp btree.cpp btree_impl.cpp btree_p.cpp");
 #endif
-    /*
-     * For key,elem pair, 
-     * Probe, delete, probe, insert, probe, delete, probe
-     */
-    char *el = stringbuffer+klen;
-    elen = MAXBV;
-    bool found;
-    DBG(<<" START DEBUGGING NEW KEY " << key 
-        << " for rid " << rid);
+		/*
+		 * For key,elem pair, 
+		 * Probe, delete, probe, insert, probe, delete, probe
+		 */
+		char *el = stringbuffer+klen;
+		elen = MAXBV;
+		bool found;
+		DBG(<<" START DEBUGGING NEW KEY " << key 
+			<< " for rid " << rid);
 
-    DBG(<< " find_assoc " << key );
-    // gets *** FIRST *** elem for this key 
-    // -- might not match this oid
-        rc = sm->find_assoc(idx, key, el, elen, found);
-    DBG(<<rc);
+		DBG(<< " find_assoc " << key );
+		// gets *** FIRST *** elem for this key 
+		// -- might not match this oid
+		rc = sm->find_assoc(idx, key, el, elen, found);
+		DBG(<<rc);
 
-    elem.reset().put(el, elen);
-    DBG(<<"found=" << found << " elem = " << elem);
+		elem.reset().put(el, elen);
+		DBG(<<"found=" << found << " elem = " << elem);
 
-    if(!found) {
-          DBG(<<"ERROR: NOT FOUND");
-        cerr << "ERROR: Cannot find index entry for " << 
-        key << " " << rid <<endl;
-    }
-    W_DO(rc);
+		if(!found) {
+			  DBG(<<"ERROR: NOT FOUND");
+			cerr << "ERROR: Cannot find index entry for " << 
+			key << " " << rid <<endl;
+		}
+		W_DO(rc);
 
-    if(elen != sizeof(rid_t)) {
-        cerr << __LINE__ << " ERROR: wrong elem length - expected " <<
-        sizeof(rid_t) << " got " <<elen <<endl;
-    }
-    if(umemcmp(&rid, el, elen)) {
-        /*
-        cout << "UNSTABLE SORT: rids don't match: expected " 
-        << rid << " found for key " << key
-        <<endl;
-        */
-    }
+		if(elen != sizeof(rid_t)) {
+			cerr << __LINE__ << " ERROR: wrong elem length - expected " <<
+			sizeof(rid_t) << " got " <<elen <<endl;
+		}
+		if(umemcmp(&rid, el, elen)) {
+			/*
+			cout << "UNSTABLE SORT: rids don't match: expected " 
+			<< rid << " found for key " << key
+			<<endl;
+			*/
+		}
 
-    elem.reset().put(&rid, sizeof(rid_t));
+		elem.reset().put(&rid, sizeof(rid_t));
 
-    DBG(<<"**** KEY LEN = " << klen << " for rid " <<rid);
+		DBG(<<"**** KEY LEN = " << klen << " for rid " <<rid);
 
-    DBG(<< "destroy " << key << ","<<elem);
-    rc = sm->destroy_assoc(idx, key, elem);
-    DBG(<< rc);
-    W_DO(rc);
+		DBG(<< "destroy " << key << ","<<elem);
+		rc = sm->destroy_assoc(idx, key, elem);
+		DBG(<< rc);
+		W_DO(rc);
 
-    /*
-        cout << "PRINT INDEX AFTER REMOVAL of key,elem " 
-        << key 
-        << "," << elem
-        << endl;
-        W_DO( sm->print_index(idx) );
-    */
+		/*
+			cout << "PRINT INDEX AFTER REMOVAL of key,elem " 
+			<< key 
+			<< "," << elem
+			<< endl;
+			W_DO( sm->print_index(idx) );
+		*/
 
-    DBG(<< "find " << key);
-    elen = MAXBV;
-        rc = sm->find_assoc(idx, key, el, elen, found);
-    DBG(<< " after-delete find check returns " << rc
-        << " and found=" << found);
-    if(found) {
-       // duplicate key - elems had better not match
-        if(elen != sizeof(rid_t)) {
-        cerr <<  __LINE__ << " ERROR: wrong elem length - expected " <<
-            sizeof(rid_t) << " got " <<elen <<endl;
-        }
-        if(umemcmp(&rid, el, elen)) {
-           DBG(<<" found duplicate, but elems don't match:  OK");
-        } else {
-        cerr << "ERROR: found deleted key,elem pr: "
-            << key << " " << rid <<endl;
-        }
-    }
-    W_DO(rc);
+		DBG(<< "find " << key);
+		elen = MAXBV;
+			rc = sm->find_assoc(idx, key, el, elen, found);
+		DBG(<< " after-delete find check returns " << rc
+			<< " and found=" << found);
+		if(found) {
+		   // duplicate key - elems had better not match
+			if(elen != sizeof(rid_t)) {
+			cerr <<  __LINE__ << " ERROR: wrong elem length - expected " <<
+				sizeof(rid_t) << " got " <<elen <<endl;
+			}
+			if(umemcmp(&rid, el, elen)) {
+			   DBG(<<" found duplicate, but elems don't match:  OK");
+			} else {
+			cerr << "ERROR: found deleted key,elem pr: "
+				<< key << " " << rid <<endl;
+			}
+		}
+		W_DO(rc);
 
-        elem.reset().put(&rid, sizeof(rid));
-    DBG(<< "create " << key << " elem= " << elem << " rid=" << rid);
-        W_DO( sm->create_assoc(idx, key, elem) );
+			elem.reset().put(&rid, sizeof(rid));
+		DBG(<< "create " << key << " elem= " << elem << " rid=" << rid);
+			W_DO( sm->create_assoc(idx, key, elem) );
 
-    DBG(<<" DONE DEBUGGING THIS KEY " );
+		DBG(<<" DONE DEBUGGING THIS KEY " );
 #ifdef W_TRACE
-// _w_debug.setflags("sort_funcs.cpp");
+	// _w_debug.setflags("sort_funcs.cpp");
 #endif
 
-    DBG(<< "find " << key);
-    elen = MAXBV;
-        W_DO( sm->find_assoc(idx, key, el, elen, found) );
-    if(!found) {
-        cerr << "ERROR: can't find inserted key,elem pr: "
-            << key << " " << rid <<endl;
-    }
-    DBG(<< "destroy " << key);
-    W_DO( sm->destroy_assoc(idx, key, elem) );
-    DBG(<< "find " << key);
-    elen = MAXBV;
-        W_DO( sm->find_assoc(idx, key, el, elen, found) );
-    if(found) {
-       // duplicate key - elems had better not match
-        if(elen != sizeof(rid_t)) {
-        cerr <<  __LINE__ << " ERROR: wrong elem length - expected " <<
-            sizeof(rid_t) << " got " <<elen <<endl;
-        }
-        if(umemcmp(&rid, el, elen)) {
-           DBG(<<" found duplicate, but elems don't match:  OK");
-        } else {
-        cerr << "ERROR: found deleted key,elem pr: "
-            << key << " " << rid <<endl;
-        }
-    }
-    // leave it out of the index
-    /*
-        cout << "PRINT INDEX AFTER REMOVAL of key " << key << endl;
-        W_DO( sm->print_index(idx) );
-    */
+		DBG(<< "find " << key);
+		elen = MAXBV;
+			W_DO( sm->find_assoc(idx, key, el, elen, found) );
+		if(!found) {
+			cerr << "ERROR: can't find inserted key,elem pr: "
+				<< key << " " << rid <<endl;
+		}
+		DBG(<< "destroy " << key);
+		W_DO( sm->destroy_assoc(idx, key, elem) );
+		DBG(<< "find " << key);
+		elen = MAXBV;
+			W_DO( sm->find_assoc(idx, key, el, elen, found) );
+		if(found) {
+		   // duplicate key - elems had better not match
+			if(elen != sizeof(rid_t)) {
+			cerr <<  __LINE__ << " ERROR: wrong elem length - expected " <<
+				sizeof(rid_t) << " got " <<elen <<endl;
+			}
+			if(umemcmp(&rid, el, elen)) {
+			   DBG(<<" found duplicate, but elems don't match:  OK");
+			} else {
+			cerr << "ERROR: found deleted key,elem pr: "
+				<< key << " " << rid <<endl;
+			}
+		}
+		// leave it out of the index
+		/*
+			cout << "PRINT INDEX AFTER REMOVAL of key " << key << endl;
+			W_DO( sm->print_index(idx) );
+		*/
 #ifdef W_TRACE
-// _w_debug.setflags("none");
+	// _w_debug.setflags("none");
 #endif
-    }
+	}
 
     {
     // Index had better be empty now
@@ -601,7 +635,7 @@ void verify_index(int n, stid_t stid, bool nullsok, char *stringbuffer,
     DBG(<<"d4.set scanp");
     d4.set(scanp);
 
-    DBG(<<"---------------Starting index scan" );
+    DBG(<<"---------------verify_index: Starting index scan store " << stid );
     bool       eof;
     w_rc_t     rc;
     int        i;
@@ -634,7 +668,9 @@ void verify_index(int n, stid_t stid, bool nullsok, char *stringbuffer,
         // populate indexkey, indexel vectors
         W_IGNORE( scanp->curr(&indexkey, klen, &indexel, elen));
 
-        DBG(<< i <<": klen = " << klen << " elem(rid)=" << index_rid);
+        DBG(<< i <<" :----------------");
+        DBG(<< i <<": klen=" << klen << " key= " << indexkey);
+        DBG(<< i <<": elen=" << elen << " elem(rid)=" << index_rid);
 
         if(t == test_bv || t == test_b23 || t == test_blarge) {
             w_assert3(k._u.bv == stringbuffer);
@@ -843,10 +879,10 @@ int
 t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 {
     bool    unique_case=false; // NB: if you turn this to true,
-    // the test will fail because the TEST can't handle the
-    // case where duplicate nulls are eliminated, partly because
-    // it doesn't account for *which* null is left after elimination.
-    // (ditto for any other dup that gets eliminated)
+	// the test will fail because the TEST can't handle the
+	// case where duplicate nulls are eliminated, partly because
+	// it doesn't account for *which* null is left after elimination.
+	// (ditto for any other dup that gets eliminated)
 
     if (check(ip, "vid nkeys keytype nullok|notnull", ac, 5))
         return TCL_ERROR;
@@ -958,11 +994,12 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     const char*    kd = check_compress_flag(test); 
     CSKF    lfunc;
     generic_CSKF_cookie lfunc_cookie;
+    lfunc_cookie.offset = 0; // to deal with assert in getcmpfunc.
     CF        cmpfunc = getcmpfunc(t, lfunc, 
                         key_cookie_t(&lfunc_cookie));
 
+    lfunc_cookie.offset = zeroes.size(); 
     lfunc_cookie.in_hdr = false; // for this test, keys in body
-    lfunc_cookie.offset = zeroes.size();
     k._length =  lfunc_cookie.length;
 
     smsize_t     len_hint = k._length + zeroes.size(); 
@@ -1055,7 +1092,7 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
          *        needs to know on a per-record basis if there is a key
          *        before it complains)
          * body:  <***arbitrary stuff*****>  
-         *        key  
+         *        key  (could be length 0)
          *        oid
          */
         int     i;    
@@ -1063,6 +1100,7 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         for (i = 0; i < n; i++)  {
             int kk = i - h;
             if(reverse) kk = 0 - kk;
+			// convert kk to typed value in k, based on test-type t
             convert_to(kk, k, t, stringbuffer); // sort_funcs3.cpp
 
             bool hasnokey=false;
@@ -1073,10 +1111,10 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
             data.reset().put(zeroes);
 
-            DBG(<<"Data " << i << " contains zvec len " << data.size());
+            DBG(<< i << ": data contains zvec len " << data.size());
             if(nullsok && ((i & 0x1)== 0x1)) {
                 // every other one becomes null key
-                DBG(<<i << "NULL key");
+                DBG(<<i << ": NULL key");
                 hasnokey=true;
                 numnulls++;
             } else if(t == test_bv || t == test_b23 || t == test_blarge) {
@@ -1088,17 +1126,22 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
                     strcpy(stringbuffer, s.c_str());
                 }
 
-                DBG(<< i << " .. adding string for length " << k._length
+                DBG(<< i << ":... appending string for length " << k._length
                     <<":" <<  k._u.bv
                 );
                 data.put(k._u.bv, k._length);
             } else {
-                DBG(<< i << " .. adding key of length " << k._length);
+                DBG(<< i << ":... appending key of length " << k._length);
                 data.put(&k._u, k._length);
             }
 
             vec_t hdr(&kk, sizeof(kk));
             hdr.put(&hasnokey, sizeof(hasnokey));
+
+			DBG(<< i << ":... header contains " << kk
+					<< " and hasnokey " << hasnokey);
+			DBG(<< i << ":... body contains (before oid is added) " << data);
+
 
             {
                 vec_t oid(&rid, sizeof(rid));
@@ -1107,10 +1150,15 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
                         len_hint,
                         data,
                         rid) );
+				DBG(<< i << ":... rid " << rid
+						<< " hdr (" << kk << ", hasnokey " << hasnokey << ")"
+						<< " body size (" 
+						<< data.size() << "+" << oid.size() << ")"
+						);
                 if(TRACE_VERIFY) {
                     cout 
                     <<"created rec I: " << i << " : derived from " << kk 
-                    <<" object is " << rid 
+                    <<" rid is " << rid 
                     <<" hasnokey " << hasnokey 
                     <<" size is " << data.size() 
                         << "+" << oid.size()
@@ -1168,15 +1216,15 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
             }
         }
 
-        DBG(<<"------------Bulk load into " << stid << " from " << ofid << " started ...");
+        DBG(<<"{------------Bulk load into " << stid << " from " << ofid << " started ...");
         sm_du_stats_t stats;
         DO( sm->bulkld_index(stid, 1, &ofid, stats, false, false) );
-        DBG(<<"------------Bulk load into " << stid << " from " << ofid << " DONE");
+        DBG(<<"------------Bulk load into " << stid << " from " << ofid << " DONE }");
 
         DO(count_nulls(stid, n, numnulls));
 
-        /*
-        cout << "PRINT INDEX AFTER BULK LOAD" << endl;
+		/*
+        DBG( << "PRINT INDEX" << stid << " AFTER BULK LOAD" );
         DO( sm->print_index(stid) );
         */
 
@@ -1235,7 +1283,7 @@ t_test_bulkload_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         }
         { /* test insert/remove/probe for nulls */
             // not implemented for logical
-            DBG(<<"--------------- Delete index entries ");
+            DBG(<<"--------------- Delete index entries idx=" << stid);
             w_rc_t rc = delete_index_entries(stid, 
                 fid, // orig file
                 zeroes.size());

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: sort.cpp,v 1.125.2.8 2010/02/05 20:39:49 nhall Exp $
+ $Id: sort.cpp,v 1.128 2010/06/08 22:28:56 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -62,6 +62,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #    pragma implementation "sort.h"
 #endif
 
+
 #include "sm_int_4.h"
 
 #ifdef OLDSORT_COMPATIBILITY
@@ -69,13 +70,25 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "lgrec.h"
 #include "sm.h"
 
+typedef ssm_sort::key_info_t key_info_t;
+typedef ssm_sort::sort_parm_t sort_parm_t;
+typedef ssm_sort::sort_keys_t sort_keys_t;
+
 #ifdef EXPLICIT_TEMPLATE
 template class w_auto_delete_array_t<int2_t>;
 template class w_auto_delete_array_t<rid_t>;
 template class w_auto_delete_array_t<run_scan_t>;
 #endif
 
-#define  INSTRUMENT_SORT
+extern "C" bool sort_is_instrumented();
+bool sort_is_instrumented()
+{
+#ifdef INSTRUMENT_SORT
+    return true;
+#else
+    return false;
+#endif
+}
 #ifdef INSTRUMENT_SORT
 
 #define INC_TSTAT_SORT(x)       INC_TSTAT(x)
@@ -97,7 +110,7 @@ template class w_auto_delete_array_t<run_scan_t>;
  * Record pertinent stats about malloced space
  */
 inline void 
-record_malloc(smsize_t amt) 
+record_malloc(void * W_IFTRACE(p), smsize_t amt) 
 {
     base_stat_t a = base_stat_t(amt);
     INC_TSTAT_SORT(sort_mallocs); 
@@ -113,26 +126,30 @@ record_malloc(smsize_t amt)
         // m = c
         SET_TSTAT_SORT(sort_malloc_hiwat, (unsigned long)(c));
     }
+    DBG(<<"record_malloc " << p << " size " << amt);
 }
 
 inline void 
-record_free(smsize_t amt) 
+record_free(void * W_IFTRACE(p), smsize_t amt) 
 {
-    // scratch_used is the highwater mark
-    base_stat_t        c = GET_TSTAT_SORT(sort_malloc_curr);
-    c -= base_stat_t(amt);
-    SET_TSTAT_SORT(sort_malloc_curr, (unsigned long)(c));
+    if(amt) {
+        // scratch_used is the highwater mark
+        base_stat_t        c = GET_TSTAT_SORT(sort_malloc_curr);
+        c -= base_stat_t(amt);
+        SET_TSTAT_SORT(sort_malloc_curr, (unsigned long)(c));
+    }
+    DBG(<<"record_free " << p << " size " << amt);
 }
 
 #else
 
 inline void
-record_malloc(smsize_t /* amt */)
+record_malloc(void *, smsize_t /* amt */)
 {
 }
 
 inline void
-record_free(smsize_t /* amt */ )
+record_free(void *, smsize_t /* amt */ )
 {
 }
 
@@ -152,7 +169,9 @@ struct sort_key_t {
                 klen = rlen = 0;
           };
     NORET ~sort_key_t() {
+                record_free(val, 0);
                 delete[] val;
+                record_free(rec, 0);
                 delete[] rec;
           };
 };
@@ -168,11 +187,14 @@ struct file_sort_key_t {
     uint2_t hlen;         // record header length
 
     NORET file_sort_key_t() {
-                hdr = 0;
-                klen = hlen = rlen = 0;
-                blen = 0;
-          };
+        hdr = 0;
+        klen = hlen = rlen = 0;
+        blen = 0;
+        val = 0;
+        rec = 0;
+    };
     NORET ~file_sort_key_t() {
+        record_free(hdr, 0);
         delete[] hdr;
     }
 };
@@ -207,12 +229,22 @@ struct sort_desc_t {
 
     void  free_space() {
         uint total = total_rec < max_rec_cnt ? total_rec : max_rec_cnt;
-        if (keys) { for (uint i=0; i<total; i++) 
-                        delete ((sort_key_t*) keys[i]);
-                        delete [] keys; keys = 0; max_rec_cnt = 0; }
-        if (fkeys) { for (uint i=0; i<total; i++)
-                        delete ((file_sort_key_t*) fkeys[i]);
-                        delete [] fkeys; fkeys = 0; max_rec_cnt = 0; }
+        if (keys) { 
+            for (uint i=0; i<total; i++)  {
+                record_free(keys[i], sizeof(sort_key_t));
+                delete ((sort_key_t*) keys[i]);
+            }
+            record_free(keys, max_rec_cnt*sizeof(char *));
+            delete [] keys; keys = 0; max_rec_cnt = 0; 
+        }
+        if (fkeys) { 
+            for (uint i=0; i<total; i++) {
+                record_free(fkeys[i], sizeof(file_sort_key_t));
+                delete ((file_sort_key_t*) fkeys[i]);
+            }
+            record_free(fkeys, max_rec_cnt*sizeof(char *));
+            delete [] fkeys; fkeys = 0; max_rec_cnt = 0; 
+        }
         uniq_count = 0;
     }
 
@@ -354,53 +386,52 @@ static int _spatial_rcmp(uint4_t klen1, const void* kval1, uint4_t klen2,
 // Get comparison function
 //
 PFC 
-sort_stream_i::get_cmp_func(key_info_t::key_type_t type, bool up)
+sort_stream_i::get_cmp_func(key_info_t::key_type_t type, bool up) 
 {
     if (up) {
       switch(type) {
+          // case key_info_t::t_float:        
+          case sortorder::kt_f4:        
+            return sort_keys_t::f4_cmp;
 
-              // case key_info_t::t_float:        
-              case sortorder::kt_f4:        
-                return sort_keys_t::f4_cmp;
+          case sortorder::kt_f8:        
+            return sort_keys_t::f8_cmp;
 
-              case sortorder::kt_f8:        
-                return sort_keys_t::f8_cmp;
+          // case key_info_t::t_string:
+          case sortorder::kt_b:
+            return sort_keys_t::string_cmp;
 
-              // case key_info_t::t_string:
-              case sortorder::kt_b:
-                return sort_keys_t::string_cmp;
+          // case key_info_t::t_spatial:
+          case sortorder::kt_spatial:
+            return _spatial_cmp;
 
-              // case key_info_t::t_spatial:
-              case sortorder::kt_spatial:
-                return _spatial_cmp;
+          // case key_info_t::t_char:         use u1
+            // return _char_cmp;
+          case sortorder::kt_u1:
+            return sort_keys_t::uint1_cmp;
 
-              // case key_info_t::t_char:         use u1
-                // return _char_cmp;
-              case sortorder::kt_u1:
-                return sort_keys_t::uint1_cmp;
+          case sortorder::kt_u2:
+            return sort_keys_t::uint2_cmp;
 
-              case sortorder::kt_u2:
-                return sort_keys_t::uint2_cmp;
+          case sortorder::kt_u4:
+            return sort_keys_t::uint4_cmp;
 
-              case sortorder::kt_u4:
-                return sort_keys_t::uint4_cmp;
+          case sortorder::kt_u8:
+            return sort_keys_t::uint8_cmp;
 
-              case sortorder::kt_u8:
-                return sort_keys_t::uint8_cmp;
+          case sortorder::kt_i1:
+            return sort_keys_t::int1_cmp;
 
-              case sortorder::kt_i1:
-                return sort_keys_t::int1_cmp;
+          case sortorder::kt_i2:
+            return sort_keys_t::int2_cmp;
 
-              case sortorder::kt_i2:
-                return sort_keys_t::int2_cmp;
+          //case key_info_t::t_int:
+          case sortorder::kt_i4:
+          default:                         
+            return sort_keys_t::int4_cmp;
 
-              //case key_info_t::t_int:
-              case sortorder::kt_i4:
-              default:                         
-                return sort_keys_t::int4_cmp;
-
-              case sortorder::kt_i8:
-                return sort_keys_t::int8_cmp;
+          case sortorder::kt_i8:
+            return sort_keys_t::int8_cmp;
       }
     } else {
       switch(type) {
@@ -454,7 +485,7 @@ sort_desc_t::sort_desc_t()
     max_list_sz = 20;
     run_list = new rid_t[max_list_sz]; // deleted in ~sort_desc_t
 
-    record_malloc(max_list_sz*sizeof(rid_t));
+    record_malloc(run_list, max_list_sz*sizeof(rid_t));
 
     max_rec_cnt = 0;
     keys = 0;
@@ -465,7 +496,10 @@ sort_desc_t::sort_desc_t()
 
 sort_desc_t::~sort_desc_t() 
 {
-    if (run_list) delete [] run_list;
+    if (run_list)  {
+        record_free(run_list, 0);
+        delete [] run_list;
+    }
     free_space();
 }
 
@@ -481,7 +515,10 @@ run_scan_t::run_scan_t()
 NORET
 run_scan_t::~run_scan_t()
 {
-    if (fp) delete [] fp;
+    if (fp) {
+        record_free(fp, 0);
+        delete [] fp;
+    }
 }
 
 rc_t
@@ -503,7 +540,7 @@ run_scan_t::init(rid_t& begin, PFC c, const key_info_t& k, bool unique=false)
     toggle_base = 2;
 
     fp = new file_p[toggle_base]; // deleted in ~run_scan_t
-    record_malloc(sizeof(file_p));
+    record_malloc(fp, sizeof(file_p));
 
     // open scan on the file
     W_DO( fp[0].fix(pid, LATCH_SH) );
@@ -547,7 +584,6 @@ run_scan_t::current(const record_t*& rec)
 rc_t
 run_scan_t::next(bool& end)
 {
-    // FUNC(run_scan_t::next);
     end = false;
     if (eof) { end = true; return RCOK; }
 
@@ -833,14 +869,13 @@ sort_stream_i::remove_duplicates()
           }
         } else {
             while(pos<sd->rec_count) {
-                    sort_key_t *k1 = (sort_key_t*)sd->keys[pos],
+                sort_key_t *k1 = (sort_key_t*)sd->keys[pos],
                            *k2 = (sort_key_t*)sd->keys[pos-1];
-                    if (k1->klen == k2->klen && k1->rlen == k2->rlen) {
-                    if (k1->klen>0 &&
-                        memcmp(k1->val, k2->val, k1->klen))
-                            break;
-                           if (k1->rlen>0 && memcmp(k1->rec, k2->rec, k1->rlen))
-                            break;
+                if (k1->klen == k2->klen && k1->rlen == k2->rlen) {
+                    if (k1->klen>0 && memcmp(k1->val, k2->val, k1->klen))
+                        break;
+                    if (k1->rlen>0 && memcmp(k1->rec, k2->rec, k1->rlen))
+                        break;
                     pos++;
                 } else { break; }
             }
@@ -849,10 +884,12 @@ sort_stream_i::remove_duplicates()
 
         // move the entry up
         if (_file_sort) {
+            // swap prev & uniq_count - 1
             char *tmp = sd->fkeys[sd->uniq_count-1];
             sd->fkeys[sd->uniq_count-1] = sd->fkeys[prev];
             sd->fkeys[prev] = tmp;
         } else {
+            // swap prev & uniq_count - 1
             char* tmp = sd->keys[sd->uniq_count-1];
             sd->keys[sd->uniq_count-1] = sd->keys[prev];
             sd->keys[prev] = tmp;
@@ -862,10 +899,12 @@ sort_stream_i::remove_duplicates()
     }
     if (prev) {
         if (_file_sort) {
+            // swap prev & uniq_count - 1
             char *tmp = sd->fkeys[sd->uniq_count-1];
             sd->fkeys[sd->uniq_count-1] = sd->fkeys[prev];
             sd->fkeys[prev] = tmp;
         } else {
+            // swap prev & uniq_count - 1
             char* tmp = sd->keys[sd->uniq_count-1];
             sd->keys[sd->uniq_count-1] = sd->keys[prev];
             sd->keys[prev] = tmp;
@@ -957,7 +996,8 @@ void QuickSort(char* a[], int cnt, int (*compar)(const void*, const void*) )
 
 error:
     // not likely 
-    smlevel_0::errlog->clog << "QuickSort: stack too small" <<endl;
+    smlevel_0::errlog->clog << fatal_prio
+        << "QuickSort: stack too small" <<endl;
     W_FATAL(fcOUTOFMEMORY);
 }
 
@@ -968,7 +1008,6 @@ error:
 rc_t 
 sort_stream_i::flush_run()
 {
-    //  FUNC(sort_stream_i::flush_run);
     int i;
     if (sd->rec_count==0) return RCOK;
 
@@ -1073,12 +1112,13 @@ sort_stream_i::flush_run()
     if (sd->run_count == sd->max_list_sz) {
         // expand the run list space
         rid_t* tmp = new rid_t[sd->max_list_sz<<1]; // deleted in ~sort_desc_t
-        record_malloc((sd->max_list_sz << 1)*sizeof(rid_t));
+        record_malloc(tmp, (sd->max_list_sz << 1)*sizeof(rid_t));
 
         memcpy(tmp, sd->run_list, sd->run_count*sizeof(rid));
         INC_TSTAT_SORT(sort_memcpy_cnt);
         ADD_TSTAT_SORT(sort_memcpy_bytes, sd->run_count * sizeof(rid));
 
+        record_free(sd->run_list, 0);
         delete [] sd->run_list;
         sd->run_list = tmp;
         sd->max_list_sz <<= 1;
@@ -1127,13 +1167,12 @@ sort_stream_i::merge(bool skip_last_pass=false)
 {
     uint4_t i, j, k;
     bool        to_final_file = false;
-    // FUNC(sort_stream_i::merge)
 
 //    if (sp.unique) { sp.run_size >>= 1; }
 
     for (i = sp.run_size-1, heap_size = 1; i>0; heap_size <<= 1, i>>=1) ;
     int2_t* m_heap = new int2_t[heap_size]; // auto-del
-    record_malloc(heap_size*sizeof(int2_t));
+    record_malloc(m_heap, heap_size*sizeof(int2_t));
     w_assert1(m_heap);
     w_auto_delete_array_t<int2_t> auto_del_heap(m_heap);
 
@@ -1152,7 +1191,7 @@ sort_stream_i::merge(bool skip_last_pass=false)
     rid_t  *out_list = sd->run_list, 
            *list_buf = new rid_t[out_list_cnt+1], // auto-del
            *in_list = list_buf;
-           record_malloc((out_list_cnt+1)*sizeof(rid_t));
+           record_malloc(list_buf, (out_list_cnt+1)*sizeof(rid_t));
 
     w_assert1(list_buf);
     w_auto_delete_array_t<rid_t> auto_del_list(list_buf);
@@ -1188,18 +1227,18 @@ sort_stream_i::merge(bool skip_last_pass=false)
             return RCOK;
         }
 
-            if (last_pass) {
+        if (last_pass) {
             // last pass may not be on temporary file
             // (file should use logical_id)
             W_DO( SSM->_create_file(sp.vol, out_file, sp.property) );
             INC_TSTAT_SORT(sort_files_created);
             to_final_file = true;
-            } else {
+        } else {
             // not last pass so use temp file
             W_DO( SSM->_create_file(sp.vol, out_file, t_temporary) );
             INC_TSTAT_SORT(sort_files_created);
             to_final_file = false;
-            }
+        }
 
 
         W_COERCE( dir->access(out_file, sd->sdesc, NL) );
@@ -1229,7 +1268,7 @@ sort_stream_i::merge(bool skip_last_pass=false)
 #endif /* COMMENT */
 
             run_scan_t* rs = new run_scan_t[num_runs]; // auto-del
-            record_malloc(num_runs*sizeof(run_scan_t));
+            record_malloc(rs, num_runs*sizeof(run_scan_t));
                 w_assert1(rs);
             w_auto_delete_array_t<run_scan_t> auto_del_run(rs);
             for (k = 0; k<num_runs; k++) {
@@ -1257,10 +1296,12 @@ sort_stream_i::merge(bool skip_last_pass=false)
 
             uint2_t _r;
             int heap_top_count=0;
-            for (_r = m_heap[0]; num_runs > 1; _r = heap_top(m_heap, heap_size, _r, rs)) {
+            for (_r = m_heap[0]; num_runs > 1; 
+                 _r = heap_top(m_heap, heap_size, _r, rs)) 
+            {
                 ++heap_top_count;
-                    W_DO( rs[_r].current(rec) );
-                    if (sp.unique) {
+                W_DO( rs[_r].current(rec) );
+                if (sp.unique) {
                     if (first_rec) {
                             _old_rec = rec;
                             first_rec = false;
@@ -1273,13 +1314,13 @@ sort_stream_i::merge(bool skip_last_pass=false)
                             new_part = false;
                                 }
                     }
-                    } else {
+                } else {
                     W_DO( flush_one_rec(rec, rid, out_file, last_page,
                     to_final_file) );
                     if (new_part) {
                         out_list[out_list_cnt++] = rid;
                         new_part = false;
-                        }
+                    }
                 }
                 W_DO( rs[_r].next(_eof) );
                 if (_eof) --num_runs;
@@ -1289,28 +1330,28 @@ sort_stream_i::merge(bool skip_last_pass=false)
             int tail_of_run=0;
             do { //  for the rest in last run for current merge
                 tail_of_run++;
-                    W_DO( rs[_r].current(rec) );
-                    if (sp.unique) {
+                W_DO( rs[_r].current(rec) );
+                if (sp.unique) {
                     if (first_rec) {
-                            _old_rec = rec;
-                            first_rec = false;
+                        _old_rec = rec;
+                        first_rec = false;
                     } else {
-                            W_DO(flush_one_rec(_old_rec, rid, out_file, last_page,
-                        to_final_file));
-                            _old_rec = rec;
+                        W_DO(flush_one_rec(_old_rec, rid, out_file, last_page,
+                            to_final_file));
+                        _old_rec = rec;
                         if (new_part) {
                             out_list[out_list_cnt++] = rid;
                             new_part = false;
-                                }
+                        }
                     }
-                    } else {
+                } else {
                     W_DO( flush_one_rec(rec, rid, out_file, last_page,
-                    to_final_file) );
+                        to_final_file) );
 
                     if (new_part) {
                         out_list[out_list_cnt++] = rid;
                         new_part = false;
-                        }
+                    }
                 }
 
                 W_DO( rs[_r].next(_eof) );
@@ -1319,19 +1360,19 @@ sort_stream_i::merge(bool skip_last_pass=false)
             DBG(<<"tail of run = " << tail_of_run);
 
             if (sp.unique) {
-                    W_DO( flush_one_rec(_old_rec, rid, out_file, last_page,
-                to_final_file) );
-                    if (new_part) {
+                W_DO( flush_one_rec(_old_rec, rid, out_file, last_page,
+                    to_final_file) );
+                if (new_part) {
                     out_list[out_list_cnt++] = rid;
                     new_part = false;
-                    }
+                }
             }
             if (!last_pass) {
-                    // put a marker to distinguish between different runs
-                    vec_t hdr, data((void*)&_marker_, sizeof(int));
-                    W_DO( fi->create_rec_at_end(
-                        last_page, sizeof(int), hdr, data,
-                        *sd->sdesc, rid) );
+                // put a marker to distinguish between different runs
+                vec_t hdr, data((void*)&_marker_, sizeof(int));
+                W_DO( fi->create_rec_at_end(
+                    last_page, sizeof(int), hdr, data,
+                    *sd->sdesc, rid) );
 
                 INC_TSTAT_SORT(sort_tmpfile_cnt);
                 ADD_TSTAT_SORT(sort_tmpfile_bytes, hdr.size() + data.size());
@@ -1353,7 +1394,7 @@ sort_stream_i::sort_stream_i() : xct_dependent_t(xct())
     heap=0;
     sc=0;
     sd = new sort_desc_t;  // deleted in ~sort_stream_i
-    record_malloc(sizeof(sort_desc_t));
+    record_malloc(sd, sizeof(sort_desc_t));
     _once = false;
     register_me();
 }
@@ -1362,13 +1403,14 @@ NORET
 sort_stream_i::sort_stream_i(const key_info_t& k, const sort_parm_t& s,
                 uint est_rec_sz) : xct_dependent_t(xct())
 {
+    // TODO: should this enforce in xct and one thread attached?
     _file_sort = sorted = eof = false;
     empty = true;
     heap=0;
     sc=0;
     
     sd = new sort_desc_t;  // deleted in ~sort_stream_i
-    record_malloc(sizeof(sort_desc_t));
+    record_malloc(sd, sizeof(sort_desc_t));
     ki = k;
     sp = s;
 
@@ -1378,9 +1420,45 @@ sort_stream_i::sort_stream_i(const key_info_t& k, const sort_parm_t& s,
         est_rec_sz = (k.est_reclen ? k.est_reclen : 20);
     }
 
+    // The record has to fit into a file page.
     sd->max_rec_cnt = (uint) (file_p::data_sz / 
-        (align(sizeof(rectag_t)+ALIGNON+est_rec_sz)+sizeof(page_s::slot_t))
+         (
+          align(sizeof(rectag_t)) + align(est_rec_sz)
+          /*
+           * This was too restrictive: that extra 8 bytes (ALIGNON)
+           * was getting added in every time, even if not needed.
+          align(sizeof(rectag_t)
+               +ALIGNON
+               +est_rec_sz)
+          */
+          +sizeof(page_s::slot_t)
+         )
         * sp.run_size);
+#ifdef W_TRACE
+    if(sd->max_rec_cnt <= 0) {
+        cerr 
+            << " file_p::data_sz " << file_p::data_sz
+            << endl
+            << " sizeof(rectag_t) " << sizeof(rectag_t)
+            << endl
+            << " ALIGNON " << ALIGNON
+            << endl
+            << " est_rec_sz " << est_rec_sz
+            << endl
+            << " sizeof(page_s::slot_t) " << sizeof(page_s::slot_t)
+            << endl
+            << " sp.run_size " << sp.run_size
+            << endl;
+        cerr << " align(sizeof(rectag_t)+ALIGNON+est_rec_sz) " 
+            << align(sizeof(rectag_t)+ALIGNON+est_rec_sz)
+            << endl
+            << " (align(sizeof(rectag_t)+ALIGNON+est_rec_sz) +sizeof(page_s::slot_t)) "
+            << (align(sizeof(rectag_t)+ALIGNON+est_rec_sz)
+             +sizeof(page_s::slot_t))
+            << endl;
+    }
+#endif
+    w_assert1(sd->max_rec_cnt > 0);
 
     sd->comp = get_cmp_func(ki.type, sp.ascending);
     _once = false;
@@ -1390,14 +1468,20 @@ sort_stream_i::sort_stream_i(const key_info_t& k, const sort_parm_t& s,
 NORET
 sort_stream_i::~sort_stream_i()
 {
-    // FUNC(sort_stream_i::~sort_stream_i);
-    if (heap) delete [] heap;
-    if (sc) delete [] sc;
+    if (heap) {
+        record_free(heap, 0);
+        delete [] heap;
+    }
+    if (sc) {
+        record_free(sc, 0);
+        delete [] sc;
+    }
     if (sd) {
         if (sd->tmp_fid!=stid_t::null) {
             DBGTHRD(<<"about to destroy " << sd->tmp_fid);
             W_IGNORE ( SSM->_destroy_file(sd->tmp_fid) );
         }
+        record_free(sd, 0);
         delete sd;
     }
 }
@@ -1405,11 +1489,12 @@ sort_stream_i::~sort_stream_i()
 void 
 sort_stream_i::finish()
 {
-    // FUNC(sort_stream_i::finish);
     if (heap) {
+        record_free(heap, 0);
         delete [] heap; heap = 0;
     }
     if (sc) {
+        record_free(sc, 0);
         delete [] sc; sc = 0;
     }
     if (sd) {
@@ -1419,6 +1504,7 @@ sort_stream_i::finish()
                     W_COERCE ( SSM->_destroy_file(sd->tmp_fid) );
             }
         }
+        record_free(sd, 0);
         delete sd;
         sd = 0;
     }
@@ -1452,16 +1538,34 @@ sort_stream_i::init(const key_info_t& k, const sort_parm_t& s, uint est_rec_sz)
         (align(sizeof(rectag_t)+est_rec_sz)+sizeof(page_s::slot_t))
         * sp.run_size);
     
+    // If we already have a list, get rid of it.
+    // We'll create a new one when we put.
     if (sd->keys)  {
-        for (unsigned i=0; i < sd->rec_count; i++)
+        for (unsigned i=0; i < sd->rec_count; i++) {
+            record_free(sd->keys[i], sizeof(sort_key_t));
             delete ((sort_key_t*) sd->keys[i]);
+        }
+        // assert the the rest of the list was never allocated.
+        for (unsigned i=sd->rec_count; i < sd->max_rec_cnt; i++) {
+            w_assert2(sd->keys[i] == NULL);
+        }
+        record_free(sd->keys, (sd->max_rec_cnt * sizeof(sort_key_t*)));
         delete [] sd->keys;
         sd->keys = 0;
     }
 
+    // If we already have a list, get rid of it.
+    // We'll create a new one when we put.
     if (sd->fkeys)  {
-        for (unsigned i=0; i<sd->rec_count; i++)
+        for (unsigned i=0; i<sd->rec_count; i++) {
+            record_free(sd->fkeys[i], sizeof(file_sort_key_t));
             delete ((file_sort_key_t*) sd->fkeys[i]);
+        }
+        // assert the the rest of the list was never allocated.
+        for (unsigned i=sd->rec_count; i < sd->max_rec_cnt; i++) {
+            w_assert2(sd->fkeys[i] == NULL);
+        }
+        record_free(sd->fkeys, (sd->max_rec_cnt * sizeof(file_sort_key_t*)));
         delete [] sd->fkeys;
         sd->fkeys = 0;
     }
@@ -1470,7 +1574,10 @@ sort_stream_i::init(const key_info_t& k, const sort_parm_t& s, uint est_rec_sz)
 
     sd->comp = get_cmp_func(ki.type, sp.ascending);
 
-    if (sc) { delete [] sc; sc = 0; }
+    if (sc) { 
+        record_free(sc, 0);
+        delete [] sc; sc = 0; 
+    }
 
     if (sd->tmp_fid!=stid_t::null) {
         W_COERCE( SSM->_destroy_file(sd->tmp_fid) );
@@ -1483,7 +1590,7 @@ sort_stream_i::init(const key_info_t& k, const sort_parm_t& s, uint est_rec_sz)
 rc_t
 sort_stream_i::put(const cvec_t& key, const cvec_t& elem)
 {
-    // FUNC(sort_stream_i::put);
+    SM_PROLOGUE_RC(sort_stream_i::put, in_xct, read_write,  0);
     w_assert1(!_file_sort);
 
     if (sd->rec_count >= sd->max_rec_cnt) {
@@ -1493,33 +1600,49 @@ sort_stream_i::put(const cvec_t& key, const cvec_t& elem)
 
     if (!sd->keys) {
         sd->keys = new char* [sd->max_rec_cnt]; // deleted in free_space
-        record_malloc(sizeof(char *) * sd->max_rec_cnt);
+        record_malloc(sd->keys, sizeof(char *) * sd->max_rec_cnt);
         w_assert1(sd->keys);
         memset(sd->keys, 0, sd->max_rec_cnt*sizeof(char*));
+        DBG(<<"allocated and zeroed keys " << (void *)sd->keys
+                << " rec_cnt " << sd->rec_count 
+                << " max_rec_cnt " << sd->max_rec_cnt 
+                << " size " << (sizeof(char *) * sd->max_rec_cnt) );
         INC_TSTAT_SORT(sort_memcpy_cnt);
         ADD_TSTAT_SORT(sort_memcpy_bytes, sd->max_rec_cnt * sizeof(char *));
     }
 
     sort_key_t* k = (sort_key_t*) sd->keys[sd->rec_count];
+    DBG(<<"existing keys " << (void *)(sd->keys)
+                << " max_rec_cnt " << sd->max_rec_cnt );
     if (!k) {
         k = new sort_key_t; // deleted in free_space
-        record_malloc(sizeof(sort_key_t));
+        record_malloc(k, sizeof(sort_key_t));
         sd->keys[sd->rec_count] = (char*) k;
     } else {
-        if (k->val) delete [] k->val;
-        if (k->rec) delete [] k->rec; 
+        if (k->val) {
+            // we don't know the size
+            record_free(k->val, k->klen);
+            delete [] k->val;
+            k->klen = 0;
+        }
+        if (k->rec) {
+            // we don't know the size
+            record_free(k->rec, k->rlen);
+            delete [] k->rec; 
+            k->rlen = 0;
+        }
     }
 
     // copy key
     k->val = new char[key.size()]; // deleted in ~sort_key_t
-    record_malloc(key.size());
+    record_malloc(k->val, key.size());
     key.copy_to(k->val, key.size());
     k->klen = key.size();
 
     // copy elem
     k->rlen = elem.size();
     k->rec = new char[k->rlen]; // deleted in ~sort_key_t
-    record_malloc(k->rlen);
+    record_malloc(k->rec, k->rlen);
     elem.copy_to(k->rec, k->rlen);
 
     sd->rec_count++;
@@ -1533,7 +1656,6 @@ rc_t
 sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
                         uint hlen, const rectag_t* tag)
 {
-    // FUNC(sort_stream_i::put);
     w_assert1(_file_sort);
 
     if (sd->rec_count >= sd->max_rec_cnt) {
@@ -1541,7 +1663,7 @@ sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
         if (_once) {
           if (sd->fkeys) {
             char** new_keys = new char* [sd->max_rec_cnt<<1]; //deleted in free_space
-            record_malloc((sd->max_rec_cnt<<1) * sizeof(char *));
+            record_malloc(new_keys, (sd->max_rec_cnt<<1) * sizeof(char *));
             memcpy(new_keys, sd->fkeys, sd->max_rec_cnt*sizeof(char*));
             INC_TSTAT_SORT(sort_memcpy_cnt);
             ADD_TSTAT_SORT(sort_memcpy_bytes, sd->max_rec_cnt * sizeof(char *));
@@ -1555,6 +1677,7 @@ sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
             INC_TSTAT_SORT(sort_memcpy_cnt);
             ADD_TSTAT_SORT(sort_memcpy_bytes, sd->max_rec_cnt * sizeof(char *));
 
+            record_free(sd->fkeys, 0);
             delete [] sd->fkeys;
             sd->fkeys = new_keys;
           }
@@ -1567,7 +1690,7 @@ sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
 
     if (!sd->fkeys) {
         sd->fkeys = new char* [sd->max_rec_cnt];// deleted in free_space
-        record_malloc((sd->max_rec_cnt) * sizeof(char *));
+        record_malloc(sd->fkeys, (sd->max_rec_cnt) * sizeof(char *));
         w_assert1(sd->fkeys);
         memset(sd->fkeys, 0, sd->max_rec_cnt*sizeof(char*));
         INC_TSTAT_SORT(sort_memcpy_cnt);
@@ -1577,15 +1700,18 @@ sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
     file_sort_key_t* k = (file_sort_key_t*) sd->fkeys[sd->rec_count];
     if (!k) {
         k = new file_sort_key_t;
-        record_malloc( sizeof(file_sort_key_t));
+        record_malloc(k, sizeof(file_sort_key_t));
         sd->fkeys[sd->rec_count] = (char*) k;
     } else {
-        if (k->hdr) { delete [] k->hdr; }
+        if (k->hdr) { 
+            record_free(k->hdr, 0);
+            delete [] k->hdr; 
+        }
     }
 
     // copy key and hdr
     k->hdr = new char[key.size()]; // deleted in ~file_sort_key_t
-    record_malloc(key.size());
+    record_malloc(k->hdr, key.size());
     key.copy_to((void*)k->hdr, key.size());
     k->val = k->hdr;
     k->klen = k->hlen = key.size();
@@ -1610,9 +1736,8 @@ sort_stream_i::file_put(const cvec_t& key, const void* rec, uint rlen,
 }
 
 rc_t
-sort_stream_i::get_next(vec_t& key, vec_t& elem, bool& end)
+sort_stream_i::get_next(vec_t& key, vec_t& elem, bool& end) 
 {
-    // FUNC(sort_stream_i::get_next)
     fill4 filler;
     W_DO( file_get_next(key, elem, filler.u4, end) );
 
@@ -1621,9 +1746,8 @@ sort_stream_i::get_next(vec_t& key, vec_t& elem, bool& end)
 
 
 rc_t
-sort_stream_i::file_get_next(vec_t& key, vec_t& elem, uint4_t& blen, bool& end)
+sort_stream_i::file_get_next(vec_t& key, vec_t& elem, uint4_t& blen, bool& end) 
 {
-    // FUNC(sort_stream_i::file_get_next);
     end = eof;
     if (eof) {
         finish();
@@ -1649,9 +1773,12 @@ sort_stream_i::file_get_next(vec_t& key, vec_t& elem, uint4_t& blen, bool& end)
         }
 
         // initialize for the final merge: ???
-        if (sc) delete [] sc;
+        if (sc) {
+            record_free(sc, 0);
+            delete [] sc;
+        }
         sc = new run_scan_t[num_runs]; // deleted in ~sort_stream_i
-        record_malloc(num_runs* sizeof(run_scan_t));
+        record_malloc(sc, num_runs* sizeof(run_scan_t));
 
         uint4_t k;
         for (k = 0; k<num_runs; k++) {
@@ -1659,9 +1786,12 @@ sort_stream_i::file_get_next(vec_t& key, vec_t& elem, uint4_t& blen, bool& end)
         }
 
         for (k = num_runs-1, heap_size = 1; k > 0; heap_size <<= 1, k >>= 1) ;
-        if (heap) delete [] heap;
+        if (heap) {
+            record_free(heap, 0);
+            delete [] heap;
+        }
         heap = new int2_t[heap_size]; // deleted in ~sort_stream_i 
-        record_malloc(heap_size* sizeof(int2_t));
+        record_malloc(heap, heap_size* sizeof(int2_t));
         
         if (num_runs == 1)  {
             r = heap[0] = 0;
@@ -1799,6 +1929,7 @@ ss_m::_sort_file(const stid_t& fid, vid_t vid, stid_t& sfid,
                 bool unique, bool destructive
                 )
 {
+
     int i, j;
 
     if (run_size < 3) run_size = 3;
@@ -1879,7 +2010,7 @@ ss_m::_sort_file(const stid_t& fid, vid_t vid, stid_t& sfid,
     pid = first_pid;
     {
       file_p* fp = new file_p[pcount]; // auto-del
-      record_malloc(pcount* sizeof(file_p));
+      record_malloc(fp, pcount* sizeof(file_p));
       w_auto_delete_array_t<file_p> auto_del_fp(fp);
 
       for (eof = false; ! eof; ) {
@@ -1912,7 +2043,7 @@ ss_m::_sort_file(const stid_t& fid, vid_t vid, stid_t& sfid,
 
                         // copy the large object into another file
                         char* buf = new char[rlen]; // auto-del
-                        record_malloc(rlen);
+                        record_malloc(buf, rlen);
                         w_auto_delete_array_t<char> auto_del_buf(buf);
                         W_DO( _copy_out_large_obj(r, buf, 0, rlen, fp[i]) );
 
@@ -2016,11 +2147,12 @@ ss_m::_sort_file(const stid_t& fid, vid_t vid, stid_t& sfid,
 
         if (!sort_stream.is_empty()) { 
             size_t        tmp_len = 1000;
-                char* tmp_buf = new char[tmp_len];
-            record_malloc(tmp_len);
-                if (!tmp_buf)
-                W_FATAL(fcOUTOFMEMORY);
-                w_auto_delete_array_t<char> auto_del_buf(tmp_buf);
+            char* tmp_buf = new char[tmp_len];
+            record_malloc(tmp_buf, tmp_len);
+
+            if (!tmp_buf)
+            W_FATAL(fcOUTOFMEMORY);
+            w_auto_delete_array_t<char> auto_del_buf(tmp_buf);
 
             bool eof;
             uint4_t blen;
@@ -2041,24 +2173,26 @@ ss_m::_sort_file(const stid_t& fid, vid_t vid, stid_t& sfid,
                    the moment, so this auto-sizing key stuff is it
                    for now. */
                 if (key.size() > tmp_len) {
-                        // XXX if keys become large, don't allocate too much
-                        size_t        new_len = tmp_len > 1024*512
-                                                ?  key.size() + 1024
-                                                : tmp_len * 2;
-                        char        *new_buf = new char[new_len];
-                        if (!new_buf)
-                                W_FATAL(fcOUTOFMEMORY);
-                            record_malloc(new_len - tmp_len);
-                        delete [] tmp_buf;
-                        tmp_buf = new_buf;
-                        tmp_len = new_len;
-                        auto_del_buf.set(tmp_buf);
+                    // XXX if keys become large, don't allocate too much
+                    size_t        new_len = tmp_len > 1024*512
+                                            ?  key.size() + 1024
+                                            : tmp_len * 2;
+                    char        *new_buf = new char[new_len];
+                    if (!new_buf)
+                            W_FATAL(fcOUTOFMEMORY);
+
+                    record_malloc(new_buf, new_len - tmp_len);
+                    record_free(tmp_buf, 0);
+                    delete [] tmp_buf;
+                    tmp_buf = new_buf;
+                    tmp_len = new_len;
+                    auto_del_buf.set(tmp_buf);
                 }
 
                 uint hlen;
 
                 if ((hlen=(uint)(key.size()-offset))>0 ) {
-                        key.copy_to(tmp_buf, key.size());
+                    key.copy_to(tmp_buf, key.size());
                 }
                 if (hlen>0) {
                         hdr.put(tmp_buf+offset, hlen);
@@ -2127,7 +2261,7 @@ ss_m::sort_file(const stid_t& fid, // I - input file id
                         unique, destructive);
     }
 
-    SM_PROLOGUE_RC(ss_m::sort_file, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::sort_file, in_xct, read_write, 0);
     W_DO(_sort_file(fid, vid, sfid, property, key_info, run_size,
                         ascending, unique, destructive));
     return RCOK;

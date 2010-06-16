@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in
 SUBDIRS = tests
 include $(top_srcdir)/Makefile.generic
-EXTRA_DIST = opt_error.dat regex_engine.cpp README.cppmacros
+EXTRA_DIST = opt_error.dat regex_engine.cpp
 
 AM_CXXFLAGS          += -I. \
 		       -I$(top_srcdir)/config \

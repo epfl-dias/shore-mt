@@ -37,7 +37,7 @@ GENFILES = $(GENFILES_H) $(GENFILES_CPP)
 include_HEADERS = \
 	$(GENFILES_H) \
 	auto_release.h \
-	mcs_lock.h tpmcs_lock.h \
+	mcs_lock.h \
 	os_fcntl.h os_interface.h \
 	sdisk.h \
 	sdisk_unix.h \

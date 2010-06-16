@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: sthread.cpp,v 1.321.2.30 2010/03/25 18:04:42 nhall Exp $
+ $Id: sthread.cpp,v 1.324 2010/06/15 17:26:00 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -223,12 +223,16 @@ bool    sthread_t::isStackFrameOK(size_t size)
     fprintf(stderr, 
 // In order of values:
     "STACK OVERFLOW frame (offset -%ld) %p bottom %p danger %p top %p stack_size %ld \n",
-     size, _stack_top, absolute_bottom, _danger, _start_frame, _stack_size);
+	// cast so it works for -m32 and -m64
+     (long int) size, _stack_top, absolute_bottom, _danger, _start_frame, 
+	 (long int) _stack_size);
     } else {
     fprintf(stderr, 
 // In order of values:
     "STACK IN GUARD AREA bottom %p frame (offset -%ld) %p danger %p top %p stack_size %ld \n",
-     absolute_bottom, size, _stack_top, _danger, _start_frame, _stack_size);
+	// cast so it works for -m32 and -m64
+     absolute_bottom, (long int) size, _stack_top, _danger, _start_frame, 
+	 (long int) _stack_size);
     }
     return false;
     }
@@ -251,15 +255,12 @@ w_base_t::uint4_t       sthread_t::_next_id = MAIN_THREAD_ID;
 sthread_list_t*         sthread_t::_class_list = 0;
 queue_based_lock_t      sthread_t::_class_list_lock;
 
-#ifdef THA_RACE
-tha_fake_lock           global_list_lock;
-#endif
-
 stime_t                 sthread_t::boot_time = stime_t::now();
 
 // NOTE: this returns a REFERENCE
 /**\fn sthread_t::me_lval()
- * \brief Returns a (writable) reference to the a pointer to the running sthread_t.
+ * \brief Returns a (writable) reference to the a 
+ * pointer to the running sthread_t.
  * \ingroup TLS
  */
 sthread_t* &sthread_t::me_lval() {
@@ -669,9 +670,11 @@ sthread_t::~sthread_t()
     _core = 0;
 
     DO_PTHREAD(pthread_cond_destroy(_start_cond));
+	delete _start_cond;
     _start_cond = 0;
 
     DO_PTHREAD(pthread_mutex_destroy(_start_terminate_lock));
+	delete _start_terminate_lock;
     _start_terminate_lock = 0; // clean up for valgrind
 
 }
@@ -729,8 +732,8 @@ void    sthread_t::__start(void *arg)
 #endif
             {
 #if W_DEBUG_LEVEL > 2
-                fprintf(stderr,"Cannot get pthread stack size e=%d, sz=%ld\n", 
-                e, sz);
+                fprintf(stderr,"Cannot get pthread stack size e=%d, sz=%lld\n", 
+                e, (long long)sz);
 #endif
                 sz = PTHREAD_STACK_MIN;
             } 
@@ -749,7 +752,7 @@ void    sthread_t::__start(void *arg)
 #endif
        sz = PTHREAD_STACK_MIN_SUBSTITUTE;
 #if W_DEBUG_LEVEL > 2
-       fprintf(stderr,"using  %ld temporarily\n", sz);
+       fprintf(stderr,"using  %lld temporarily\n", (long long)sz);
 #endif
     }
     t->_stack_size = sz;
@@ -920,9 +923,6 @@ sthread_t::_block(
         /*
          *  Put on list
          */
-#ifdef THA_RACE
-        CRITICAL_SECTION(tcs, global_list_lock);
-#endif
         w_assert3(self->_link.member_of() == 0); // not in other list
         if (list)  {
             list->put_in_order(self);
@@ -938,15 +938,9 @@ sthread_t::_block(
         if(lock) {
             CRITICAL_SECTION(outer_cs, &lock);
 
-#ifdef THA_RACE
-            CRITICAL_SECTION(tcs, global_list_lock);
-#endif
             CRITICAL_SECTION(cs, self->_wait_lock);
             self->_link.detach(); // we timed out and removed ourself from the waitlist
         } else {
-#ifdef THA_RACE
-            CRITICAL_SECTION(tcs, global_list_lock);
-#endif
             CRITICAL_SECTION(cs, self->_wait_lock);
             self->_link.detach(); // we timed out and removed ourself from the waitlist
         }
@@ -1095,6 +1089,7 @@ sthread_t::_unblock(w_rc_t::errcode_t e)
     _unblock_flag = true;
     membar_producer(); // make sure the unblock_flag is visible
     DO_PTHREAD(pthread_cond_signal(&_wait_cond));
+    _status = t_running;
 
     return RCOK;
 }
@@ -1110,7 +1105,7 @@ sthread_t::_unblock(w_rc_t::errcode_t e)
  *  Give up CPU. Maintain ready status.
  *
  *********************************************************************/
-void sthread_t::yield(bool /*do_select*/) // default is false
+void sthread_t::yield()
 {
 #define USE_YIELD
 #ifdef USE_YIELD
@@ -1333,166 +1328,6 @@ void print_timeout(ostream& o, const sthread_base_t::timeout_in_ms timeout)
     o << "UNKNOWN_TIMEOUT_VALUE(" << timeout << ")";
     }
 }
-
-#ifdef USE_TPMCS_LOCK
-tpmcs_lock::tpmcs_lock(hrtime_t max_cs)
-  : _tail(NULL), 
-    _cs_start(0), 
-    _max_cs(max_cs? max_cs : 20*1000)
-{
-    w_assert2(sizeof(hrtime_t) == sizeof(_touched));
-}
-
-void tpmcs_lock::spin_on_waiting(tpmcs_lock::qnode_ptr me) {
-    hrtime_t now;
-    // try a pre-spin in case it's a short wait
-    int count = 0;
-    while(me->_status == WAITING) {
-        if(++count == 500) {
-            me->_touched = gethrtime();
-            count = 0;
-        }
-    }
-
-    // hunker down for the long haul...
-    while(0 && me->_status == WAITING) {
-        me->_touched = now = gethrtime();
-    }
-}
-
-/* Only acquire the lock if it is free...
- */
-bool tpmcs_lock::attempt(tpmcs_lock::qnode_ptr me) 
-{
-    THA_NOTIFY_ACQUIRE_LOCK(this);
-    me->_next = NULL;
-    me->_status = WAITING;
-    me->_touched = gethrtime();
-    membar_producer();
-    qnode_ptr pred = (qnode_ptr) atomic_cas_ptr(&_tail, 0, (void*) me);
-    // lock held?
-    if(pred) 
-        return false;
-    membar_enter();
-    
-    THA_NOTIFY_LOCK_ACQUIRED(this);
-    return true;
-}
-void tpmcs_lock::acquire(tpmcs_lock::qnode_ptr me) 
-{
-    THA_NOTIFY_ACQUIRE_LOCK(this);
-    me->_next = NULL;
-    me->_status = WAITING;
-    me->_touched = gethrtime();
-
-    membar_producer();
-    qnode_ptr pred = (qnode_ptr) atomic_swap_ptr(&_tail, (void*) me);
-
-    if(pred) {
-        pred->_next = me;
-        spin_on_waiting(me);
-        if(me->_status == DEAD) {
-            acquire(me); // try, try again...
-            return;
-        }
-    }
-    membar_enter();
-    THA_NOTIFY_LOCK_ACQUIRED(this);
-}
-    
-/* This spinning only occurs when we are at _tail and catch a
-   thread trying to enqueue itself.
-
-   CC mangles this as __1cKtpmcs_lockMspin_on_next6Mpon0AFqnode__v_
-*/
-tpmcs_lock::qnode_ptr tpmcs_lock::spin_on_next(tpmcs_lock::qnode_ptr me) 
-{
-    qnode_ptr next;
-    while(!(next=me->_next)) ;
-    return next;
-}
-    
-void tpmcs_lock::release(qnode_ptr me) 
-{
-    THA_NOTIFY_RELEASE_LOCK(this);
-
-    membar_exit();
-
-#ifdef ARCH_LP64
-    // high word is acquire count, low word is kill count
-    _cs_start += (1ll << 32); 
-#else
-    _acquires ++;
-#endif
-    
-    /* Run down the queue until we find an active thread (ie
-       recently _touched) or we reach eoq and cas NULL into the
-       tail.
-
-       The overwhelming majority of the time we won't get
-       preempted while releasing the lock, so we only grab the
-       hrtime once at the beginning. If we get preempted the
-       preemption will cause much bigger problems than us forcing
-       our successors to retry once we wake up...
-    */
-    qnode_ptr next = me;
-    qnode_ptr cur;
-    // qnode_ptr dummy; TODO: why is this here?
-
-    long start = me->_touched;
-
-    hrtime_t  kills = 0;
-    static hrtime_t const MAX_TOUCH_INTERVAL = 5*1000; // 1 usec, in nsec
-
-    while(1) {
-        cur = next;
-        if(!(next=cur->_next)) {
-            if(cur == (qnode_ptr) atomic_cas_ptr(&_tail, (void*) cur, NULL)) {
-            cur->_status = DEAD;
-            break;
-            }
-            
-            next = spin_on_next(cur);
-        }
-            
-        // don't need cur any more...
-        cur->_status = DEAD;
-        kills += (cur != me)? 1 : 0;
-            
-        // is this node ready to accept the lock?
-        if(start - next->_touched < MAX_TOUCH_INTERVAL) { // hopefully negative!
-            next->_status = GRANTED;
-            break;
-        }
-    } 
-
-    if(kills) {
-        _cs_start += kills;
-        kills = _cs_start;
-        if((kills & 1023) == 1023) {
-#ifdef ARCH_LP64
-            hrtime_t acquires = _cs_start;
-            acquires >>= 32;
-#else
-            hrtime_t acquires = _acquires;
-#endif
-
-            double tmp = double(kills);
-            tmp /= double(acquires);
-            tmp *= 100.0;
-
-            std::streamsize oldprec = cerr.precision();
-            cerr << "Deadly tpmcs " << (void *)this
-                 << ": " <<  kills <<  " kills in "
-                 << acquires << " acquired (" 
-                 << setprecision(21) << tmp << "%)!" << endl;
-                        cerr << setprecision(oldprec);
-
-        }
-    }
-    THA_NOTIFY_LOCK_RELEASED(this);
-}
-#endif
 
 occ_rwlock::occ_rwlock()
     : _active_count(0)

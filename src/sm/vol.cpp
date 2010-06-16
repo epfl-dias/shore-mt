@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: vol.cpp,v 1.245.2.27 2010/03/25 18:05:17 nhall Exp $
+ $Id: vol.cpp,v 1.249 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -136,18 +136,6 @@ extlink_t::get_page_bucket(int pgindex) const
     return space_bucket_t(result);
 }
 
-/*********************************************************************
- *
- *  extlink_p::ntoh()
- *
- *  Never called since extlink_p never travels on the net.
- *
- *********************************************************************/
-void 
-extlink_p::ntoh()
-{
-    W_FATAL(eINTERNAL);
-}
 
 /*********************************************************************
  *
@@ -223,25 +211,6 @@ extlink_p::format(
     return rc;
 }
 MAKEPAGECODE(extlink_p, page_p)
-
-
-
-
-/*********************************************************************
- *
- *  stnode_p::ntoh()
- *
- *  Never called since stnode_p never travels on the net.
- *
- *********************************************************************/
-void 
-stnode_p::ntoh()
-{
-    /* stnode_p never travels on the net */
-    W_FATAL(eINTERNAL);
-}
-
-
 
 
 /*********************************************************************
@@ -534,12 +503,17 @@ extlink_i::put(extnum_t idx, const extlink_t& e)
     lpid_t pid = _root;
     pid.page += idx / (extlink_p::max);
 
-    DBGTHRD(<<"extlink_i::put(" << idx <<  " ) e =" << e );
+    DBGTHRD(<<"extlink_i::put( extnum " << idx <<  " ) e =" << e );
     w_assert9(e.next != idx);
 
     W_COERCE( _page.fix(pid, LATCH_EX) );
 
     slotid_t slot = (slotid_t)(idx % (extlink_p::max));
+    DBGTHRD(<<"extlink_i::put in page " <<pid << " slot " << slot );
+    DBG(<<"just before extlink_p::put; sizeof(extlink_t)" 
+                <<  sizeof(extlink_t)
+                << " times idx " << idx
+                << " = " << idx* sizeof(extlink_t));
     _page.put(slot, e);
 
     return RCOK;
@@ -929,9 +903,12 @@ vol_t::prime_cache(snum_t snum)
     {
         int s1, s2, m1, m2;
         _free_ext_cache.get_sizes(s1, m1, s2, m2 );
+
+        // casts make it work for LP32
         fprintf(stderr, 
-                "\tlast page cache max size is  %ld, curr size is %lu\n", 
-                _last_page_cache.max_size(), _last_page_cache.size());
+                "\tlast page cache max size is  %lld, curr size is %llu\n", 
+                (long long) _last_page_cache.max_size(), 
+                (unsigned long long) _last_page_cache.size());
 
         fprintf(stderr, 
                 "\t_cache max size is  %d, curr size is %d\n", 
@@ -940,8 +917,9 @@ vol_t::prime_cache(snum_t snum)
                 "\tcount_map max size is  %d, curr size is %d\n", 
                 m2, s2);
         fprintf(stderr, 
-                "\thisto_ext_cache max size is  %d, curr size is %lu\n", 
-                EXT_CACHE_SIZE, _histo_ext_cache.size());
+                "\thisto_ext_cache max size is  %d, curr size is %llu\n", 
+                EXT_CACHE_SIZE, 
+                (unsigned long long)_histo_ext_cache.size());
     }
     return RCOK;
 }
@@ -1023,7 +1001,38 @@ vol_t::sync()
     return RCOK;
 }
 
+/*********************************************************************
+ *
+ *  vol_t::check_raw_device(devname, raw)
+ *
+ *  Check if "devname" is a raw device. Return result in "raw".
+ *
+ * XXX This has problems.  Once the file is opened it should
+ * never be closed.  Otherwise the file can be switched underneath
+ * the system and havoc can ensue.
+ *
+ *********************************************************************/
+rc_t
+vol_t::check_raw_device(const char* devname, bool& raw)
+{
+        w_rc_t        e;
+        int        fd;
+
+        raw = false;
+
+        /* XXX should add a stat() to sthread for instances such as this */
+
+        e = me()->open(devname, smthread_t::OPEN_RDONLY, 0, fd);
+
+        if (!e.is_error()) {
+                e = me()->fisraw(fd, raw);
+                W_IGNORE(me()->close(fd));
+        }
+
+        return e;
+}
     
+
 
 /*********************************************************************
  *
@@ -1046,7 +1055,7 @@ vol_t::mount(const char* devname, vid_t vid)
     /*
      *  Check if device is raw, and open it.
      */
-    W_DO(log_m::check_raw_device(devname, _is_raw));
+    W_DO(check_raw_device(devname, _is_raw));
 
     w_rc_t e;
     int        open_flags = smthread_t::OPEN_RDWR;
@@ -1278,9 +1287,7 @@ vol_t::fill_factor(snum_t snum)
  *********************************************************************/
 rc_t
 vol_t::alloc_pages_in_ext(
-#if GNATS110_FIX
     alloc_page_filter_t *filter,
-#endif
     bool        append_only,
     extnum_t    ext,
     int         eff,
@@ -1330,6 +1337,7 @@ vol_t::alloc_pages_in_ext(
         if(rc.is_error()) {
           w_assert1(allocated == 0);
           if(rc.err_num() == eLOCKTIMEOUT) {
+            INC_TSTAT(vol_lock_noalloc);
             remaining = 1; // really a "don't know"
             is_last = 0; // really a "don't know"
             return RCOK;
@@ -1423,7 +1431,7 @@ vol_t::alloc_pages_in_ext(
                  */
                 if(may_realloc) {
                     // btree case: logically logs page changes
-                    w_rc_t rc = io_lock_force(pids[i], EX, 
+                    w_rc_t rc = vol_io_shared::io_lock_force(pids[i], EX, 
                         t_instant, WAIT_IMMEDIATE);
                     if(rc.is_error()){
                         // Skip this page if other tx has lock on it
@@ -1455,7 +1463,8 @@ vol_t::alloc_pages_in_ext(
 
                     DBG(<<"vol_t::alloc_pages_in_ext: locking page "
                         << pids[i]  << " in mode " << int(desired_lock_mode));
-                    w_rc_t rc = io_lock_force(pids[i], desired_lock_mode, 
+                    w_rc_t rc = vol_io_shared::io_lock_force(
+                                            pids[i], desired_lock_mode, 
                                             t_long, WAIT_IMMEDIATE,
                                             &m);
                     if(rc.is_error()){
@@ -1476,7 +1485,6 @@ vol_t::alloc_pages_in_ext(
                     w_assert1(m == NL);
                 }
 
-#if GNATS110_FIX
                 if(! filter->accept(pids[i])) { 
                     w_assert1(filter->accepted()==false);
                     filter->check();
@@ -1485,7 +1493,6 @@ vol_t::alloc_pages_in_ext(
                 }
                 w_assert1(filter->accepted()==true);
                 filter->check();
-#endif
 
             } while (m != NL);
 
@@ -1526,9 +1533,7 @@ vol_t::alloc_pages_in_ext(
     xct()->set_alloced();
     remaining -= allocated;
 
-#if GNATS110_FIX
-    if(allocated == 1) { w_assert1(filter->accepted()); }
-#endif
+    W_IFDEBUG1(if(allocated == 1) w_assert1(filter->accepted());)
     return RCOK;
 }
 
@@ -1596,7 +1601,6 @@ vol_t::recover_pages_in_ext(snum_t snum, extnum_t ext, const Pmap& pmap, bool is
         << " map=" << pmap 
         << " is_alloc=" << is_alloc);
 
-#if GNATS_77_FIX_1
     if (is_alloc)  {
         W_COERCE( ei.set_pmap_bits(snum, ext, pmap) );
         if (name)
@@ -1609,62 +1613,6 @@ vol_t::recover_pages_in_ext(snum_t snum, extnum_t ext, const Pmap& pmap, bool is
         if (name && link.num_set() == 0)
             name->set_ext_has_page_alloc(false);
     }
-#else
-    if (is_alloc)  {
-        W_COERCE( ei.set_pmap_bits(snum, ext, pmap) );
-        if (name)
-            name->set_ext_has_page_alloc(true);
-    } else if(!xct()) {
-        // I don't know when this could happen or why FRJ put this
-        // code in here, so I'll make it croak for the time being.
-        // W_FATAL_MSG(eINTERNAL, << " no xct associated with page recovery");
-        // NOTE: this happens in redo when the xct for which we are
-        // redoing the page already committed, in which case it is
-        // not found in the table.  See comments in restart.cpp GNATS 77
-        // Must fix this.
-        //
-        // chicken out and do nothing
-    }  else  {
-        // This bogus fix assumes we are redoing a free_page but 
-        // doesn't cope with undoing a page alloc.
-        // But if we are undoing an alloc page we probably have only
-        // an IX lock (possibly SIX, possibly EX from subsequent free_page), 
-        // and the page cannot be freed and perhaps never will be.
-        // The right thing to do is to 
-        // do a logical free under cover of an EX lock if possible.
-        
-        /* make sure we hold an EX lock on every page to be freed. If
-           not, remove it from the pmap that updates the extent.
-        */
-        Pmap mypmap = pmap;
-        shpid_t pnum = ext2pid(ext);
-
-        // BUG_MYPMAP_INF_LOOP_FIX: check for i>=0
-        // otherwise we can get into an infinite loop in the next statement:
-        for(int i=mypmap.first_set(0); 
-                (i>=0)&& (i < mypmap.count()); 
-                i=mypmap.first_set(i+1)
-        ) {
-            lpid_t pid(_vid, snum, pnum+i);
-            lock_mode_t m;
-            w_rc_t e = lm->query(pid, m, xct()->tid());
-            if(e.is_error() || m != EX) {
-                DBGTHRD(<< "recover_pages_in_ext is skipping free of page " <<
-                    i << " in ext " << ext << " store " << snum
-                    );
-                mypmap.clear(i);
-            }
-        }
-
-        if(!mypmap.is_empty()) {
-            W_COERCE( ei.clr_pmap_bits(snum, ext, mypmap) );
-            extlink_t link;
-            W_COERCE( ei.get_copy(ext, link) );
-            if (name && link.num_set() == 0)
-                name->set_ext_has_page_alloc(false);
-        }
-    }
-#endif
 
     return RCOK;
 }
@@ -1772,9 +1720,8 @@ vol_t::free_page(const lpid_t& pid, bool check_membership)
     /* NB: force required -- see comments in io_lock_force */
     //jk TODO if multiple xct were acting on page, it's possible we can't
     // get this lock, in that case we should just return and not free the page
-    W_DO(io_lock_force(pid, EX, t_long, WAIT_IMMEDIATE));
+    W_DO(vol_io_shared::io_lock_force(pid, EX, t_long, WAIT_IMMEDIATE));
 
-    //  GNATS_77_FIX_0
     if(check_membership) {
         // check the extent link for this page: is the bit
         // for this page set?  Is it still in this store?
@@ -1788,7 +1735,7 @@ vol_t::free_page(const lpid_t& pid, bool check_membership)
             w_assert1(0); // track these things down
             return RC(eBADPID);
         }
-    } //  GNATS_77_FIX_0
+    }
 
     extid_t        extid;
     extid.vol = pid._stid.vol;
@@ -1975,7 +1922,7 @@ vol_t::next_page_with_space(lpid_t& pid, space_bucket_t needed)
         if( page.bucket() > b) {
             // This is NOT ok because the
             // page will be skipped.
-            smlevel_0::errlog->clog << error_prio 
+            smlevel_0::errlog->clog << warning_prio 
                     << "Warning: page will be skipped; extent bucket is low \n";
             // w_assert9(0);
         }
@@ -2388,7 +2335,8 @@ vol_t::find_free_store(snum_t& snum)
      * instead of trying all the stores, returning immediately
      * (since the volume is locked) and then returning OUTOFSPACE
      */
-    W_DO( io_lock_force(_vid, IX, t_long, WAIT_SPECIFIED_BY_XCT) );
+    W_DO( vol_io_shared::io_lock_force(
+                _vid, IX, t_long, WAIT_SPECIFIED_BY_XCT) );
 
     for (uint i = 1; i < _num_exts; i++)  {
         const stnode_t *_stnode;
@@ -2446,7 +2394,7 @@ vol_t::set_store_flags(snum_t snum, store_flag_t flags, bool sync_volume)
 
     if (flags & st_regular)  {
 
-        /* BUGBUG: (performance) The proper thing to do here
+        /* GNATS 117 : (performance) The proper thing to do here
          * is to set the store flags on the clean & dirty pages,
          * write the dirty ones, keep the clean ones, and don't 
          * discard them from the BP.  Until we do that, we must
@@ -2867,7 +2815,7 @@ vol_t::free_ext_after_xct(extnum_t ext, snum_t& old_owner)
                     X_DO( next_ei_p->put(next_ext, link), anchor );
                 }
 
-                xd->compensate(anchor, false);
+                xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("vol.1"));
 
                 return RCOK;
             }  else  {
@@ -3402,6 +3350,7 @@ vol_t::check_store_page(const lpid_t &pid, page_p::tag_t tag)
         case page_p::t_extlink_p:
         case page_p::t_stnode_p:
         case page_p::t_btree_p:
+        case page_p::t_rtree_p:
         case page_p::t_file_p:
             if (t != tag) error++;
             break;
@@ -3979,7 +3928,7 @@ bool vol_t::_is_alloc_page_of(
     //than they're deleted. If the page latch bottleneck pops up
     //again, it might be due to contention for an extent that was not
     //recently allocated.
-    //GNATS 104
+    //BUG: filed as GNATS 104: turned off cache as workaround
     use_cache = false;
     if(use_cache) {
         histo_extent_cache::iterator it = histo_ext_cache_find(ext);
@@ -4011,18 +3960,15 @@ bool vol_t::_is_alloc_page_of(
     }
     // Not found in the cache.  Now look at the extent link.
 
-    // Don't have a way to deal with errors here... BUGBUG
+    // Don't have a way to deal with errors here... filed as GNATS 118
     W_COERCE(ei.get(ext, linkp));
     
     shpid_t base_pid = ext2pid(ext);
-#if GNATS_96_FIX
+
     bool result = (linkp->owner==s) && linkp->is_set(int(pid.page - base_pid));
     DBGTHRD(<<" is_alloc_page_of(" << pid << ", "<< s << ")="
                     << int(result));
     return result;
-#else
-    return (linkp->owner) && linkp->is_set(int(pid.page - base_pid));
-#endif
 }
 
 /*********************************************************************
@@ -4038,7 +3984,7 @@ bool vol_t::is_alloc_page(const lpid_t& pid) const
     extlink_i ei(_epid);
     const extlink_t* linkp;
 
-    // Don't have a way to deal with errors here... BUGBUG
+    // Don't have a way to deal with errors here... BUGBUG GNATS 118
     W_COERCE(ei.get(ext, linkp));
 
     return linkp->is_set(int(pid.page - ext2pid(ext)));
@@ -4120,7 +4066,7 @@ vol_t::read_page(shpid_t pnum, page_s& page)
 
     smthread_t* t = me();
 
-#ifdef ZERO_INIT
+#if ZERO_INIT
     /*
      * When a write into the buffer pool of potentially uninitialized 
      * memory occurs (such as padding)
@@ -4333,7 +4279,7 @@ vol_t::format_vol(
      *  Determine if the volume is on a raw device
      */
     bool raw;
-    rc_t rc = log_m::check_raw_device(devname, raw);
+    rc_t rc = check_raw_device(devname, raw);
     if (rc.is_error())  {
         return RC_AUGMENT(rc);
     }
@@ -4417,9 +4363,10 @@ vol_t::format_vol(
         page_s* buf = new page_s; // auto-del
         if (! buf) return RC(eOUTOFMEMORY);
         w_auto_delete_t<page_s> auto_del(buf);
-#ifdef ZERO_INIT
-        // TODO: should do the same for valgrind
-        // zero out data portion of page to keep purify happy.
+#if ZERO_INIT
+        // zero out data portion of page to keep purify/valgrind happy.
+        // Unfortunately, this isn't enough, as the format below
+        // seems to assign an uninit value.
         memset(((char*)buf), '\0', sizeof(page_s));
 #endif
 
@@ -4551,7 +4498,7 @@ vol_t::format_vol(
         if (skip_raw_init) {
             DBG( << "skipping zero-ing of raw device: " << devname );
         } else {
-#ifndef DONT_TRUST_PAGE_LSN
+
             DBG( << "zero-ing of raw device: " << devname << " ..." );
             // zero out rest of extents
             while (curr_off < 
@@ -4566,8 +4513,7 @@ vol_t::format_vol(
             w_assert9(curr_off == 
                 fileoff_t((fileoff_t(page_sz) * ext_sz) * num_exts));
             DBG( << "finished zero-ing of raw device: " << devname);
-#endif
-            }
+        }
 
     } else {
 #ifdef WANT_HUGE_FILES
@@ -4600,10 +4546,6 @@ DBG(<<"format_vol: seeking to offset " << where << " to write last page " );
     return RCOK;
 }
 
-
-
-
-
 /*********************************************************************
  *
  *  vol_t::write_vhdr(fd, vhdr, raw_device)
@@ -4628,7 +4570,7 @@ vol_t::write_vhdr(int fd, volhdr_t& vhdr, bool raw_device)
      *  the volume header is replicated at the beginning of the
      *  first page.
      */
-    if (raw_device) { w_assert1(page_sz >= 1024); }
+    W_IFDEBUG1(if (raw_device) w_assert1(page_sz >= 1024);)
 
     /*
      *  tmp holds the volume header to be written
@@ -4843,7 +4785,6 @@ void
 vol_t::acquire_mutex(vol_t::lock_state* _me, bool for_write) 
 {
     assert_mutex_notmine(_me);
-#if VOL_LOCK_IS_RW
     if(for_write) {
         INC_TSTAT(need_vol_lock_w);  
         if(_mutex.attempt_write() ) {
@@ -4859,17 +4800,6 @@ vol_t::acquire_mutex(vol_t::lock_state* _me, bool for_write)
         INC_TSTAT(await_vol_lock_r);  
         _mutex.acquire_read();
     }
-#else
-    if(_mutex.acquire(_me))  {
-        // The mcs_lock implementation can tell us if this
-        // was contended; the w_pthread_lock_t cannot.
-        if(for_write) {
-            INC_TSTAT(need_vol_lock_w);  
-        } else {
-            INC_TSTAT(need_vol_lock_r);  
-        }
-    }
-#endif
     assert_mutex_mine(_me);
 }
 
@@ -4916,8 +4846,7 @@ vol_t::init_histo(store_histo_t* h,  snum_t snum,
                 // actually store changed, but this is close enough
                 numpages = n;
                 volstophere();
-            fprintf(stderr, "**************** DEADBEEF Z at %d\n", __LINE__);
-            w_assert1(0); // GNATS 104
+                w_assert1(0); // GNATS 104 
                 return  RC(ePAGECHANGED);
             }
             shpid_t base_page = ext * ext_sz;

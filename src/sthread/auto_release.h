@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='AUTO_RELEASE_H'>
 
- $Id: auto_release.h,v 1.1.2.5 2010/03/19 22:20:00 nhall Exp $
+ $Id: auto_release.h,v 1.3 2010/06/15 17:26:00 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -106,9 +106,6 @@ class auto_release_t<w_pthread_lock_t>
     w_pthread_lock_t&                obj;
     w_pthread_lock_t::ext_qnode*    _me;
 };
-#if defined(USE_TPMCS_LOCK)
-// TODO: Template for tpmcs_lock?
-#endif
 
 /**\brief Template class that releases a held pthread mutex upon destruction.
  * 

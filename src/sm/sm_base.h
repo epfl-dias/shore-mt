@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SM_BASE_H'>
 
- $Id: sm_base.h,v 1.146.2.16 2010/03/25 18:05:16 nhall Exp $
+ $Id: sm_base.h,v 1.149 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -98,26 +98,9 @@ class option_t;
 
 typedef   w_rc_t        rc_t;
 
-
-// This business is to allow us to switch from one kind of
-// lock to another with more ease (controlled by shore.def).
-#if VOLUME_OPS_USE_OCC
-typedef occ_rwlock sm_vol_rwlock_t;
-typedef occ_rwlock::occ_rlock sm_vol_rlock_t;
-typedef occ_rwlock::occ_wlock sm_vol_wlock_t;
-#define SM_VOL_WLOCK(base) (base).write_lock()
-#define SM_VOL_RLOCK(base) (base).read_lock()
-
-#else
-typedef queue_based_lock_t sm_vol_rwlock_t;
-typedef queue_based_lock_t sm_vol_rlock_t;
-typedef queue_based_lock_t sm_vol_wlock_t;
-#define SM_VOL_WLOCK(base) &(base)
-#define SM_VOL_RLOCK(base) &(base)
-#endif
-
-
 /**\cond skip */
+
+/**\brief Encapsulates a few types uses in the API */
 class smlevel_0 : public w_base_t {
 public:
     enum { eNOERROR = 0, eFAILURE = -1 };
@@ -164,10 +147,6 @@ public:
      * Note: a different type was used for added type checking.
      */
     typedef sthread_t::fileoff_t smksize_t;
-
-
-    typedef vote_t        xct_vote_t;
-
     typedef w_base_t::base_stat_t base_stat_t; 
 
     /*
@@ -175,51 +154,120 @@ public:
      * _log_warn_percent is exceeded, this callback is made, with a
      * pointer to the xct that did the writing, and with the
      * expectation that the result will be one of:
-     * return value == RCOK --> proceed
-     * return value == eUSERABORT --> victim to abort is given in the argument
+     * - return value == RCOK --> proceed
+     * - return value == eUSERABORT --> victim to abort is given in the argument
      *
-     * This method is in its own file, so the VAS can replace it.
-     * It is a ss_m method so that the VAS can write a function that
-     * is privvy to the SM private stuff.
+     * The server has the responsibility for choosing a victim and 
+     * for aborting the victim transaction. 
+     *
      */
-    /*
-     * callback function that's called by SM on entry to
-     * __almost any__ SM call that occurs on behalf of a xact.  The
-     * callback is made IFF the amount of log space used exceeds the
-     * threshhold determined by the option sm_log_warn; this callback
-     * function chooses a victim xct and tells if the xct should be
-     * aborted by returning RC(eUSERABORT).  Any other RC is returned
-     * to the caller of the SM.    The arguments:
-     *  xct_i*  : ptr to iterator over all xcts 
-     *  xct_t *&: ref to ptr to xct : ptr to victim is returned here.
-     *  base_stat_t curr: current log used by active xcts
-     *  base_stat_t thresh: threshhold that was just exceeded
-     *  Function must be careful not to return the same victim more
+
+    /**\brief Log space warning callback function type.  
+     *
+     * For more details of how this is used, see the constructor ss_m::ss_m().
+     *
+     * Storage manager methods check the available log space. 
+     * If the log is in danger of filling to the point that it will be
+     * impossible to abort a transaction, a
+     * callback is made to the server.  The callback function is of this type.
+     * The danger point is a threshold determined by the option sm_log_warn. 
+     *
+     * The callback
+     * function is meant to choose a victim xct and 
+     * tell if the xct should be
+     * aborted by returning RC(eUSERABORT).  
+     *
+     * Any other RC value is returned to the server through the call stack.
+     *
+     * The arguments:
+     * @param[in] iter    Pointer to an iterator over all xcts.
+     * @param[out] victim    Victim will be returned here. This is an in/out
+     * paramter and is initially populated with the transaction that is
+     * attached to the running thread.
+     * @param[in] curr    Bytes of log consumed by active transactions.
+     * @param[in] thresh   Threshhold just exceeded. 
+     * @param[in] logfile   Character string name of oldest file to archive.
+     *                     
+     *  This function must be careful not to return the same victim more
      *  than once, even though the callback may be called many 
      *  times before the victim is completely aborted.
+     *
+     *  When this function has archived the given log file, it needs
+     *  to notify the storage manager of that fact by calling
+     *  ss_m::log_file_was_archived(logfile)
      */
-    typedef w_rc_t (*LOG_WARN_CALLBACK_FUNC) (xct_i*, xct_t *&,
-        fileoff_t curr,
-        fileoff_t thresh
+    typedef w_rc_t (*LOG_WARN_CALLBACK_FUNC) (
+            xct_i*      iter,     
+            xct_t *&    victim, 
+            fileoff_t   curr, 
+            fileoff_t   thresh, 
+            const char *logfile
+        );
+    /**\brief Callback function type for restoring an archived log file.
+     *
+     * @param[in] fname   Original file name (with path).
+     * @param[in] needed   Partition number of the file needed.
+     *
+     *  An alternative to aborting a transaction (when the log fills)
+     *  is to archive log files.
+     *  The server can use the log directory name to locate these files,
+     *  and may use the iterator and the static methods of xct_t to 
+     *  determine which log file(s) to archive.
+     *
+     *  Archiving and removing the older log files will work only if
+     *  the server also provides a LOG_ARCHIVED_CALLBACK_FUNCTION 
+     *  to restore the
+     *  archived log files when the storage manager needs them for
+     *  rollback.
+     *  This is the function type used for that purpose.
+     *
+     *  The function must locate the archived log file containing for the
+     *  partition number \a num, which was a suffix of the original log file's
+     *  name.
+     *  The log file must be restored with its original name.  
+     */
+    typedef    w_base_t::uint4_t partition_number_t; 
+    typedef w_rc_t (*LOG_ARCHIVED_CALLBACK_FUNC) (
+            const char *fname,
+            partition_number_t num
         );
 
+/**\cond skip */
     enum switch_t {
         ON = 1,
         OFF = 0
     };
+/**\endcond skip */
 
-    // shorthand for basics.h CompareOp
+    /**\brief Comparison types used in scan_index_i
+     * \enum cmp_t
+     * Shorthand for CompareOp.
+     */
     enum cmp_t { bad_cmp_t=badOp, eq=eqOp,
                  gt=gtOp, ge=geOp, lt=ltOp, le=leOp };
 
-    enum store_t { t_bad_store_t, t_index, t_file,
-                   t_lgrec, // t_lgrec is used for storing large record
-                            // pages and is always associated with some
-                            // t_file store
-                   t_1page // for special store holding 1-page btrees 
-                  };
+
+    /* used by lock escalation routines */
+    enum escalation_options {
+        dontEscalate        = max_int4_minus1,
+        dontEscalateDontPassOn,
+        dontModifyThreshold        = -1
+    };
+
+    /**\brief Types of stores.
+     * \enum store_t
+     */
+    enum store_t { 
+        t_bad_store_t, 
+        /// a b-tree or r-tree index
+        t_index, 
+        /// a file of records
+        t_file, 
+        /// t_lgrec is used for storing large record pages 
+        /// and is always associated with some t_file store
+        t_lgrec 
+    };
     
-/**\endcond skip */
     // types of indexes
 
     /**\brief Index types */
@@ -293,6 +341,7 @@ public:
     static tid_t* redo_tid;
 
     static LOG_WARN_CALLBACK_FUNC log_warn_callback;
+    static LOG_ARCHIVED_CALLBACK_FUNC log_archived_callback;
     static fileoff_t              log_warn_trigger; 
     static int                    log_warn_exceed_percent; 
 
@@ -344,8 +393,6 @@ public:
     // option for controlling background buffer flush thread
     static option_t* _backgroundflush;
 
-    // Certain operations have to exclude xcts
-    static sm_vol_rwlock_t    _begin_xct_mutex;
 
     /*
      * Pre-defined store IDs -- see also vol.h
@@ -409,8 +456,10 @@ public:
             t_deleting_store, 
             t_store_freeing_exts, 
             t_unknown_deleting};
+/**\endcond  skip */
 };
 
+/**\cond  skip */
 ostream&
 operator<<(ostream& o, smlevel_0::store_flag_t flag);
 

@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: shell.cpp,v 1.330.2.22 2010/03/25 18:05:21 nhall Exp $
+ $Id: shell.cpp,v 1.335 2010/05/26 01:20:51 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -43,12 +43,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <strings.h>
 #include <ctype.h>
 
-
 #ifdef __GNUG__
 #define        IOS_FAIL(stream)        stream.setstate(ios::failbit)
 #else
 #define        IOS_FAIL(stream)        stream.setstate(ios_base::failbit)
 #endif
+
 
 // NOTE: now each thread has its own generator; this might not be what
 // we want, but for now such is the case, until we have a MT-safe/reentrant
@@ -153,8 +153,6 @@ cvt_store_t(ss_m::store_t n)
         return "t_file";
     case ss_m::t_lgrec:
         return "t_lgrec";
-    case ss_m::t_1page:
-        return "t_1page";
     }
     return "unknown";
 }
@@ -243,8 +241,8 @@ make_vid_from_lvid(const char* lv)
     uint2_t vid;
     w_istrstream anon(lv); anon >> vid;
     std::cerr << "Trying to create vid from " << lv 
-        << " result=" << vid
-        << std::endl;
+    << " result=" << vid
+    << std::endl;
     return vid_t(vid);
 }
 
@@ -408,8 +406,7 @@ cvt2lockid_t(const char *str, lockid_t &n)
 }
 
 bool 
-use_logical_id(Tcl_Interp* 
-        )
+use_logical_id(Tcl_Interp*)
 {
     return false;
 }
@@ -916,6 +913,17 @@ t_xct_to_tid(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     }
 }
 
+extern "C" void print_all_latches();
+static int
+t_dump_latches(Tcl_Interp* ip, int ac, TCL_AV char*[])
+{
+    if (check(ip, "", ac, 1))
+        return TCL_ERROR;
+    
+    print_all_latches();
+    return TCL_OK;
+}
+
 static int
 t_dump_xcts(Tcl_Interp* ip, int ac, TCL_AV char*[])
 {
@@ -1068,7 +1076,7 @@ t_gather_stats(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
         diff = curr;
         // last_time starts out all zeroes.
-		diff -= last_time;
+        diff -= last_time;
         if(reset) {
             // Save values at the last reset.
             last_time = curr;
@@ -1434,8 +1442,8 @@ t_create_vol(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     {
         DO( sm->create_vol(av[1], lvid, quota, skip_raw_init
-                    , make_vid_from_lvid(av[2])
-                    ));
+            , make_vid_from_lvid(av[2])
+            ));
     }
     return TCL_OK;
 }
@@ -2030,8 +2038,8 @@ t_blkld_md_ndx(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         stid_t stid;
         w_istrstream anon(av[1]); anon >> stid;
         DO( sm->bulkld_md_index(stid, s_stream, stats,
-                                  // hff,      hef,         universe
-                                  atoi(av[3]), atoi(av[4]), &univ) );
+                  // hff,      hef,         universe
+                  atoi(av[3]), atoi(av[4]), &univ) );
     }
 
     {
@@ -2097,8 +2105,6 @@ t_crash(Tcl_Interp* ip, int ac, TCL_AV char ** W_IFTRACE(av))
  * callback function for running out of log space
  */
 class xct_i; class xct_t;
-extern w_rc_t out_of_log_space (xct_i*, xct_t *&,
-        smlevel_0::fileoff_t, smlevel_0::fileoff_t);
 
 static int
 t_restart(Tcl_Interp* ip, int ac, TCL_AV char* av[])
@@ -2120,7 +2126,7 @@ t_restart(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     // Try without callback function.
     if(log_warn_callback) {
-       sm = new ss_m(out_of_log_space);
+       sm = new ss_m(out_of_log_space, get_archived_log_file);
     } else {
        sm = new ss_m();
     }
@@ -2867,6 +2873,7 @@ dump_pin_body(
     char *buf = new char[buf_len];
     if (!buf)
             W_FATAL(fcOUTOFMEMORY);
+    DBG(<<"buf & " << &buf );
             
 
     // BODY is not going to be small
@@ -2884,7 +2891,6 @@ dump_pin_body(
     smsize_t offset = start-handle.start_byte();
     bool eor = false;  // check end of record
     while (i < length && !eor) {
-
         smsize_t handle_len = MIN(handle.length(), length);
         //s << "Bytes:" << i << "-" << i+handle.length()-offset 
         //  << ": " << handle.body()[0] << "..." << ends;
@@ -2914,8 +2920,10 @@ dump_pin_body(
                  */
 
                 w_assert1(width+1 < buf_len);
+                DBG(<<"width " << width );
                 memset(buf, '\0', width+1);
                 sprintf(buf, "%.*s", width, handle.body()+offset);
+                DBG(<<"buf " << buf );
                 for (j=width-1; j>=0; j--) {
                     if(buf[j]!= '\0')  {
                         DBG(<<"byte # " << j << 
@@ -2931,6 +2939,7 @@ dump_pin_body(
                     if(ip) {
                         out << ends;
                         Tcl_AppendResult(ip, buf, 0);
+                        DBG(<<"buf " << buf );
                         w_reset_strstream(out);
                     }
                 }
@@ -2950,8 +2959,9 @@ dump_pin_body(
     delete[] buf;
 }
 
+
 w_rc_t
-dump_scan( scan_file_i &scan, ostream &out, bool hex) 
+dump_scan(scan_file_i &scan, ostream &out, DSCB callback, bool hex) 
 {
     w_rc_t  rc;
     bool    eof=false;
@@ -2967,21 +2977,26 @@ dump_scan( scan_file_i &scan, ostream &out, bool hex)
          DBG(
                  << " pin " << u_long( (void *)pin)
                  << " eof " << eof  );
+        if(callback) {
+            (*callback)(*pin);
+        } else 
         if (linked.verbose_flag) {
             out << pin->rid();
-            out << " hdr: " ;
             if(pin->hdr_size() > 0) {
                 if(pin->hdr_size() == sizeof(unsigned int)) {
+                    out << " hdr: " ;
                     // HACK:
                     unsigned int m;
                     memcpy(&m, pin->hdr(), sizeof(unsigned int));
                     out << m;
                 } else if(hex) {
+                   out << " hdr: " ;
                    for(unsigned int qq = 0; qq < pin->hdr_size(); qq++) {
                        const char *xxx = pin->hdr() + qq;
                        cout << int( (*xxx) ) << " ";
                    }
                 } else {
+                   out << " hdr: " ;
                     // print as char string
                     out << pin->hdr();
                 }
@@ -2992,6 +3007,7 @@ dump_scan( scan_file_i &scan, ostream &out, bool hex)
         vec_t w;
         bool eof = false;
 
+        if(!callback) 
         for(unsigned int j = 0; j < pin->body_size();) {
             if(pin->body_size() > 0) {
                 w.reset();
@@ -3195,11 +3211,11 @@ t_pin_pin(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     if (read_ptr(ip, av[1], p)) return TCL_ERROR;
 
     smsize_t start = objectsize(av[3]);
-    lock_mode_t lmode = SH;
+    lock_mode_t lmode = w_base_t::SH;
  
     if (ac == 5) {
         if (strcmp(av[4], "EX") == 0) {
-            lmode = EX;
+            lmode = w_base_t::EX;
         }
     }
 
@@ -3232,10 +3248,10 @@ t_pin_repin(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     if (check(ip, "pin [SH/EX]", ac, 2,3))
         return TCL_ERROR;
     
-    lock_mode_t lmode = SH;
+    lock_mode_t lmode = w_base_t::SH;
     if (ac == 3) {
         if (strcmp(av[2], "EX") == 0) {
-            lmode = EX;
+            lmode = w_base_t::EX;
         }
     }
 
@@ -3682,6 +3698,7 @@ t_create_assoc(Tcl_Interp* ip, int ac, TCL_AV char* av[])
                     key.reset();
                     key.put(&i, sizeof(int));
                 } break;
+
             case test_u4: {
                     u = strtoul(av[2], 0, 0);
                     key.reset();
@@ -3865,15 +3882,20 @@ t_find_assoc(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 static int
 t_create_md_index(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 {
-    if (check(ip, "vid dim ndxtype", ac, 4))
+    if (check(ip, "vid dim ndxtype [\"tmp|regular|load_file|insert_file\"] ", 
+                ac, 4, 5))
         return TCL_ERROR;
 
     int2_t dim = atoi(av[2]);
 
+    ss_m::store_property_t property = ss_m::t_regular;
+    if (ac > 4) {
+        property = cvt2store_property(av[4]);
+    }
     {
         stid_t stid;
         DO( sm->create_md_index(atoi(av[1]), cvt2ndx_t(av[3]),
-                                ss_m::t_regular, stid, dim) );
+                                property, stid, dim) );
         w_reset_strstream(tclout);
         tclout << stid << ends;
     }
@@ -4396,6 +4418,7 @@ t_sort_stream_get(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         case  test_i1:
             tclout << (int)v._u.i1_num;
             break;
+
         case  test_u1:
             tclout << (unsigned int)v._u.u1_num ;
             break;
@@ -4403,6 +4426,7 @@ t_sort_stream_get(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         case  test_i2:
             tclout << v._u.i2_num ;
             break;
+
         case  test_u2:
             tclout << v._u.u2_num ;
             break;
@@ -4580,11 +4604,11 @@ t_get_escalation_thresholds(Tcl_Interp* ip, int ac, TCL_AV char* [])
 
     DO( sm->get_escalation_thresholds(toPage, toStore, toVolume) );
 
-    if (toPage == dontEscalate)
+    if (toPage == smlevel_0::dontEscalate)
         toPage = 0;
-    if (toStore == dontEscalate)
+    if (toStore == smlevel_0::dontEscalate)
         toStore = 0;
-    if (toVolume == dontEscalate)
+    if (toVolume == smlevel_0::dontEscalate)
         toVolume = 0;
 
     w_reset_strstream(tclout);
@@ -4600,9 +4624,9 @@ parse_escalation_thresholds(const char *s)
     int                result = atoi(s);
 
     if (result == 0)
-        result = dontEscalate;
+        result = smlevel_0::dontEscalate;
     else if (result < 0)
-        result = dontModifyThreshold;
+        result = smlevel_0::dontModifyThreshold;
     
     return result;
 }
@@ -4731,7 +4755,7 @@ t_query_lock(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         return TCL_ERROR;
 
     rc_t rc; // return code
-    lock_mode_t m = NL;
+    lock_mode_t m = w_base_t::NL;
 
     {
         lockid_t n;
@@ -4864,7 +4888,7 @@ t_lock_record_blind(Tcl_Interp* ip, int ac, TCL_AV char* av[])
         if (i + j >= n) j = n - i; 
         while (j--) {
             rid.slot = j;
-            DO( sm->lock(rid, EX) );
+            DO( sm->lock(rid, w_base_t::EX) );
         }
     }
 
@@ -5070,6 +5094,7 @@ static cmd_t cmd[] = {
     { "detach_xct", t_detach_xct},
     { "state_xct", t_state_xct},
     { "dump_xcts", t_dump_xcts},
+    { "dump_latches", t_dump_latches},
     { "xct_to_tid", t_xct_to_tid},
     { "tid_to_xct", t_tid_to_xct},
     { "prepare_xct", t_prepare_xct},

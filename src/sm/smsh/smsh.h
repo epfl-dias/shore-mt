@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SSH_H'>
 
- $Id: smsh.h,v 1.1.2.6 2010/03/19 22:20:31 nhall Exp $
+ $Id: smsh.h,v 1.2 2010/05/26 01:20:52 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -80,6 +80,9 @@ extern linked_vars linked;
 
 extern bool force_compress;
 extern bool log_warn_callback;
+extern w_rc_t out_of_log_space (xct_i*, xct_t*&, ss_m::fileoff_t, 
+		                         ss_m::fileoff_t, const char *logdir);
+extern w_rc_t get_archived_log_file (const char *, ss_m::partition_number_t);
 extern void dispatch_init();
 
 /*<std-footer incl-file-exclusion='SSH_H'>  -- do not edit anything below this line -- */

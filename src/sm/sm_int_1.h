@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SM_INT_1_H'>
 
- $Id: sm_int_1.h,v 1.11.2.8 2010/01/28 04:54:15 nhall Exp $
+ $Id: sm_int_1.h,v 1.12 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -49,6 +49,8 @@ class chkpt_m;
    extents.  xct_ended implies completed and freeing space completed */
 class smlevel_1 : public smlevel_0 {
 public:
+
+	/**\todo xct_state_t */
     // The numeric equivalents of state are not significant; they are
     // given here only for convenience in debugging/grepping
     enum xct_state_t {  xct_stale = 0x0,  

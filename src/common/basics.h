@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='BASICS_H'>
 
- $Id: basics.h,v 1.68.2.6 2010/03/19 22:19:19 nhall Exp $
+ $Id: basics.h,v 1.71 2010/05/26 01:20:11 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -50,11 +50,32 @@ typedef w_base_t::uint2_t     uint2_t;
 typedef w_base_t::uint4_t     uint4_t;
 
 /* sizes-in-bytes for all persistent data in the SM. */
-typedef uint4_t    smsize_t;
+typedef uint4_t               smsize_t;
 
 /* For types of store, volumes, see stid_t.h and vid_t.h */
 
 typedef w_base_t::uint4_t    shpid_t; 
+
+#ifndef SM_SOURCE
+// This is for servers. SM_SOURCE is defined in the SM sources.
+namespace locking {
+	typedef w_base_t::lock_duration_t  lock_duration_t; 
+	typedef w_base_t::lock_mode_t  lock_mode_t; 
+	static const lock_mode_t NL = w_base_t::NL;
+	static const lock_mode_t IS = w_base_t::IS;
+	static const lock_mode_t IX = w_base_t::IX;
+	static const lock_mode_t SH = w_base_t::SH;
+	static const lock_mode_t SIX = w_base_t::SIX;
+	static const lock_mode_t UD = w_base_t::UD;
+	static const lock_mode_t EX = w_base_t::EX;
+};
+using namespace locking;
+
+namespace two_phase_commit {
+	typedef w_base_t::vote_t  vote_t; 
+};
+using namespace two_phase_commit;
+#endif
 
 
 /* Type of a record# on a page  in SM (sans page,store,volume info) */
@@ -92,54 +113,6 @@ inline bool is_aligned(const void* p)
 {
     return w_base_t::is_aligned(p);
 }
-
-    /* used by sm and all layers: */
-enum CompareOp {
-    badOp=0x0, eqOp=0x1, gtOp=0x2, geOp=0x3, ltOp=0x4, leOp=0x5,
-    /* for internal use only: */
-    NegInf=0x100, eqNegInf, gtNegInf, geNegInf, ltNegInf, leNegInf,
-    PosInf=0x400, eqPosInf, gtPosInf, gePosInf, ltPosInf, lePosInf
-    };
-
-/*
- * Lock modes for the Storage Manager.
- * Note: Capital letters are used to match common usage in DB literature
- * Note: Values MUST NOT CHANGE since order is significant.
- */
-enum lock_mode_t {
-    NL = 0,         /* no lock                */
-    IS,         /* intention share (read)        */
-    IX,            /* intention exclusive (write)        */
-    SH,            /* share (read)             */
-    SIX,        /* share with intention exclusive    */
-    UD,            /* update (allow no more readers)    */
-    EX            /* exclusive (write)            */
-};
-
-/* used by lock manager and all layers: */
-enum lock_duration_t {
-    t_instant     = 0,    /* released as soon as the lock is acquired */
-    t_short     = 1,    /* held until end of some operation         */
-    t_medium     = 2,    /* held until explicitly released           */
-    t_long     = 3,    /* held until xct commits                   */
-    t_very_long = 4,    /* held across xct boundaries               */
-    t_num_durations = 5 /* not a duration -- used for typed comparisons */
-};
-
-enum vote_t {
-    vote_bad,    /* illegit value                */
-    vote_readonly,  /* no ex locks acquired for this tx         */
-    vote_abort,     /* cannot commit                            */
-    vote_commit     /* can commit if so told                    */
-};
-
-/* used by lock escalation routines */
-enum escalation_options {
-    dontEscalate        = max_int4_minus1,
-    dontEscalateDontPassOn,
-    dontModifyThreshold        = -1
-};
-
 
 /*<std-footer incl-file-exclusion='BASICS_H'>  -- do not edit anything below this line -- */
 

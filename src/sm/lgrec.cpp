@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: lgrec.cpp,v 1.73.2.8 2010/03/19 22:20:23 nhall Exp $
+ $Id: lgrec.cpp,v 1.75 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -574,14 +574,6 @@ shpid_t lg_tag_indirect_h::_pid(uint4_t pid_num) const
     return indirect.pids(pid_num % lgindex_p::max_pids);
 }
 
-void lgdata_p::ntoh()
-{
-    /*
-     *  BUGBUG --- fill in when appropriate 
-     */
-    W_FATAL(eINTERNAL);
-}
-
 rc_t
 lgdata_p::format(const lpid_t& pid, tag_t tag, 
         uint4_t flags, store_flag_t store_flags
@@ -699,14 +691,6 @@ lgindex_p::truncate(uint4_t num_pages)
     int         bytes_to_trunc = u4i(num_pages) * sizeof(shpid_t);
     W_DO(splice(0, (slot_length_t)(tuple_size(0)-bytes_to_trunc), bytes_to_trunc, empty));
     return RCOK;
-}
-
-void lgindex_p::ntoh()
-{
-    /*
-     *  BUGBUG -- fill in when appropriate
-     */
-    W_FATAL(eINTERNAL);
 }
 
 MAKEPAGECODE(lgdata_p, page_p)

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='PROLOGUE_H'>
 
- $Id: prologue.h,v 1.47.2.7 2010/03/19 22:20:24 nhall Exp $
+ $Id: prologue.h,v 1.49 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -73,18 +73,37 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 //
 // pin_cnt_change : when the prologue_rc_t is destructed, there
 //  can be up to this many extra pins lingering.
-#define SM_PROLOGUE_RC(func_name, is_in_xct, pin_cnt_change)        \
-        FUNC(func_name);                                         \
-        prologue_rc_t prologue(prologue_rc_t::is_in_xct, (pin_cnt_change)); \
-        if (prologue.error_occurred()) return prologue.rc();
+#define SM_PROLOGUE_RC(func_name, is_in_xct, constrnt, pin_cnt_change)         \
+    FUNC(func_name);                                                           \
+    prologue_rc_t prologue(prologue_rc_t::is_in_xct,                           \
+                           prologue_rc_t::constrnt, (pin_cnt_change));        \
+    if (prologue.error_occurred()) return prologue.rc();
 
-#define INIT_SCAN_PROLOGUE_RC(func_name, pin_cnt_change)                \
-        FUNC(func_name);                                        \
-        prologue_rc_t prologue(prologue_rc_t::in_xct, (pin_cnt_change)); \
-        if (prologue.error_occurred()) {                         \
-            _error_occurred = prologue.rc();                        \
-            return;                                                 \
-        }
+// NOTE : these next two make sense only for scan iterators; the 
+// _error_occurred are local to the scan_i.
+// INIT_SCAN_PROLOGUE_RC is for the constructors
+#define INIT_SCAN_PROLOGUE_RC(func_name, readwrite, pin_cnt_change)            \
+    FUNC(func_name);                                                           \
+    prologue_rc_t prologue(prologue_rc_t::in_xct, readwrite,                   \
+                                                            (pin_cnt_change)); \
+    if (prologue.error_occurred()) {                                           \
+        _error_occurred = prologue.rc();                                       \
+        return;                                                                \
+    }
+
+// SCAN_METHOD_PROLOGUE_RC is for the methods, which return an rc 
+#define SCAN_METHOD_PROLOGUE(func_name, constraint, pin_cnt_change)            \
+    FUNC(func_name);                                                           \
+    prologue_rc_t prologue(prologue_rc_t::in_xct, prologue_rc_t::constraint,   \
+                                                            (pin_cnt_change)); \
+    if (prologue.error_occurred()) {                                           \
+        _error_occurred = prologue.rc();                                       \
+         return w_rc_t(_error_occurred);                                       \
+    }                                                                          \
+    if(_error_occurred.is_error()) {                                           \
+         return w_rc_t(_error_occurred);                                       \
+    }
+
 
 class prologue_rc_t {
 public:
@@ -96,108 +115,118 @@ public:
         can_be_in_xct,  // in or not -- no test for active or prepared
         abortable_xct   // active or prepared 
     };
+    enum xct_constraint_t {
+        read_only,      // this method/function is read-only and so can have
+                        // multiple threads attached to this xct
+        read_write      // this method/function may perform updates 
+                        // and so if in xct, must be a single-threaded xct
+    };
  
-    prologue_rc_t(xct_state_t is_in_xct, int pin_cnt_change);
+    prologue_rc_t(xct_state_t is_in_xct, xct_constraint_t, int pin_cnt_change);
     ~prologue_rc_t();
     void no_longer_in_xct();
     bool error_occurred() const {return _rc.is_error();}
     rc_t   rc() {return _rc;}
 
 private:
-    xct_state_t  _xct_state;
-    int     _pin_cnt_change;
-    rc_t    _rc;
-    xct_log_switch_t*    _toggle;
-    xct_t*        _victim;
+    xct_state_t       _xct_state;
+    xct_t *           _the_xct; // attached xct when we constructed prologue
+    xct_constraint_t  _constraint;
+    int               _pin_cnt_change;
+    rc_t              _rc;
+    xct_log_switch_t* _toggle;
+    xct_t*            _victim;
     // FRJ: malloc is too expensive so we cheat. Allocate space locally
     // and use placement-new. 32 bytes should be way plenty.
-    enum { SIZEOF_TOGGLE=32 };
+    enum        { SIZEOF_TOGGLE=32 };
     long        __toggle_data[SIZEOF_TOGGLE/sizeof(long)];
 };
 
 /*
- * Install the code in sm.cpp
+ * Install the implementation code in sm.cpp
  */
-#ifdef SM_C
-
-extern "C" void returning_eINTRANS() {
-  // do nothing!
-}
+#if defined(SM_C) 
 
 prologue_rc_t::prologue_rc_t(
         xct_state_t is_in_xct,  // expected state
+        xct_constraint_t constraint,  // what this method does
         int pin_cnt_change) :
-            _xct_state(is_in_xct), _pin_cnt_change(pin_cnt_change),
+            _xct_state(is_in_xct), 
+            _constraint(constraint), 
+            _pin_cnt_change(pin_cnt_change),
             _toggle(0), _victim(0)
 {
     w_assert2(!me()->is_in_sm());
 
-    xct_t *     x = xct();
-    bool        check_log = false;
+	_the_xct = xct();
+    bool        check_log = true;
+    bool        check_1thread = false;
 
-    
-    // switch on test of xct state
-    switch (_xct_state) {
-
+    switch (_xct_state) 
+    {
     case in_xct:
-        if ( (!x) 
-            || (x->state() != smlevel_1::xct_active)) {
+        if ( (!_the_xct) 
+            || (_the_xct->state() != smlevel_1::xct_active)) {
 
             _rc = rc_t(__FILE__, __LINE__, 
-                    (x && x->state() == smlevel_1::xct_prepared)?
+                    (_the_xct && _the_xct->state() == smlevel_1::xct_prepared)?
                     smlevel_0::eISPREPARED :
                     smlevel_0::eNOTRANS
                 );
-            _xct_state = not_in_xct; // otherwise destructor will fail
+            check_log = false;
         } 
-        check_log = true;
         break;
 
     case commitable_xct: {
         // called from commit and chain
         // If this tx is participating in an external 2pc,
         // it MUST be prepared before commit.  
-        // else must be (prepared or ? TODO NANCY) active. 
+        //
+        // Furthermore, we cannot have more than one thread attached.
         int        error = 0;
-        if ( ! x  ) {
+        if ( ! _the_xct  ) {
             error = smlevel_0::eNOTRANS;
-        } else 
-        if (x->is_extern2pc() && (x->state() != smlevel_1::xct_prepared) ) {
+        } else if (_the_xct->is_extern2pc() && 
+                (_the_xct->state() != smlevel_1::xct_prepared) ) 
+        {
             error = smlevel_0::eNOTPREPARED;
-        } else if( (x->state() != smlevel_1::xct_active) 
-                && (x->state() != smlevel_1::xct_prepared) 
+        } else if( (_the_xct->state() != smlevel_1::xct_active) 
+                && (_the_xct->state() != smlevel_1::xct_prepared) 
                 ) {
             error = smlevel_0::eNOTRANS;
         }
 
         if(error) {
             _rc = rc_t(__FILE__, __LINE__, error);
-            _xct_state = not_in_xct; // otherwise destructor will fail
+            check_log = false;
+			no_longer_in_xct(); // to avoid choking in destructor.
         }
-
+        check_1thread = true;
         break;
     }
 
     case abortable_xct:
         // do not special-case external2pc transactions -- they
         // can abort any time, since this is presumed-abort protocol
-        if (! x || (x->state() != smlevel_1::xct_active && 
-                x->state() != smlevel_1::xct_prepared)) {
+        //
+        // But we must be sure there's only one thread attached.
+        if (! _the_xct || (_the_xct->state() != smlevel_1::xct_active && 
+                _the_xct->state() != smlevel_1::xct_prepared)) {
             _rc = rc_t(__FILE__, __LINE__, smlevel_0::eNOTRANS);
-            _xct_state = not_in_xct; // otherwise destructor will fail
+            check_log = false;
         }
+        check_1thread = true;
         break;
 
     case not_in_xct:
-        if (x) {
+        if (_the_xct) {
             _rc = rc_t(__FILE__, __LINE__, smlevel_0::eINTRANS);
-            returning_eINTRANS();
         }
+        check_log = false;
         break;
 
     case can_be_in_xct:
         // do nothing
-        check_log = true;
         break;
 
     default:
@@ -216,9 +245,32 @@ prologue_rc_t::prologue_rc_t(
         _toggle = new(__toggle_data) xct_log_switch_t(smlevel_0::ON);
     }
 
-    if(check_log && !_rc.is_error()) {
-        if( ! smlevel_0::in_recovery() ) {
-            _rc = xct_log_warn_check_t::check(_victim);
+    // let the first error found prevail
+    if(_rc.is_error())  {
+        return;
+	}
+
+    if(check_1thread) 
+    {
+        _rc = _the_xct->check_one_thread_attached();
+        // let the first error found prevail
+        if(_rc.is_error())  {
+            return;
+        }
+    }
+
+    // Now make sure we don't have multiple threads attached if
+    // this is an update-method. 
+    if(_the_xct && (_constraint == read_write))  {
+		_the_xct->attach_update_thread(); 
+	}
+    else check_log = false;
+
+    if(check_log && !smlevel_0::in_recovery() ) 
+    {
+        _rc = xct_log_warn_check_t::check(_victim);
+        if(_rc.is_error())  {
+			// TODO What?
         }
     }
 }
@@ -226,6 +278,10 @@ prologue_rc_t::prologue_rc_t(
 
 prologue_rc_t::~prologue_rc_t()
 {
+    if(_the_xct && (_constraint == read_write))  {
+		_the_xct->detach_update_thread();
+	}
+
 #if W_DEBUG_LEVEL > 2
     me()->check_pin_count(_pin_cnt_change);
     me()->in_sm(false);
@@ -237,6 +293,7 @@ prologue_rc_t::~prologue_rc_t()
         sm_stats_info_t * stats = _victim->is_instrumented() ? 
                 _victim->steal_stats() : 0;
         W_COERCE(_victim->abort());
+        INC_TSTAT(log_warn_abort_cnt);
         delete _victim;
         delete stats; 
         _victim = 0;
@@ -247,6 +304,7 @@ inline void
 prologue_rc_t::no_longer_in_xct()
 {
     _xct_state = not_in_xct;
+	_the_xct = NULL;
 }
 
 #endif /* SM_C */

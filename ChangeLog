@@ -8,99 +8,22 @@ Distributions of Shore Storage Manager
 5.0.1: Sat Aug 18 15:37:16 CDT 2007
       1) added the smsh scripts to the distr
 
+5.0.2-prelim: Tue Aug 21 15:04:47 CDT 2007
+       1) fixed 'make clean' bug in sthread/tests to get rid of tests/diskrw
+       2) fixed 'make clean' bug in smsh to clean up log* and volumes/*
+       3) increased volume size in .smshrc to allow all scripts to run
+                with default page size
+       4) removed logical OIDs
+       NOTE-> documents are NOT updated
 
-Branch mt-branch: Mon Jun 22 20:03:29 CDT 2009
-{
+6.0.1-alpha: Mon May 24 10:15:01 MDT 2010
 
-	Makes with gcc 4.3.2 
+This is a major overhaul of the storage manager.
 
-	Added debuglevels to config but they are not really tested yet.
-	Mostly I made with -g and -UDEBUG -UW_DEBUG -DNDEBUG, which included
-	w_assert1 but not the others.
+It is a port of the entire storage manager and its tests to true concurrent
+pthreads. It no longer uses sthreads and its primitives. This release
+is an extension of the SHORE-MT release (http:TODO) 
 
-
-	I got through 'make check' in fc/, sthread/, common (except stats, which
-	have to be thoroughly rethought), sm/tests (file_scan)
-	and smsh with one script: vol.1
-
-	Known problems: the whole smsh thing has to be studied.
-	The whole debugging apparatus has to be studied and redone.
-	Much has to be ripped out and cleaned up.
-	---------------
-
-
-	I cleaned up the largefile-awareness a tiny bit. The ASSUMPTION now
-	is that all platforms handle largefile-awareness, even if they are
-	not ARCH_LP64.
-
-	I'm starting to rip out anything for other platforms besides
-	solaris/sparcv9 and linux/i686 -- all that OSF1 and MACOS and VC++
-	stuff will go, and already it has started its exit.
-
-	---------------
-
-	The following naming  changes are made here:
-
-	fc/getopt.[ch] --> fc/w_getopt.[ch]
-	sthread/sthread.h ripped out the block_alloc and atomic_stack and put
-	   them into fc/block_alloc.h and fc/atomic_container.h
-
-	The following algorithmic changes are made here (this note taken from
-	mail sent to Ippokratis):
-
-
-	1) log : I take it mcs_log is not in use, since you told me
-	you were using ringbuf_log. So I took out mcs log, but there was an oddity
-	in that the sm was using mcs_log::new_log_m, so I changed the name
-	of that function to srv_log::new_log_m and was able to get rid of the
-	mcs_log.
-
-	2) It was possible to have one thread shutting down the sm before
-	another thread, namely the log's flush daemon, 
-	tried to dereference its _log ptr, which, 
-	owing to its being destructed, no longer could be dereferenced to execute
-	_flush().  I added a shutdown method on log_m and ringbuf_log; the
-	sm calls shutdown to to whatever needs to be done before the destructor
-	can safely be run, namely, the first few lines of what was in the 
-	destructor.
-
-	3) recovery could get into an infinite loop in vol.cpp, recover_pages_in_ext:
-
-	replace this:
-	<       for(int i=mypmap.first_set(0); i < mypmap.count(); i=mypmap.first_set(i+1)) 
-	with this:
-	>       for(int i=mypmap.first_set(0);
-	>               (i>=0)&& (i < mypmap.count()); i=mypmap.first_set(i+1)
-	>       ) 
-
-
-	4) io_m::_alloc_pages
-	 I had to turn off the caching of extents (there was an #if 1/#endif
-	 around it, so that is convenient), since it was breaking some simple
-	 sm tests.  Here's my note to myself about it:
-
-	 > // TODO: NANCY : bug here. If we turn on the caching above (#if 0/1)
-	> // we crap out here because last_page is looking for the last allocated
-	> // page (not the last page - reserved or allocated - because we aren't
-	> // passing in a Boolean ptr.  In the original code, we wouldn't be
-	> // doing this unless we KNEW that we HAD to allocate more extents because
-	> // we would already have allocated all from existing extents. The
-	> // caching behavior changes that into a hint, so we can get here
-	> // having extents w/ no allocated pages in them.
-	> // I don't want to get side-tracked fixing this yet; I'm in the middle
-	> // of too many things.   Let that be a later project. For now,
-	> // just turn off the caching.
-	>
-
-	The caching was a performance improvement but it wasn't thoroughly tested,
-	so for now I'm turning it off and will get back to it later. 
-	Food for thought. Maybe you can get it working with the caching in place before
-	I get to it.
-
-	5) chkpt.cpp: I move the xlist_mutex_acquire outside the loop so it
-	doesn't doubly-acqure the mutex.  (The pthreads
-	mutex lock will block you forever if you already hold the lock).
-	(I'm just trying to build with pthreads mutexes initially.)
-
-}
-
+Included are too many bug fixes and change to enumerate them.
+The documentation is strictly html; the .pdf files of prior releases
+are gone.

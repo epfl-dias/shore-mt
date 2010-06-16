@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='DEVICE_H'>
 
- $Id: device.h,v 1.18.2.5 2010/03/19 22:20:23 nhall Exp $
+ $Id: device.h,v 1.20 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -77,7 +77,8 @@ private:
     device_s*    _find(const devid_t& devid);
 
     // table of all devices currently mounted
-    w_list_t<device_s,sm_vol_wlock_t> _tab;
+    static queue_based_lock_t             _table_lock;
+    w_list_t<device_s,queue_based_lock_t> _tab;
 
     // disabled
     device_m(const device_m&);

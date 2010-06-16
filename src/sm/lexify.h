@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='LEXIFY_H'>
 
- $Id: lexify.h,v 1.15.2.4 2010/01/28 04:54:05 nhall Exp $
+ $Id: lexify.h,v 1.17 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -49,9 +49,15 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #   pragma interface 
 #endif
 
-class sort_keys_t;
+namespace ssm_sort {
+    class sort_keys_t; // forward
+}
+
+/**\brief Class containing basic types used by sort 
+ * and by B+-Tree key-management. 
+ */
 class sortorder : private smlevel_0 {
-    friend class sort_keys_t;
+    friend class ssm_sort::sort_keys_t;
     typedef w_base_t::f4_t f4_t;
     typedef w_base_t::f8_t f8_t;
 
@@ -65,8 +71,24 @@ class sortorder : private smlevel_0 {
     typedef w_base_t::int4_t int4_t;
     typedef w_base_t::int8_t int8_t;
 public:
+    /**\enum keytype 
+     *\brief Enumerator that describes the basic fixed-length and 
+     * variable-length
+     * (sub-)key types that are used in B+-Trees and 
+     * can be used in sorting.
+     * \details
+     * - kt_i1 signed 1-byte integer values
+     * - kt_u1 unsigned 1-byte integer values
+     * - kt_i2 signed 2-byte integer values 
+     * - kt_u2 unsigned 2-byte integer values 
+     * - kt_i4 signed 4-byte integer values 
+     * - kt_u4 unsigned 4-byte integer values 
+     * - kt_f4 IEEE single precision floating point values 
+     * - kt_f8 IEEE double precision floating point values 
+     * - kt_b unsigned byte string 
+     */
     enum keytype {
-            kt_nosuch,
+        kt_nosuch,
         /* signed, unsigned 1-byte integer values */
         kt_i1, kt_u1, 
         /* signed, unsigned 2-byte integer values */
@@ -76,20 +98,37 @@ public:
         /* signed, unsigned 64-bit integer values */
         kt_i8, kt_u8,
         /* IEEE single, double precision floating point values */
-        kt_f4, 
-        kt_f8, 
+        kt_f4, kt_f8, 
         /* unsigned byte string */
-            kt_b,
+        kt_b,
         /* not used here */
-            kt_spatial 
+        kt_spatial 
     };
 
     NORET sortorder();
     NORET ~sortorder();
-    // returns true if it worked, false otherwise
+
+    /**\brief Convert to lexicographic form.
+     * @param[in] kp    Describes the type and length
+     *                  of the string to be converted.
+     * @param[in] d     The string to be converted.
+     * @param[out] res  The result.
+     *
+     * Invokes a predefined LEXFUNC for the know keytype.
+     * Returns true if it worked, false otherwise.
+     *
+     */
     bool lexify(const key_type_s *kp, const void *d, void *res); 
 
-    // returns true if it worked, false otherwise
+    /**\brief Convert from lexicographic form.
+     * @param[in] kp    Describes the type and length
+     *                  of the string to be converted.
+     * @param[in] str     The string in lexicographic form to be converted.
+     * @param[out] res  The result.
+     *
+     * Invokes a predefined inverse LEXFUNC for the known keytype.
+     * Returns true if it worked, false otherwise
+     */
     bool unlexify(const key_type_s *kp, const void *str, void *res) ;
 
 private:
@@ -98,7 +137,8 @@ private:
     void int_unlexify( const void *str, bool is_signed, int len, 
         void *res, int perm[]);
 
-public: // TODO: make private
+public: 
+    /**\cond skip */
     void float_lexify(w_base_t::f4_t d, void *res, int perm[]) ;
     void float_unlexify( const void *str, int perm[], w_base_t::f4_t *result); 
     void dbl_lexify(w_base_t::f8_t d, void *res, int perm[]) ;
@@ -109,6 +149,8 @@ public: // TODO: make private
     void Fbyteorder(int permutation[4]) ;
     void Dbyteorder(int permutation[8]) ;
 
+    /**\endcond skip */
+    /**\brief Convert from a key_type_s to a keytype enumerator value */
     static keytype convert(const key_type_s *k);
 
 private:

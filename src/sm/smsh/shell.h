@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SHELL_H'>
 
- $Id: shell.h,v 1.49.2.10 2010/03/19 22:20:30 nhall Exp $
+ $Id: shell.h,v 1.50 2010/05/26 01:20:51 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -54,6 +54,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <purify.h>
 #endif
 
+using namespace ssm_sort;
 extern bool newsort;
 extern sm_config_info_t global_sm_config_info;
 extern __thread rand48 generator;
@@ -175,7 +176,11 @@ extern smsize_t   numobjects(const char *);
 extern void   dump_pin_hdr(ostream &out, pin_i &handle); 
 extern void   dump_pin_body(w_ostrstream &out, pin_i &handle,
     smsize_t start, smsize_t length, Tcl_Interp *ip); 
-extern w_rc_t dump_scan(scan_file_i &scan, ostream &out, bool hex=false); 
+
+typedef void (*DSCB) (pin_i &);
+extern w_rc_t dump_scan(scan_file_i &scan, ostream &out, 
+		DSCB callback = NULL,
+		bool hex=false); 
 extern vec_t & parse_vec(const char *c, int len) ;
 extern vid_t make_vid_from_lvid(const char* lv);
 extern ss_m::ndx_t cvt2ndx_t(const char *s);
@@ -233,7 +238,6 @@ cvt2cmp_t(const char *s)
     return scan_index_i::bad_cmp_t;
 }
 
-
 inline lock_mode_t
 cvt2lock_mode(const char *s)
 {
@@ -243,20 +247,20 @@ cvt2lock_mode(const char *s)
     }
     cerr << "cvt2lock_mode: bad lock mode" << endl;
     W_FATAL(ss_m::eINTERNAL);
-    return IS;
+    return w_base_t::IS;
 }
 
 inline lock_duration_t 
 cvt2lock_duration(const char *s)
 {
-    for (int i = 0; i < t_num_durations; i++) {
+    for (int i = 0; i < w_base_t::t_num_durations; i++) {
     if (strcmp(s, lock_base_t::duration_str[i]) == 0)
         return (lock_duration_t) i;
     }
 
     cerr << "cvt2lock_duration: bad lock duration" << endl;
     W_FATAL(ss_m::eINTERNAL);
-    return t_long;
+    return w_base_t::t_long;
 }
 
 inline ss_m::sm_store_property_t
@@ -322,9 +326,12 @@ check(Tcl_Interp* ip, const char* s, int ac, int n1, int n2 = 0, int n3 = 0,
 
 enum typed_btree_test {
     test_nosuch, 
+
+	// not lexified, typed compare:
     test_i1, test_i2, test_i4, test_i8,
     test_u1, test_u2, test_u4, test_u8,
     test_f4, test_f8, 
+
     // selected byte lengths v=variable
     test_b1, test_b23, test_bv, test_blarge,
     test_spatial
@@ -346,6 +353,7 @@ enum typed_btree_test {
     int t_find_assoc_typed(Tcl_Interp* ip, int ac, TCL_AV char* av[]);
     int t_get_store_info(Tcl_Interp* ip, int ac, TCL_AV char* av[]);
     typed_btree_test cvt2type(const char *s);
+    const char * cvtFROMtype(typed_btree_test t);
     void cvt2typed_value( typed_btree_test t, 
                 const char *string, typed_value &);
     int check_key_type(Tcl_Interp *ip, typed_btree_test t, 

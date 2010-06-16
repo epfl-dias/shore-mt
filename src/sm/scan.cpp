@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: scan.cpp,v 1.154.2.16 2010/03/25 18:05:15 nhall Exp $
+ $Id: scan.cpp,v 1.158 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -82,18 +82,20 @@ inline void         pin_i::_set_lsn_for_scan() {
    retrying after an error anyway, but I found at least one spot where
    _error_occurred was not set and the next PROLOGUE blew up because
    of it.
+   Update(neh): Yes, that's the idea. If it's not used properly,
+   it's not the prologue that's broken; it's a sign of a bug
+   elsewhere, so I'll keep this in. To get around the strict
+   owner semantics issue, we'll generate a new error code from the
+   error number.
+   
  */
-#define SCAN_METHOD_PROLOGUE1                                \
+#define SCAN_METHOD_PROLOGUE1                           \
     do {                                                \
-        if(_error_occurred.is_error())                        \
-            return w_rc_t(_error_occurred);                \
+        if(_error_occurred.is_error())                  \
+            return RC(_error_occurred.err_num());       \
     } while(0)
 
-#define SCAN_METHOD_PROLOGUE(func_name)                \
-        FUNC(func_name);                        \
-        SCAN_METHOD_PROLOGUE1
 
-        
 // Can no longer inline this in scan.h without requiring
 // client (vas) to include def's for file_p and lgdata_p.
 file_p&   append_file_i::_page() 
@@ -130,7 +132,7 @@ scan_index_i::scan_index_i(
   _skip_nulls( ! include_nulls ),
   _cc(cc)
 {
-    INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, 1);
+    INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, prologue_rc_t::read_only, 1);
 
     _init(c1, bound1_, c2, bound2_, mode);
     register_me();
@@ -149,6 +151,8 @@ scan_index_i::~scan_index_i()
  *
  *  Initialize a scan. Called by all constructors.
  *
+ *  Of which there is only 1, and it uses mode=SH
+ *
  *********************************************************************/
 void 
 scan_index_i::_init(
@@ -156,7 +160,7 @@ scan_index_i::_init(
     const cvec_t&         bound,
     cmp_t                 c2, 
     const cvec_t&         b2,
-    lock_mode_t                mode)
+    lock_mode_t           mode)
 {
     _finished = false;
 
@@ -173,18 +177,18 @@ scan_index_i::_init(
 
     switch(_cc) {
     case t_cc_none:
-        index_lock_mode = lock_m::parent_mode[mode];
+        index_lock_mode = lock_m::parent_mode[mode]; // IS if mode == SH
         key_lock_level = t_cc_none;
         break;
 
     case t_cc_im:
     case t_cc_kvl:
-        index_lock_mode = lock_m::parent_mode[mode];
+        index_lock_mode = lock_m::parent_mode[mode]; // IS if mode==SH
         key_lock_level = _cc;
         break;
 
     case t_cc_modkvl:
-        index_lock_mode = lock_m::parent_mode[mode];
+        index_lock_mode = lock_m::parent_mode[mode]; // IS if mode==SH
         // GROT: force the checks below to
         // check scan conditions
         key_lock_level = t_cc_none;
@@ -372,7 +376,7 @@ scan_index_i::_fetch(
         return w_rc_t(_error_occurred);
     }
 
-    SM_PROLOGUE_RC(scan_index_i::_fetch, in_xct, 0);
+    SM_PROLOGUE_RC(scan_index_i::_fetch, in_xct, read_only, 0);
 
     /*
      *  Check if scan is terminated.
@@ -445,7 +449,9 @@ scan_rt_i::scan_rt_i(const stid_t& stid_,
     _eof(false), _error_occurred(),
   _cursor(0), _skip_nulls( !include_nulls ), _cc(cc)
 {
-    INIT_SCAN_PROLOGUE_RC(scan_rt_i::scan_rt_i, 1);
+    INIT_SCAN_PROLOGUE_RC(scan_rt_i::scan_rt_i, 
+            cc == t_cc_append? prologue_rc_t::read_write : prologue_rc_t::read_only, 
+            1);
     _init(c, qbox);
     register_me();
 }
@@ -531,7 +537,7 @@ scan_rt_i::_fetch(nbox_t& key, void* el, smsize_t& elen, bool& eof, bool skip)
         return _error_occurred;
     }
 
-    SM_PROLOGUE_RC(scan_rt_i::_fetch, in_xct, 0);
+    SM_PROLOGUE_RC(scan_rt_i::_fetch, in_xct, read_only, 0);
 
     if (_finished)  {
         return RC(eBADSCAN);
@@ -576,8 +582,10 @@ scan_rt_i::xct_state_changed(
 }
 
 
-scan_file_i::scan_file_i(const stid_t& stid_, const rid_t& start,
-                         concurrency_t cc, bool pre, lock_mode_t /*mode TODO: NANCY: is this documented?*/) 
+scan_file_i::scan_file_i(
+        const stid_t& stid_, const rid_t& start,
+         concurrency_t cc, bool pre, 
+         lock_mode_t /*mode TODO: NANCY: is this documented?*/) 
 : xct_dependent_t(xct()),
   stid(stid_),
   curr_rid(start),
@@ -586,7 +594,9 @@ scan_file_i::scan_file_i(const stid_t& stid_, const rid_t& start,
   _do_prefetch(pre),
   _prefetch(0)
 {
-    INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i, 0);
+    INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
+            cc == t_cc_append ? prologue_rc_t::read_write : prologue_rc_t::read_only,
+            0);
 
     /* _init sets error state */
     W_IGNORE(_init(cc == t_cc_append));
@@ -606,7 +616,8 @@ scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc,
   _do_prefetch(pre),
   _prefetch(0)
 {
-    INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i, 0);
+    INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
+        cc == t_cc_append?prologue_rc_t::read_write:prologue_rc_t::read_only,  0);
 
     /* _init sets error state */
     W_IGNORE(_init(cc == t_cc_append));
@@ -631,7 +642,8 @@ scan_file_i::~scan_file_i()
 
 rc_t scan_file_i::_init(bool for_append) 
 {
-    SCAN_METHOD_PROLOGUE(scan_file_i::_init);
+    // Can't nest these prologues
+    // SCAN_METHOD_PROLOGUE(scan_file_i::_init, read_only, 1);
     this->_prefetch = 0;
 
     bool  eof = false;
@@ -641,6 +653,8 @@ rc_t scan_file_i::_init(bool for_append)
     sdesc_t* sd = 0;
 
     // determine file and record lock modes
+    // mode is the lock mode used on the entire store
+    // in the call to dir->access.
     lock_mode_t mode = NL;
 
     switch(_cc) {
@@ -706,9 +720,11 @@ rc_t scan_file_i::_init(bool for_append)
     // (ie. it was not specified in the constructor)
     if (curr_rid == rid_t::null) {
         if(for_append) {
-            _error_occurred = fi->last_page(stid, curr_rid.pid, NULL/*alloc only*/); 
+            _error_occurred = fi->last_page(stid, 
+                    curr_rid.pid, NULL/*alloc only*/); 
         } else {
-            _error_occurred = fi->first_page(stid, curr_rid.pid, NULL/*alloc only*/);
+            _error_occurred = fi->first_page(stid, 
+                    curr_rid.pid, NULL/*alloc only*/);
         }
 
         if (_error_occurred.is_error())  {
@@ -752,7 +768,7 @@ rc_t scan_file_i::_init(bool for_append)
             DBGTHRD(<<" requesting first page: " << curr_rid.pid);
 
             W_COERCE(this->_prefetch->request(curr_rid.pid, 
-                        lock_to_latch(_page_lock_mode)));
+                        pin_i::lock_to_latch(_page_lock_mode)));
         }
     }
 #if W_DEBUG_LEVEL > 1
@@ -765,7 +781,7 @@ rc_t scan_file_i::_init(bool for_append)
 rc_t
 scan_file_i::next(pin_i*& pin_ptr, smsize_t start, bool& eof)
 {
-    SM_PROLOGUE_RC(scan_file_i::next, in_xct, 1);
+     
 #if W_DEBUG_LEVEL > 1
     (void) _cursor.is_mine(); // Not an assert - just a 
     // consistency check
@@ -776,7 +792,7 @@ scan_file_i::next(pin_i*& pin_ptr, smsize_t start, bool& eof)
 rc_t
 scan_file_i::_next(pin_i*& pin_ptr, smsize_t start, bool& eof)
 {
-    SCAN_METHOD_PROLOGUE(scan_file_i::_next);
+    SCAN_METHOD_PROLOGUE1;
     file_p*        curr;
 
     w_assert1(xct()->tid() == tid); // (ip) ???
@@ -812,7 +828,7 @@ scan_file_i::_next(pin_i*& pin_ptr, smsize_t start, bool& eof)
                         }
                         DBGTHRD(<<" requesting next page: " << _next_pid);
                         W_COERCE(this->_prefetch->request(_next_pid, 
-                            lock_to_latch(_page_lock_mode)));
+                            pin_i::lock_to_latch(_page_lock_mode)));
                     }
                 }
             } 
@@ -834,11 +850,14 @@ scan_file_i::_next(pin_i*& pin_ptr, smsize_t start, bool& eof)
 #endif
         {
             slotid_t        slot;
-            // BUGBUG: locking the wrong slot here!
+            // next_slot returns the slot we are wanting to lock,
+            // but that's not what we're locking here:
             slot = curr->next_slot(curr_rid.slot);
+            curr_rid.slot = slot;
             if(_rec_lock_mode != NL) {
                 w_assert3(curr_rid.pid.page != 0);
-                _error_occurred = lm->lock(curr_rid, _rec_lock_mode, t_long, WAIT_IMMEDIATE);
+                _error_occurred = lm->lock(curr_rid, 
+                        _rec_lock_mode, t_long, WAIT_IMMEDIATE);
                 if (_error_occurred.is_error())  
                 {
                     if (_error_occurred.err_num() != eLOCKTIMEOUT) {
@@ -937,7 +956,7 @@ rc_t
 scan_file_i::next_page(pin_i*& pin_ptr, smsize_t start, bool& eof)
 {
     SCAN_METHOD_PROLOGUE1;
-    SM_PROLOGUE_RC(scan_file_i::next_page, in_xct, 1);
+    SCAN_METHOD_PROLOGUE(scan_file_i::next_page, read_only, 1);
 
 #if W_DEBUG_LEVEL > 1
         (void) _cursor.is_mine(); // Not an assert - just a 
@@ -1004,8 +1023,8 @@ scan_file_i::xct_state_changed(
 append_file_i::append_file_i(const stid_t& stid_) 
  : scan_file_i(stid_, t_cc_append)
 {
+    INIT_SCAN_PROLOGUE_RC(append_file_i::append_file_i, prologue_rc_t::read_write, 0);
     _init_constructor();
-    INIT_SCAN_PROLOGUE_RC(append_file_i::append_file_i, 0);
     W_IGNORE(_init(true));
     if(_error_occurred.is_error()) return;
         _error_occurred = lm->lock(stid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
@@ -1062,7 +1081,7 @@ append_file_i::create_rec(
         rid_t&                             rid
         )
 {
-    SCAN_METHOD_PROLOGUE(append_file_i::create_rec);
+    SCAN_METHOD_PROLOGUE(append_file_i::create_rec, read_write, 1);
 
 #if W_DEBUG_LEVEL > 2
     if(_page().is_fixed()) {

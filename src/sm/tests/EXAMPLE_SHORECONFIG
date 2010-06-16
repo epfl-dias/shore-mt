@@ -1,6 +1,6 @@
 # <std-header style='data' orig-src='shore'>
 #
-#  $Id: EXAMPLE_SHORECONFIG,v 1.1.2.3 2009/08/26 23:02:19 nhall Exp $
+#  $Id: EXAMPLE_SHORECONFIG,v 1.3 2010/06/08 22:28:15 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -36,10 +36,16 @@
 ?.server.*.sm_num_page_writers: 1
 ?.server.*.sm_logsize: 60000
 
-perf.server.*.device_name: ./volumes/dev1
-# perf.server.*.device_quota: 6000
-perf.server.*.device_quota: 60000
-perf.server.*.num_rec: 1000
-# perf.server.*.num_rec: 1000
-perf.server.*.rec_size: 10000
+example.server.*.device_name: ./volumes/dev1
+example.server.*.device_quota: 60000
+example.server.*.num_rec: 1000
+# perf.server.*.rec_size: 10000
+#
+# small bp size for create_rec
+example.server.create_rec.sm_bufpoolsize: 512
+example.server.create_rec.sm_num_page_writers: 0
+
+example.server.log_exceed.sm_logsize: 20000
+# by default trigger is off (0)
+example.server.log_exceed.sm_log_warn: 40
 

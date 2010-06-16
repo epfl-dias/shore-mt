@@ -65,7 +65,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <new>
 #include "sm_int_1.h"
 #include "sdesc.h"
+#define USE_BLOCK_ALLOC_FOR_XCT_IMPL  0
+#if USE_BLOCK_ALLOC_FOR_XCT_IMPL  
 #include "block_alloc.h"
+#endif
 #include "tls.h"
 
 #include "sm_escalation.h"
@@ -98,48 +101,60 @@ template class w_auto_delete_array_t<lock_mode_t>;
  *  in the list.
  *
  *  Here are the transaction list and the mutex that protects it.
- *  Local namespace is used so that we can see that noone 
- *  uses these except through these 4 methods, below.
  *
  *********************************************************************/
-namespace  localns {
-    /**\var static __thread queue_based_lock_t::ext_qnode _xct_t_me_node;
-     * \brief Queue node for holding mutex to prevent mutiple-thread/transaction where disallowed.
-     * \ingroup TLS
-     */
-    static __thread queue_based_lock_t::ext_qnode _xct_t_me_node = 
-                                                    EXT_QNODE_INITIALIZER;
-    /**\var static __thread queue_based_lock_t::ext_qnode _xlist_mutex_node;
-     * \brief Queue node for holding mutex to serialize access transaction list.
-     * \ingroup TLS
-     */
-    static __thread queue_based_lock_t::ext_qnode _xlist_mutex_node = 
-                                                    EXT_QNODE_INITIALIZER;
-
-};
 
 queue_based_lock_t        xct_t::_xlist_mutex;
 
 w_descend_list_t<xct_t, queue_based_lock_t, tid_t>   
         xct_t::_xlist(W_KEYED_ARG(xct_t, _tid,_xlink), &_xlist_mutex);
 
+bool xct_t::xlist_mutex_is_mine() 
+{
+     bool is =
+        me()->get_xlist_mutex_node()._held 
+        && 
+        (me()->get_xlist_mutex_node()._held->
+            is_mine(&me()->get_xlist_mutex_node()));
+     return is;
+}
 void xct_t::assert_xlist_mutex_not_mine() 
 {
-    w_assert1(localns::_xlist_mutex_node._held == 0
-           || localns::_xlist_mutex_node._held->
-               is_mine(&localns::_xlist_mutex_node)==false);
+    w_assert1(
+            (me()->get_xlist_mutex_node()._held == 0)
+           || 
+           (me()->get_xlist_mutex_node()._held->
+               is_mine(&me()->get_xlist_mutex_node())==false));
 }
 void xct_t::assert_xlist_mutex_is_mine() 
 {
-     w_assert1(localns::_xlist_mutex_node._held 
-        && localns::_xlist_mutex_node._held->
-            is_mine(&localns::_xlist_mutex_node));
+#if W_DEBUG_LEVEL > 1
+    bool res = 
+     me()->get_xlist_mutex_node()._held 
+        && (me()->get_xlist_mutex_node()._held->
+            is_mine(&me()->get_xlist_mutex_node()));
+    if(!res) {
+        fprintf(stderr, "held: %p\n", 
+             me()->get_xlist_mutex_node()._held );
+        if ( me()->get_xlist_mutex_node()._held  )
+        {
+        fprintf(stderr, "ismine: %d\n", 
+            me()->get_xlist_mutex_node()._held->
+            is_mine(&me()->get_xlist_mutex_node()));
+        }
+        w_assert1(0);
+    }
+#else
+     w_assert1(me()->get_xlist_mutex_node()._held 
+        && (me()->get_xlist_mutex_node()._held->
+            is_mine(&me()->get_xlist_mutex_node())));
+#endif
 }
 
 w_rc_t  xct_t::acquire_xlist_mutex()
 {
      assert_xlist_mutex_not_mine();
-     _xlist_mutex.acquire(&localns::_xlist_mutex_node);
+     _xlist_mutex.acquire(&me()->get_xlist_mutex_node());
      assert_xlist_mutex_is_mine();
      return RCOK;
 }
@@ -147,7 +162,7 @@ w_rc_t  xct_t::acquire_xlist_mutex()
 void  xct_t::release_xlist_mutex()
 {
      assert_xlist_mutex_is_mine();
-     _xlist_mutex.release(localns::_xlist_mutex_node);
+     _xlist_mutex.release(me()->get_xlist_mutex_node());
      assert_xlist_mutex_not_mine();
 }
 
@@ -177,7 +192,6 @@ tid_t                                xct_t::_oldest_tid = tid_t::null;
  *
  *********************************************************************/
 // FRJ: WARNING: xct_impl::commit has some of this code as well
-#define USE_BLOCK_ALLOC_FOR_XCT_IMPL  1
 #if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
 DECLARE_TLS(block_alloc<xct_impl>, xct_impl_pool);
 #endif
@@ -214,9 +228,11 @@ xct_t::xct_t(
     __saved_xct_log_t(0),
     _tid(_nxt_tid.atomic_incr()), 
     _timeout(timeout),
-    i_this(0),    
+    i_this(NULL),    
+    _warn_on(true),
     _lock_info(agent_lock_info->take()),    
-    _lock_cache_enable(true)
+    _lock_cache_enable(true),
+    _updating_operations(0)
 {
     w_assert9(tid() <= _nxt_tid);
 
@@ -252,9 +268,11 @@ xct_t::xct_t(const tid_t& t, state_t s, const lsn_t& last_lsn,
     __saved_xct_log_t(0),
     _tid(t), 
     _timeout(timeout),
-    i_this(0),    
+    i_this(NULL),    
+    _warn_on(true),
     _lock_info(agent_lock_info->take()),    
-    _lock_cache_enable(true)
+    _lock_cache_enable(true),
+    _updating_operations(0)
 {
 
     // Uses user(recovery)-provided tid
@@ -718,9 +736,9 @@ xct_t::give_logbuf(logrec_t* l, const page_p *page)
  *
  *********************************************************************/
 void
-xct_t::release_anchor( bool and_compensate )
+xct_t::release_anchor( bool and_compensate ADD_LOG_COMMENT_SIG )
 {
-    i_this->release_anchor(and_compensate);
+    i_this->release_anchor(and_compensate ADD_LOG_COMMENT_USE);
 }
 const lsn_t& 
 xct_t::anchor(bool grabit)
@@ -734,9 +752,14 @@ xct_t::compensate_undo(const lsn_t& lsn)
 }
 
 void 
-xct_t::compensate(const lsn_t& lsn, bool undoable)
+xct_t::compensate(const lsn_t& lsn, bool undoable ADD_LOG_COMMENT_SIG)
 {
-    i_this->compensate(lsn, undoable);
+    i_this->compensate(lsn, undoable ADD_LOG_COMMENT_USE);
+}
+
+auto_release_anchor_t::~auto_release_anchor_t() 
+{
+	if(_xd) _xd->release_anchor(_and_compensate LOG_COMMENT_USE("autorel"));
 }
 
 /*********************************************************************
@@ -806,23 +829,30 @@ xct_t::force_nonblocking()
 void
 xct_t::acquire_1thread_xct_mutex() // default: true
 {
-    if(_1thread_xct.is_mine(&localns::_xct_t_me_node)) {
+    return i_this->acquire_1thread_xct_mutex();
+
+#if DEAD
+    if(_1thread_xct.is_mine(&me()->get_xct_t_me_node())) {
         return;
     }
-    if( _1thread_xct.attempt(&localns::_xct_t_me_node) ) {
+    if( _1thread_xct.attempt(&me()->get_xct_t_me_node()) ) {
         // success
         return; 
     }
     INC_TSTAT(await_1thread_xct);
-    (void) _1thread_xct.acquire(&localns::_xct_t_me_node);
+    (void) _1thread_xct.acquire(&me()->get_xct_t_me_node());
+#endif
 }
 
 void
 xct_t::release_1thread_xct_mutex()
 {
+    return i_this->release_1thread_xct_mutex();
+#if DEAD
     DBGX( << " release xct mutex");
 
-    _1thread_xct.release(localns::_xct_t_me_node);
+    _1thread_xct.release(me()->get_xct_t_me_node());
+#endif
 }
 
 rc_t
@@ -913,7 +943,8 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
         , xct_log_t*&x)
 {
     /* See comments in smthread_t::new_xct() */
-    acquire_1thread_xct_mutex();
+    w_assert1(i_this->is_1thread_xct_mutex_mine());
+    // Don't dup acquire. acquire_1thread_xct_mutex();
     if( (l = __saved_lockid_t) != 0 ) {
         __saved_lockid_t = 0;
     } else {
@@ -934,7 +965,8 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
     } else {
         x = new_xct_log_t(); // deleted when thread detaches or xct finishes
     }
-    release_1thread_xct_mutex();
+    // Don't dup release
+    // release_1thread_xct_mutex();
 }
 
 /**\brief Used by smthread upon detach_xct() to avoid excess heap activity.
@@ -952,7 +984,8 @@ xct_t::stash(lockid_t*&l, sdesc_cache_t*&
         , xct_log_t*&x)
 {
     /* See comments in smthread_t::new_xct() */
-    acquire_1thread_xct_mutex();
+    w_assert1(i_this->is_1thread_xct_mutex_mine());
+    // don't dup acquire acquire_1thread_xct_mutex();
     if(__saved_lockid_t != (lockid_t *)0)  { 
         DBGX(<<"stash: delete " << l);
         if(l) {
@@ -979,7 +1012,7 @@ xct_t::stash(lockid_t*&l, sdesc_cache_t*&
     }
     else { __saved_xct_log_t = x; }
     x = 0;
-    release_1thread_xct_mutex();
+    // dup acquire/release removed release_1thread_xct_mutex();
 }
     
 
@@ -1003,13 +1036,14 @@ xct_t::check_lock_totals(int nex, int nix, int nsix, int nextents) const
         w_assert1(nex <= num_EX);
 
         if(nextents != num_extents) {
-            smlevel_0::errlog->clog 
+            smlevel_0::errlog->clog  << fatal_prio
             << "FATAL: " <<endl
             << "nextents logged in xct_prepare_fi_log:" << nextents <<endl
             << "num_extents locked via "
             << "xct_prepare_lk_log and xct_prepare_alk_logs : " << num_extents
             << endl;
             lm->dump(smlevel_0::errlog->clog);
+            W_FATAL(eINTERNAL);
         }
         w_assert1(nextents == num_extents);
     }
@@ -1043,7 +1077,8 @@ xct_t::obtain_locks(lock_mode_t mode, int num, const lockid_t *locks)
         rc =lm->lock(locks[i], mode, t_long, WAIT_IMMEDIATE);
         if(rc.is_error()) {
             lm->dump(smlevel_0::errlog->clog);
-            smlevel_0::errlog->clog << "can't obtain lock " <<rc <<endl;
+            smlevel_0::errlog->clog << fatal_prio
+                << "can't obtain lock " <<rc <<endl;
             W_FATAL(eINTERNAL);
         }
         {
@@ -1085,7 +1120,8 @@ xct_t::obtain_one_lock(lock_mode_t mode, const lockid_t &lock)
     rc = lm->lock(lock, mode, t_long, WAIT_IMMEDIATE);
     if(rc.is_error()) {
         lm->dump(smlevel_0::errlog->clog);
-        smlevel_0::errlog->clog << "can't obtain lock " <<rc <<endl;
+        smlevel_0::errlog->clog << fatal_prio
+            << "can't obtain lock " <<rc <<endl;
         W_FATAL(eINTERNAL);
     }
 #if W_DEBUG_LEVEL > 2
@@ -1172,9 +1208,9 @@ xct_t::update_youngest_tid(const tid_t &t)
 void
 xct_t::force_readonly() 
 {
-    acquire_1thread_xct_mutex();
+    i_this->acquire_1thread_xct_mutex();
     i_this->force_readonly();
-    release_1thread_xct_mutex();
+    i_this->release_1thread_xct_mutex();
 }
 
 void 
@@ -1293,7 +1329,7 @@ xct_t::gtid() const
     return i_this->gtid();
 }
 
-vote_t
+xct_t::vote_t
 xct_t::vote() const
 {
     return i_this->vote();
@@ -1346,7 +1382,7 @@ xct_t::num_extents_marked_for_deletion( base_stat_t &num) const
 }
 
 w_rc_t 
-xct_log_warn_check_t::check(xct_t *& /*_victim */) 
+xct_log_warn_check_t::check(xct_t *& _victim) 
 {
     /* FRJ: TODO: use this with the new log reservation code. One idea
        would be to return eLOGSPACEWARN if this transaction (or some
@@ -1356,6 +1392,61 @@ xct_log_warn_check_t::check(xct_t *& /*_victim */)
        to hook in with the checkpoint thread and see if it feels
        stressed...
      */
+	/* 
+	 * NEH In the meantime, we do this crude check in prologues
+	 * to sm routines, if for no other reason than to test
+	 * the callbacks.  User can turn off log_warn_check at will with option:
+	 * -sm_log_warn
+	 */
+
+	DBG(<<"generate_log_warnings " <<  me()->generate_log_warnings());
+
+    // default is true 
+    // User can turn it off, too
+    if (me()->generate_log_warnings() && 
+            smlevel_0::log &&
+            smlevel_0::log_warn_trigger > 0)  
+    {
+        _victim = NULL;
+        w_assert1(smlevel_1::log != NULL);
+
+		// Heuristic, pretty crude:
+        smlevel_0::fileoff_t left = smlevel_1::log->space_left() ;
+		DBG(<<"left " << left << " trigger " << smlevel_0::log_warn_trigger);
+
+        if( left < smlevel_0::log_warn_trigger ) 
+        {
+            // Try to force the log first
+            log->flush(log->curr_lsn());
+        }
+        if( left < smlevel_0::log_warn_trigger ) 
+        {
+            if(log_warn_callback) {
+                xct_t *v = xct();
+                // Check whether we have log warning on - to avoid
+                // cascading errors.
+                if(v && v->log_warn_is_on()) {
+                    xct_i i(true);
+                    lsn_t l = smlevel_1::log->global_min_lsn();
+                    char  buf[max_devname];
+                    log_m::make_log_name(l.file(), buf, max_devname);
+                    w_rc_t rc = (*log_warn_callback)(
+                        &i,   // iterator
+                        v,    // victim
+                        left, // space left  
+                        smlevel_0::log_warn_trigger, // threshold
+                        buf
+                    );
+                    if(rc.is_error() && (rc.err_num() == eUSERABORT)) {
+                        _victim = v;
+                    }
+                    return rc;
+                }
+            } else {
+                return  RC(eLOGSPACEWARN);
+            }
+        }
+    }
     return RCOK;
 }
 

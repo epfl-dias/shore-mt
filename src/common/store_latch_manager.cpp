@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='STID_T_H'>
 
- $Id: store_latch_manager.cpp,v 1.1.2.5 2009/10/29 00:30:11 nhall Exp $
+ $Id: store_latch_manager.cpp,v 1.2 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -89,7 +89,7 @@ latch_t &store_latch_manager::find_latch(stid_t const &store)
             stid_t xxx = pos->first;
             w_assert1(store==xxx);
             latch=pos->second;
-	    return *latch;
+            return *latch; 
         }
     }
     

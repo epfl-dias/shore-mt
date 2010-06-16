@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='ZKEYED_H'>
 
- $Id: zkeyed.h,v 1.32.2.5 2010/03/19 22:20:28 nhall Exp $
+ $Id: zkeyed.h,v 1.34 2010/06/08 22:29:01 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -45,23 +45,25 @@ class zkeyed_p : public page_p {
 public:
     
     rc_t             link_up(
-    shpid_t             new_prev,
-    shpid_t             new_next);
+                        shpid_t             new_prev,
+                        shpid_t             new_next
+                        );
 
     rc_t             format(
-    const lpid_t&             pid,
-    tag_t                 tag,
-    w_base_t::uint4_t                flags,
-        store_flag_t                  store_flags,
-    const cvec_t&             hdr);    
+                        const lpid_t&       pid,
+                        tag_t               tag,
+                        w_base_t::uint4_t   flags,
+                        store_flag_t        store_flags,
+                        const cvec_t&       hdr
+                        );    
 
     rc_t            insert(
-    const cvec_t&             key, 
-    const cvec_t&             aux, 
-    slotid_t             slot,
-    bool                do_it=true,
-    bool                compress=false
-    );
+                        const cvec_t&       key, 
+                        const cvec_t&       aux, 
+                        slotid_t            slot,
+                        bool                do_it=true,
+                        bool                compress=false
+                        );
 
     rc_t            rewrite(slotid_t slot, int pxl);
     rc_t            remove(slotid_t slot, bool compress=false);
@@ -71,43 +73,45 @@ public:
      * TODO: see if this is still the case
      */
     rc_t            rec(
-    slotid_t            idx, 
-    cvec_t&             key,
-    const char*&             aux,
-    int&                 auxlen) const;
+                        slotid_t            idx, 
+                        cvec_t&             key,
+                        const char*&        aux,
+                        int&                auxlen
+                        ) const;
     rc_t            rec(
-    slotid_t            idx, 
-    int&                     prefix_len,
-    int&                     prefix_parts,
-    cvec_t&             key,
-    const char*&             aux,
-    int&                 auxlen) const;
+                        slotid_t            idx, 
+                        int&                prefix_len,
+                        int&                prefix_parts,
+                        cvec_t&             key,
+                        const char*&        aux,
+                        int&                auxlen
+                        ) const;
     
 protected:
     
     MAKEPAGE(zkeyed_p, page_p, 1);
 
-    int             rec_size(slotid_t idx) const;
-    int             rec_expanded_size(slotid_t idx) const;
-    int             nrecs() const;
-    rc_t            set_hdr(const cvec_t& data);
+    int                 rec_size(slotid_t idx) const;
+    int                 rec_expanded_size(slotid_t idx) const;
+    int                 nrecs() const;
+    rc_t                set_hdr(const cvec_t& data);
     const void*         get_hdr() const {
-        w_assert3(get_store_flags() != st_tmp);
-        return page_p::tuple_addr(0);
-    }
+                            w_assert3(get_store_flags() != st_tmp);
+                            return page_p::tuple_addr(0);
+                        }
     
 private:
     // disabled
-    void*             tuple_addr(int);
-    int             tuple_size(int);
+    void*               tuple_addr(int);
+    int                 tuple_size(int);
     friend class page_link_log;   // just to keep g++ happy
 
     smsize_t            min_entry_size() const;
     smsize_t            max_num_entries() const;
 
     void            dump(slotid_t idx, 
-                    int line, 
-                    const char *string) const;
+                        int line, 
+                        const char *string) const;
 };
 
 /*--------------------------------------------------------------*

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
-     $Id: logrec.cpp,v 1.150.2.12 2010/03/19 22:20:24 nhall Exp $
+     $Id: logrec.cpp,v 1.155 2010/06/15 17:30:07 nhall Exp $
 
     SHORE -- Scalable Heterogeneous Object REpository
 
@@ -219,7 +219,6 @@ logrec_t::fill(const lpid_t* p, uint2_t tag, smsize_t l)
  *  logrec_t::fill_xct_attr(tid, prev_lsn)
  *
  *  Fill the transaction related fields of the log record.
- *  BUGBUG: should be inlined.
  *
  *********************************************************************/
 void 
@@ -1086,9 +1085,12 @@ void
 page_mark_t::redo(page_p* page)
 {
     if(len>0) {
-        // GNATS 102: change this back to assert3 when done
         if((idx >= 0 && idx < page->nslots())==false) {
             // GNATS 102: get more info
+            // If this happens again, get more info.
+            // This appears to have been fixed with the new
+            // file page allocation code.
+            w_assert1(idx >= 0 && idx < page->nslots());
         }
         w_assert1( page->tuple_size(idx) == len);
         w_assert1( memcmp(page->tuple_addr(idx), data, len) == 0);
@@ -1285,6 +1287,26 @@ page_splice_log::redo(page_p* page)
     page_splice_t* dp = (page_splice_t*) _data;
 #if W_DEBUG_LEVEL > 0
     char* p = ((char*) page->tuple_addr(dp->idx)) + dp->start;
+    if(memcmp(dp->old_image(), p, dp->old_len) != 0) {
+        fprintf(stderr, "Things go bad in tuple %d\n", dp->idx);
+        u_char *old = (u_char *)dp->old_image();
+        u_char *tuple = (u_char *)p;
+        int len = dp->old_len;
+        fprintf(stderr, 
+            "Comparison of len %d starts with old image at addr %p,and tuple+start(%d) @ %p\n", 
+                len,
+                old, dp->start, p);
+        // Tell where it starts to go wrong.
+        for(int i=0; i < len; i++) {
+            if(*old != *tuple) {
+                fprintf(stderr, "OK until offset %d\n", i);
+                fprintf(stderr, "old image 0x%x page 0x%x\n", *old, *tuple);
+            }
+            old++;
+            tuple++;
+            i++;
+        }
+    }
     w_assert1(memcmp(dp->old_image(), p, dp->old_len) == 0);
 #endif 
 
@@ -2290,6 +2312,7 @@ operator<<(ostream& o, const logrec_t& l)
                     pages_in_ext_t* info = (pages_in_ext_t*)l._data;
                     o << " ext=" << info->ext;
                     o << " pmap=" << info->pmap;
+                    // Now print the page number
                     { 
                         int num = info->pmap.num_set();
                         int bit = 0;
@@ -2298,7 +2321,7 @@ operator<<(ostream& o, const logrec_t& l)
                             bit = info->pmap.first_set(bit);
                             shpid_t p = info->ext * sz;
                             p += bit;
-                            o << " " << p ;
+                            o << " pg# " << p ;
                         }
                     }
                 }

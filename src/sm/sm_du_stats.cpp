@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: sm_du_stats.cpp,v 1.29.2.8 2010/01/28 04:54:15 nhall Exp $
+ $Id: sm_du_stats.cpp,v 1.31 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -43,15 +43,17 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <w_debug.h>
 #include <w_list.h>
 #include <w_minmax.h>
+#define SM_SOURCE
 #include <basics.h>
 #include "lid_t.h"
 #include "sm_s.h"
-#define SM_SOURCE
 #include "sm_int_1.h"
 #include "sm_du_stats.h"
 
 #if W_DEBUG_LEVEL>=0
 #define DEBUG_GNATS_77 1
+// This prints the failures to cerr rather than requiring that
+// the debugging be turned on in a trace-enabled build.
 #endif
 
 // This function is a convenient debugging breakpoint for

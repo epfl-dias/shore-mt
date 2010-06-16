@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: lock_core.cpp,v 1.109.2.22 2010/03/19 22:20:24 nhall Exp $
+ $Id: lock_core.cpp,v 1.113 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -64,7 +64,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma implementation "lock_core.h"
 #endif
 
+#define USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 0
+
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 
 #include "block_alloc.h"
+#endif
+
 #include "st_error_enum_gen.h"
 #include "sm_int_1.h"
 #include "kvl_t.h"
@@ -80,12 +85,11 @@ template class w_list_const_i<lock_request_t, queue_based_lock_t>;
 template class w_auto_delete_array_t<unsigned>;
 #endif
 
-#define ATOMIC_INC(x) atomic_add(x, 1)
-#define ATOMIC_DEC(x) atomic_add(x, -1)
-
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS 
 DECLARE_TLS(block_alloc<lock_head_t>, lockHeadPool);
 typedef object_cache<lock_request_t, object_cache_initializing_factory<lock_request_t> > lock_request_cache_t;
 DECLARE_TLS(lock_request_cache_t, lock_request_pool);
+#endif
 
 /*********************************************************************
  *
@@ -168,7 +172,7 @@ LockCoreFunc::~LockCoreFunc()
 class bucket_t {
 public:
 
-    DEF_LOCK_X_TYPE;              // declare/define lock_x type
+    DEF_LOCK_X_TYPE(3);              // declare/define lock_x type
     // lock_x: see lock_x.h
     lock_x                        mutex;   // serialize access to lock_info_t
     // lock_x's mutex is of type queue_based_lock_t
@@ -246,7 +250,7 @@ xct_lock_info_t::xct_lock_info_t()
     _noblock(false)
 {
     for (int i = 0; i < t_num_durations; i++)  {
-        _my_req_list[i].set_offset(W_LIST_ARG(lock_request_t, xlink));
+        my_req_list[i].set_offset(W_LIST_ARG(lock_request_t, xlink));
     }
 }
 
@@ -257,7 +261,7 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
 
     // make sure the lock lists are empty
     for(int i=0; i < t_num_durations; i++) {
-        w_assert1(_my_req_list[i].is_empty());
+        w_assert1(my_req_list[i].is_empty());
     }
     new (this) xct_lock_info_t;
     
@@ -267,7 +271,13 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
 
 /*********************************************************************
  *
- *  xct_lock_info_t::nolockblock()
+ *  xct_lock_info_t::set_nonblocking()
+ *
+ *  used in xct_t::force_nonblocking, called in chkpt when an
+ *  xct is long-running and is preventing the scavenging of log
+ *  files.
+ *  \todo TODO: NANCY: figure out what this is doing  and document in
+ *  internal.h, handling of log space/long-running xcts etc.
  *
  *********************************************************************/
 void xct_lock_info_t::set_nonblocking()
@@ -276,10 +286,10 @@ void xct_lock_info_t::set_nonblocking()
     MUTEX_ACQUIRE(lock_info_mutex);
     _noblock = true;
     if(_wait_request) {
-	// nothing should be able to go wrong...
-	INC_TSTAT(log_full_old_xct);
-	w_assert2(_wait_request->thread());
-	W_COERCE(_wait_request->thread()->smthread_unblock(eDEADLOCK)); 
+        // nothing should be able to go wrong...
+        INC_TSTAT(log_full_old_xct);
+        w_assert2(_wait_request->thread());
+        W_COERCE(_wait_request->thread()->smthread_unblock(eDEADLOCK)); 
     }
     MUTEX_RELEASE(lock_info_mutex);
 }
@@ -293,7 +303,7 @@ xct_lock_info_t::~xct_lock_info_t()
 {
 #if W_DEBUG_LEVEL > 2
     for (int i = 0; i < t_num_durations; i++)  {
-        if (! _my_req_list[i].is_empty() ) {
+        if (! my_req_list[i].is_empty() ) {
             DBGTHRD(<<"memory leak: non-empty list in xct_lock_info_t: " <<i);
         }
     }
@@ -445,7 +455,7 @@ xct_lock_info_t::dump_locks(ostream &out) const
     for(i=0; i< t_num_durations; i++) {
         out << "***Duration " << i <<endl;
 
-        request_list_i   iter(_my_req_list[i]); // obviously not mt-safe
+        request_list_i   iter(my_req_list[i]); // obviously not mt-safe
         while ((req = iter.next())) {
             w_assert9(req->xd == xct());
             lh = req->get_lock_head();
@@ -525,7 +535,7 @@ xct_lock_info_t::get_lock_totals(
 
     // Start only with t_long locks
     for(i=0; i< t_num_durations; i++) {
-        request_list_i iter(_my_req_list[i]);
+        request_list_i iter(my_req_list[i]);
         while ((req = iter.next())) {
             ////////////////////////////////////////////
             //w_assert9(req->xd == xct());
@@ -585,7 +595,7 @@ xct_lock_info_t::get_locks(
 
     int j=0;
     for(i= t_short; i< t_num_durations; i++) {
-        request_list_i iter(_my_req_list[i]);
+        request_list_i iter(my_req_list[i]);
         while ((req = iter.next())) {
             ////////////////////////////////////////////
             // w_assert9(req->xd == xct());
@@ -724,7 +734,7 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude)
     w_assert9(!exclude || exclude->status() == lock_m::t_granted ||
                           exclude->status() == lock_m::t_converting);
 
-    lock_base_t::lmode_t gmode = NL;
+    lock_base_t::lmode_t gmode = smlevel_0::NL;
     lock_head_t::safe_queue_iterator_t iter(*this); 
 
     const lock_request_t* f;
@@ -777,7 +787,7 @@ lock_request_t::reset() {
     _convert_mode = NL;
     _lock_info = 0;
     _thread = 0;
-    _count = 0;
+    _ref_count = 0;
     _duration = t_long; // have to assign it something...
     _num_children = 0;
 }
@@ -797,7 +807,7 @@ lock_request_t::init(xct_t* x, lmode_t m, duration_t d)
     _mode = m;
     _lock_info = x->lock_info();
     _duration = d;
-	
+    
     INC_TSTAT(lock_request_t_cnt);
 
     // since d is unsigned, the >= comparison must be split to avoid
@@ -805,18 +815,38 @@ lock_request_t::init(xct_t* x, lmode_t m, duration_t d)
     w_assert1((d == 0 || d > 0) && d < t_num_durations);
 
     // protected by the lock_info_mutex, acquired by caller
-    x->lock_info()->_my_req_list[d].push(this);
-#if defined(W_TRACE) && W_DEBUG_LEVEL > 2
+    x->lock_info()->my_req_list[d].push(this);
+#if defined(W_TRACE) && W_DEBUG_LEVEL > 4
     {
-        lock_head_t*lock = this->get_lock_head();
+        w_ostrstream o;
+        o <<"size of lock_head_t " << sizeof(lock_head_t)  << endl;
+        o <<"size of request_list_t " << sizeof(request_list_t)  << endl;
+        fprintf(stderr, "%s", o.c_str());
+
+        lock_head_t* lock = NULL;
+        if(rlink.member_of() != 0) lock = this->get_lock_head();
         if(lock) {
-            DBGTHRD(<<"pushed lock request " << this << " " 
-                << lock->name
-                << " on _my_req_list["<<int(_duration)<<"] : " << *this);
+            w_reset_strstream(o);
+            o <<"pushed lock request " << this << endl;
+            o <<"get_lock_head returns " << lock << endl;
+            o <<"rlink.member_of() returns " << ((void*)rlink.member_of()) << endl;
+            fprintf(stderr, "%s", o.c_str());
+
+            w_reset_strstream(o);
+            o << " " << lock->name << endl;
+            fprintf(stderr, "%s", o.c_str());
+
+            w_reset_strstream(o);
+            o << " on my_req_list["<<int(_duration)<<"] : "  << endl;
+            fprintf(stderr, "%s", o.c_str());
+
+            w_reset_strstream(o);
+            o << *this << endl;
+            fprintf(stderr, "%s", o.c_str());
         } else {
             DBGTHRD(<<"pushed lock request " << this << " " 
                 << "NO NAME"
-                << " on _my_req_list["<<int(_duration)<<"] : " << *this);
+                << " on my_req_list["<<int(_duration)<<"] : " << *this);
         }
     }
 #endif 
@@ -937,7 +967,7 @@ lock_core_m::_find_lock_head_in_chain(
     // pin it to protect the gap between releasing the bucket lock and
     // acquiring the lock->head_mutex
     if(lock)
-        atomic_add(lock->pin_cnt, 1); 
+        atomic_inc(lock->pin_cnt);
     return lock;
 }
 
@@ -956,18 +986,24 @@ lock_core_m::find_lock_head(const lockid_t& n, bool create)
     if (!lock && create) {
         lock = GetNewLockHeadFromPool(n, NL);
         w_assert1(lock);
-        _htab[idx].chain.push(lock);
+        // Set the value before we put it in the htab and release the 
+        // bucket mutex.
         lock->pin_cnt = 1; // so there's something to decrement...
+        _htab[idx].chain.push(lock);
     }
     RELEASE_BUCKET_MUTEX(idx);
     
     if(lock) {
+#if MY_LOCK_DEBUG
         w_assert2(MUTEX_IS_MINE(lock->head_mutex)==false);
+#endif
         MUTEX_ACQUIRE(lock->head_mutex);
 
         // unpin now that we hold the mutex
-        atomic_add(lock->pin_cnt, -1);
+        atomic_dec(lock->pin_cnt);
+#if MY_LOCK_DEBUG
         w_assert3(MUTEX_IS_MINE(lock->head_mutex));
+#endif
     }
 
 #ifdef W_TRACE
@@ -984,7 +1020,7 @@ lock_core_m::lock_core_m(uint sz)
   _htabsz(0),
   _requests_allocated(0)
 {
-    /* round up to the next power of 2 */
+    // find _htabsz, a power of 2 greater than sz
     int b=0; // count bits shifted
     for (_htabsz = 1; _htabsz < sz; _htabsz <<= 1) b++;
 
@@ -995,6 +1031,7 @@ lock_core_m::lock_core_m(uint sz)
     // if anyone wants a hash table bigger,
     // he's probably in trouble.
 
+    // Now convert to a prime number in that range.
     // get highest prime for that numer:
     b -= 6;
 
@@ -1029,7 +1066,7 @@ lock_core_m::~lock_core_m()
 extern "C" void dumpthreads();
 
 w_rc_t::errcode_t
-lock_core_m::acquire(
+lock_core_m::acquire_lock(
     xct_t*                 xd,
     const lockid_t&        name,
     lock_head_t*           lock,
@@ -1060,9 +1097,11 @@ lock_core_m::acquire(
 #endif /* W_TRACE */
 
     w_assert2(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
+#if MY_LOCK_DEBUG
     if (lock) {
         w_assert2(MUTEX_IS_MINE(lock->head_mutex));
     }
+#endif
     w_assert2(xd == xct());
 
     ret = NL;
@@ -1220,9 +1259,14 @@ lock_core_m::acquire(
             // now that we know we actually need a request...
             w_assert2(MUTEX_IS_MINE(xd->lock_info()->lock_info_mutex));
 
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
             req = lock_request_pool->acquire(xd, mode, duration);
+#else
+            req = new lock_request_t();
+            req->init(xd, mode, duration);
+#endif
 
-            ATOMIC_INC(_requests_allocated);
+            atomic_inc(_requests_allocated);
             DBG(<< "appending request " << req << " to lock " << lock
                     << " lock name=" << lock->name);
 
@@ -1252,6 +1296,42 @@ lock_core_m::acquire(
         w_assert1(timeout && !the_xlinfo->waiting_request());
         lock->waiting = true;
 
+        switch(name.lspace()) {
+        case lockid_t::t_bad:
+        default:
+            break;
+        case lockid_t::t_vol:
+            INC_TSTAT(lk_vol_wait);
+            break;
+        case lockid_t::t_store:
+            INC_TSTAT(lk_store_wait);
+            break;
+        case lockid_t::t_page:
+            INC_TSTAT(lk_page_wait);
+            break;
+        case lockid_t::t_kvl:
+            INC_TSTAT(lk_kvl_wait);
+            break;
+        case lockid_t::t_record:
+            INC_TSTAT(lk_rec_wait);
+            break;
+        case lockid_t::t_extent:
+            INC_TSTAT(lk_ext_wait);
+            break;
+        case lockid_t::t_user1:
+            INC_TSTAT(lk_user1_wait);
+            break;
+        case lockid_t::t_user2:
+            INC_TSTAT(lk_user2_wait);
+            break;
+        case lockid_t::t_user3:
+            INC_TSTAT(lk_user3_wait);
+            break;
+        case lockid_t::t_user4:
+            INC_TSTAT(lk_user4_wait);
+            break;
+        }
+
         int count = 0;
 #if W_DEBUG_LEVEL > 3
         enum { DREADLOCKS_INTERVAL_MS =1000 };
@@ -1264,6 +1344,7 @@ lock_core_m::acquire(
         the_xlinfo->set_waiting_request(req);
 
         w_rc_t::errcode_t  rce(eOK);
+        INC_TSTAT(lock_wait_cnt);
      again:
         {
             DBGTHRD(<<" again: timeout " << timeout);
@@ -1289,14 +1370,15 @@ lock_core_m::acquire(
                       << " timeout=" << timeout );
 
                 if(the_xlinfo->is_nonblocking()) {
-		    // die immediately if we've been poisoned 
-		    INC_TSTAT(log_full_old_xct);
-		    rce = eDEADLOCK;
-		}
-		else {
+            // die immediately if we've been poisoned 
+            INC_TSTAT(log_full_old_xct);
+            rce = eDEADLOCK;
+        }
+        else {
 
                     const char* blockname = "lock";
                     // TODO: non-rc version of smthread_block
+                    INC_TSTAT(lock_block_cnt);
                     rce = me()->smthread_block(DREADLOCKS_INTERVAL_MS, 0, 
                                                                 blockname);
 
@@ -1327,9 +1409,7 @@ lock_core_m::acquire(
 #endif
 
                 // unblock any other thread waiters
-                if (xd->num_threads() > 1) {
-                    xd->lockunblock();
-                }
+                xd->lockunblock();
 
                 MUTEX_ACQUIRE(the_xlinfo->lock_info_mutex);
                 MUTEX_ACQUIRE(lock->head_mutex);
@@ -1357,8 +1437,10 @@ lock_core_m::acquire(
                         rce = eDEADLOCK;
                     } else 
 #endif
-                    if((timeout == WAIT_FOREVER) || (count < max_count))
+                    if((timeout == WAIT_FOREVER) || (count < max_count)) {
+                        // this is effects a spin.
                         goto again;
+                    }
                 }
             }
         }
@@ -1396,8 +1478,12 @@ lock_core_m::acquire(
                 w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
                 req->xlink.detach();
                 req->rlink.detach();
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
                 lock_request_pool->release(req);
-                ATOMIC_DEC(_requests_allocated);
+#else
+                delete req;
+#endif
+                atomic_dec(_requests_allocated);
                 req = 0;
             }
             if(rce == eDEADLOCK) {
@@ -1449,10 +1535,10 @@ lock_core_m::acquire(
             lock_head_t*lock = req->get_lock_head();
             DBGTHRD(<<"pushing lock request "
                     << lock->name
-                    << " on _my_req_list["<<int(duration)<<"] : " << *req);
+                    << " on my_req_list["<<int(duration)<<"] : " << *req);
         }
 #endif 
-        the_xlinfo->_my_req_list[duration].push(req);
+        the_xlinfo->my_req_list[duration].push(req);
     }
 
     ret = mode;
@@ -1511,6 +1597,11 @@ lock_core_m::acquire(
         << " mode=" << int(mode)
         << " duration=" << int(duration) << " timeout=" << timeout );
 
+        // GNATS119. There's a race between the time we
+        // determine that we have to block and the time we grab
+        // the _waiters mutex in xct_impl.cpp.  We need to
+        // grab that mutex and then recheck the condition before
+        // we block.
         MUTEX_RELEASE(lock->head_mutex);
         MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
         INC_TSTAT(lock_await_alt_cnt);
@@ -1524,6 +1615,12 @@ lock_core_m::acquire(
         }
         return rc.err_num();
     }
+}
+
+void lock_core_m::compact_cache(xct_lock_info_t* theLockInfo, 
+                                    lockid_t const &name )
+{
+    theLockInfo->compact_cache(name);
 }
 
 void lock_core_m::put_in_cache(xct_lock_info_t* the_xlinfo,
@@ -1558,12 +1655,15 @@ lock_cache_elem_t* lock_core_m::search_cache(
 }
 
 rc_t
-lock_core_m::release(
+lock_core_m::release_lock(
         xct_lock_info_t*        the_xlinfo,
         const lockid_t&         name,
         lock_head_t*            lock,
         lock_request_t*         request,
-        bool                    force)
+        bool                    force
+        // force is true in release_duration (lock_m::unlock_duration)
+        // and when closing a quark
+        )
 {
     FUNC(lock_core_m::release);
     DBGTHRD(<<"lock_core_m::release " << " lockid " <<name);
@@ -1584,7 +1684,9 @@ lock_core_m::release(
     }
 
     if (!request) {
+#if MY_LOCK_DEBUG
         w_assert2(MUTEX_IS_MINE(lock->head_mutex));
+#endif
         request = lock->find_lock_request(the_xlinfo);
     }
 
@@ -1595,30 +1697,67 @@ lock_core_m::release(
     }
 
     w_assert9(lock == request->get_lock_head());
-    return _release(request, force);
+    return _release_lock(request, force);
 }
 
 rc_t
-lock_core_m::_release(lock_request_t* request, bool force) 
+lock_core_m::_release_lock(lock_request_t* request, bool force
+        // force is true in release_duration (lock_m::unlock_duration)
+        // and when closing a quark
+        ) 
 {
+    DBGTHRD(<<"lock_core_m::_release " 
+            << " request " <<request << " force " << force);
     // get these before deleting the request...
     lock_head_t* lock = request->get_lock_head();
     xct_lock_info_t* the_xlinfo = request->get_lock_info();
     
-    if (!force && (request->get_duration() >= t_long 
-                || request->get_count() > 1)) {
+    if (!force && 
+            // Don't unlock t_long or longer. That happens only
+            // with unlock_duration
+            (request->get_duration() >= t_long 
+            || request->get_count() > 1
+            // Also don't release if reference count is > 1 -- in that
+            // case just decrement the count.
+            // This is regardless of the duration.
+            )
+        ) {
+#if W_DEBUG_LEVEL > 0
+        // It should be impossible for two threads of an xct
+        // to acquire t_instant locks at the same time, therefore
+        // driving up the ref count and making the instant locks
+        // hang around.  This assert is part of checking that.
+        if(request->get_duration() == t_instant) {
+            w_assert1(request->get_count() == 1);
+        }
+#endif
         if (request->get_count() > 1) request->dec_count();
         MUTEX_RELEASE(lock->head_mutex);
+        DBGTHRD(<<"lock_core_m::_release dec count only " );
         return RCOK;
     }
+    // if force, we'll release regardless of the duration
+    // or the reference count.
+    // This is called at the closing of a quark and at the
+    // end of tx.
+    // In the former case, we get here only with explict per-lock
+    // release requests, and in that case, we will be looking at locks
+    // with t_short duration only.
 
+#if MY_LOCK_DEBUG
     w_assert2(MUTEX_IS_MINE(lock->head_mutex));
+#endif
     request->rlink.detach();
     w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
     request->xlink.detach();
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
     lock_request_pool->release(request);
+#else
+    delete request;
+#endif
+    DBGTHRD(<<"lock_core_m::_release deleted request" );
 
-    ATOMIC_DEC(_requests_allocated);
+    atomic_dec(_requests_allocated);
     _update_cache(the_xlinfo, lock->name, NL);
 
     lock->granted_mode = lock->granted_mode_other(0);
@@ -1636,7 +1775,9 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
     // If we hit any contention, give up -- the
     // lock will probably get used again pretty quickly if it's that
     // hot...
+#if MY_LOCK_DEBUG
     w_assert2(MUTEX_IS_MINE(lock->head_mutex));
+#endif
 
     if (lock->queue_length() == 0) 
     {
@@ -1726,8 +1867,9 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
 // funky thing with marking the extent lock as having a page
 // allocated in it so that we don't delete the extent when another
 // xct might be using it.
-// When this returns true, we'll leave the lock core to deallocated the
-// extent before freeing the lock on the extent; we can only do this
+// When this returns true, we'll leave the lock core &
+// return to the lock manager to deallocate the extent 
+// before freeing the lock on the extent; we can only do this
 // if we have upgraded the lock to EX.
 //
 // Called from lock_core_m::release_duration on extent-locks only.
@@ -1736,6 +1878,7 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
 // the extent# from the lockid and bails immediately with eFOUNDEXTTOFREE.
 // This lets the lock manager (as opposed to the lock_core) release the
 // hold on the lock head and free the extent while holding the lock.
+//
 bool
 lock_core_m::upgrade_ext_req_to_EX_if_should_free(lock_request_t* req)
     // TODO: NANCY : couldn't this give us false negatives and leave uswith 
@@ -1750,10 +1893,12 @@ lock_core_m::upgrade_ext_req_to_EX_if_should_free(lock_request_t* req)
         // already is exclusive or
         // is marked with having a just-allocated-page in the extent
         //  (we don't want to free the extent until there are no more 
-        //  allocated pages in it)
+        //  allocated pages in it). Note that the bit could have been
+        //  set by another xct, not this one.  That's the case
+        //  this is supposed to protect against.
         // or has multiple holders (we're figuring this is an IX lock?)
         //   so we wouldn't want to upgrade to EX and delete the extent 
-        //   in this case
+        //   in this case either.
         return false;
     }  else  {
         // Grab the lock head mutex and check again.
@@ -1798,27 +1943,35 @@ lock_core_m::release_duration(
     for (int i = (all_less_than ? t_instant : duration); i <= duration; i++) 
     {
         //backwards:
-        //requests(the_xlinfo->_my_req_list[i], true);
-        request_list_t &requests =  the_xlinfo->_my_req_list[i];
+        //requests(the_xlinfo->my_req_list[i], true);
+        request_list_t &requests =  the_xlinfo->my_req_list[i];
         if (i < t_long || !ext_to_free)  {
             while ((request = requests.top()))  {
                 DBG(<<"popped request "  << request << "==" << *request);
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
                     lock_request_pool->release(request);
-                    ATOMIC_DEC(_requests_allocated);
+#else
+                    delete request;
+#endif
+                    atomic_dec(_requests_allocated);
                     continue;
                 }
                 lock = request->get_lock_head();
-                W_COERCE(release(the_xlinfo, lock->name, lock, request, true) );
+                W_COERCE(release_lock(the_xlinfo, lock->name, lock, request, true) );
             }
         }  else  {
             while ((request = requests.top()))  {
                 DBG(<<"popped request "  << request << "==" << *request);
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
                     lock_request_pool->release(request);
-                    ATOMIC_DEC(_requests_allocated);
+#else
+                    delete request;
+#endif
+                    atomic_dec(_requests_allocated);
                     continue;
                 }
 
@@ -1830,10 +1983,19 @@ lock_core_m::release_duration(
                         upgrade_ext_req_to_EX_if_should_free(request)) )  
                 {
                     DBGTHRD(<<"popped lock request " << 
-                                request<< "on _my_req_list["<<
+                                request<< "on my_req_list["<<
                                 i<<"] : " << *request);
-                    W_COERCE(release(the_xlinfo, lock->name, lock, request, true) );
+                    W_COERCE(release_lock(the_xlinfo, lock->name, lock, request, true) );
                 }  else  {
+                    // lock->name.lspace() == lockid_t::t_extent && 
+                    // upgrade_ext_req_to_EX_if_should_free(request) 
+                    // returned true
+                    //
+                    // Co-routine with lock manager:
+                    // We return to the lock_m to free the extent while
+                    // we hold the EX lock on it; then it
+                    // frees the lock and comes back to the lock_core
+                    // with another call to release_duration.
                     lock->name.extract_extent(*ext_to_free);
                     DBG(<<" found extent to free : "<< *ext_to_free );
                     return RC(eFOUNDEXTTOFREE);
@@ -1861,10 +2023,16 @@ lock_core_m::open_quark(
     }
     MUTEX_ACQUIRE(xd->lock_info()->lock_info_mutex);
 
-    xd->lock_info()->set_quark_marker (lock_request_pool->acquire(xd, true));
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
+    lock_request_t* marker = lock_request_pool->acquire(xd, true);
+#else
+    lock_request_t* marker = new lock_request_t();
+    marker->init(xd, true/*is marker */);
+#endif
+    xd->lock_info()->set_quark_marker (marker);
     MUTEX_RELEASE(xd->lock_info()->lock_info_mutex);
 
-    ATOMIC_INC(_requests_allocated);
+    atomic_inc(_requests_allocated);
     if (xd->lock_info()->quark_marker() == NULL) return RC(fcOUTOFMEMORY);
     return RCOK;
 }
@@ -1892,10 +2060,14 @@ lock_core_m::close_quark(
 
         w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
         the_xlinfo->quark_marker()->xlink.detach();
-	lock_request_pool->release(the_xlinfo->quark_marker());
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
+        lock_request_pool->release(the_xlinfo->quark_marker());
+#else
+        delete the_xlinfo->quark_marker(); // is a lock_request_t
+#endif
         the_xlinfo->set_quark_marker(NULL);
 
-        ATOMIC_DEC(_requests_allocated);
+        atomic_dec(_requests_allocated);
         MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
         return RCOK;
     }
@@ -1907,7 +2079,7 @@ lock_core_m::close_quark(
     w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
 
     // release all locks up to the marker for the beginning of the quark
-    request_list_i iter(the_xlinfo->_my_req_list[t_short]);
+    request_list_i iter(the_xlinfo->my_req_list[t_short]);
     while ((request = iter.next()))  {
         w_assert9(request->duration == t_short);
         if (request->is_quark_marker()) {
@@ -1915,8 +2087,12 @@ lock_core_m::close_quark(
             request->xlink.detach();
             DBGTHRD(<<"detached lock request in close_quark");
             the_xlinfo->set_quark_marker(NULL);
+#if USE_BLOCK_ALLOC_FOR_LOCK_STRUCTS
             lock_request_pool->release(request);
-            ATOMIC_DEC(_requests_allocated);
+#else
+            delete request;
+#endif
+            atomic_dec(_requests_allocated);
             found_marker = true;
             break;  // finished
         }
@@ -1928,10 +2104,10 @@ lock_core_m::close_quark(
 
             // Note that the release is done with force==true.
             // This is correct because if this lock was acquired
-            // before the quark, then we would not be looking at
+            // before the quark, then we would not be looking at it
             // now.  Since it was acquire after, it is ok to
             // release it, regardless of the request count.
-            W_COERCE(release(the_xlinfo, lock->name, lock, request, true) );
+            W_COERCE(release_lock(the_xlinfo, lock->name, lock, request, true) );
 
             // releases all the mutexes it acquires
        } else {
@@ -1953,7 +2129,9 @@ lock_core_m::_check_deadlock(xct_t* self,
     w_assert2(MUTEX_IS_MINE(myli->lock_info_mutex));
 
     lock_head_t* lock = myreq->get_lock_head();
+#if MY_LOCK_DEBUG
     w_assert2(MUTEX_IS_MINE(lock->head_mutex));
+#endif
 
     /*************************************************************************
      *
@@ -2142,10 +2320,10 @@ lock_core_m::_check_deadlock(xct_t* self,
             // MUTEX_ACQUIRE(their_lock_info->lock_info_mutex);
             // NEH: The problem  here is that a thread cannot hold 2 of these
             // mutexes because they use a single TLS qnode for this.
-	    // FRJ: Also note that we indirectly have locked their
-	    // node (we hold the lock head, so they can't free
-	    // it). The critical section is both unnecessary and
-	    // deadlock-prone
+        // FRJ: Also note that we indirectly have locked their
+        // node (we hold the lock head, so they can't free
+        // it). The critical section is both unnecessary and
+        // deadlock-prone
             
             // I'm older -- abort other
             INC_TSTAT(lock_dld_victim_other_cnt);
@@ -2211,7 +2389,7 @@ lock_core_m::_check_deadlock(xct_t* self,
                     ostringstream os;
                     os << req << ends;
                     fprintf(stderr, 
-        "Unblocked non-waiting deadlock victim while acquiring on%s\n", 
+        "Unblocked non-waiting deadlock victim while acquiring on %s\n", 
                         os.str().c_str());
                 }
                 INC_TSTAT(lock_dld_false_victim_cnt);

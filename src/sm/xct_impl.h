@@ -108,19 +108,19 @@ public:
 
 private:
     void            acquire_1thread_log_mutex();
-#if GNATS_69_FIX
-    rc_t            acquire_1thread_log_mutex_conditional();
-#endif
     void            release_1thread_log_mutex();
     bool            is_1thread_log_mutex_mine() const;
     void            assert_1thread_log_mutex_free()const;
+
+public:// these are public for use in CRITICAL_SECTION macro:
     void            acquire_1thread_xct_mutex();
     void            release_1thread_xct_mutex();
+private:
     bool            is_1thread_xct_mutex_mine() const;
     void            assert_1thread_xct_mutex_free()const;
 
 private:
-    vote_t          vote() const;
+    vote_t          vote() const { return _vote; }
 
 public:
     state_t         state() const;
@@ -135,7 +135,7 @@ public:
     rc_t            prepare();
     rc_t            log_prepared(bool in_chkpt=false);
     rc_t            commit(w_base_t::uint4_t flags,lsn_t* plastlsn=NULL);
-    rc_t            rollback(lsn_t save_pt);
+    rc_t            rollback(const lsn_t &save_pt);
     rc_t            save_point(lsn_t& lsn);
     rc_t            abort();
     rc_t            dispose();
@@ -153,7 +153,7 @@ private:
     rc_t            check_one_thread_attached() const;   // returns rc_t
     bool            one_thread_attached() const;   // assertion
     // helper function for compensate() and compensate_undo()
-    void             _compensate(const lsn_t&, bool undoable = false);
+    void             _compensate(const lsn_t&, bool undoable);
 
 protected:
     void             detach_thread() ;
@@ -161,8 +161,9 @@ protected:
 
 public:
     const lsn_t&     anchor(bool grabit = true);
-    void             release_anchor(bool compensate=true);
-    void             compensate(const lsn_t&, bool undoable = false);
+    void             release_anchor(bool compensate ADD_LOG_COMMENT_SIG);
+                                           
+    void             compensate(const lsn_t&, bool undoable ADD_LOG_COMMENT_SIG);
     void             compensate_undo(const lsn_t&);
 
     NORET            operator bool() const;
@@ -231,19 +232,19 @@ private:
     bool            forced_readonly() const;
 
     void            change_state(state_t new_state);
-    void            set_first_lsn(const lsn_t &) ;
-    void            set_last_lsn(const lsn_t &) ;
-    void            set_undo_nxt(const lsn_t &) ;
+    void            set_first_lsn(const lsn_t &l) { _first_lsn = l;}
+    void            set_last_lsn(const lsn_t &l)  { _last_lsn = l; }
+    void            set_undo_nxt(const lsn_t &l) { _undo_nxt = l; }
 
     void 	    _teardown(bool is_chaining);
 
 public:
 
     // used by checkpoint, restart:
-    const lsn_t&        last_lsn() const;
-    const lsn_t&        first_lsn() const;
-    const lsn_t&        undo_nxt() const;
-    const logrec_t*     last_log() const;
+    const lsn_t&        last_lsn() const { return _last_lsn; }
+    const lsn_t&        first_lsn() const { return _first_lsn; }
+    const lsn_t&        undo_nxt() const { return _undo_nxt; }
+    const logrec_t*     last_log() const { return _last_log; }
 
 public:
 
@@ -254,7 +255,7 @@ public:
     int                num_threads() const { return _threads_attached; }
 
 private:
-    w_rc_t             _flush_logbuf(bool sync=false);
+    w_rc_t             _flush_logbuf();
     w_rc_t	       _sync_logbuf(bool block=true);
 
 private: // all data members private
@@ -399,76 +400,6 @@ inline const w_base_t::int4_t *
 xct_impl::GetEscalationThresholdsArray()
 {
     return escalationThresholds;
-}
-
-inline void xct_impl::AddStoreToFree(const stid_t& stid)
-{
-    acquire_1thread_xct_mutex();
-    _storesToFree.push(new stid_list_elem_t(stid));
-    release_1thread_xct_mutex();
-}
-
-inline void xct_impl::AddLoadStore(const stid_t& stid)
-{
-    acquire_1thread_xct_mutex();
-    _loadStores.push(new stid_list_elem_t(stid));
-    release_1thread_xct_mutex();
-}
-
-inline
-vote_t
-xct_impl::vote() const
-{
-    return _vote;
-}
-
-inline
-const lsn_t&
-xct_impl::last_lsn() const
-{
-    return _last_lsn;
-}
-
-inline
-void
-xct_impl::set_last_lsn( const lsn_t&l)
-{
-    _last_lsn = l;
-}
-
-inline
-const lsn_t&
-xct_impl::first_lsn() const
-{
-    return _first_lsn;
-}
-
-inline
-void
-xct_impl::set_first_lsn(const lsn_t &l) 
-{
-    _first_lsn = l;
-}
-
-inline
-const lsn_t&
-xct_impl::undo_nxt() const
-{
-    return _undo_nxt;
-}
-
-inline
-void
-xct_impl::set_undo_nxt(const lsn_t &l) 
-{
-    _undo_nxt = l;
-}
-
-inline
-const logrec_t*
-xct_impl::last_log() const
-{
-    return _last_log;
 }
 
 inline

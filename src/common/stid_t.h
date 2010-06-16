@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='STID_T_H'>
 
- $Id: stid_t.h,v 1.12.2.4 2010/03/19 22:19:19 nhall Exp $
+ $Id: stid_t.h,v 1.13 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -39,12 +39,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 /**\brief Store Number
- *\ingroup IDs
+ *\ingroup IDS
  * \details
  * This type represents a store number, 
  * used when the volume id is implied somehow.
  *
- * See \ref IDs.
+ * See \ref IDS.
  */
 typedef uint4_t    snum_t;
 
@@ -65,8 +65,8 @@ struct compare_snum_t
     }
 };
 
-/**\brief Store ID.  See \ref IDs.
- *\ingroup IDs
+/**\brief Store ID.  See \ref IDS.
+ *\ingroup IDS
  * \details
  * This class represents a store identifier. 
  * A store id is part of record identifiers, and by itself, it
@@ -74,7 +74,7 @@ struct compare_snum_t
  * It contains a volume identifier, vid_t.
  * 
  *
- * See \ref IDs.
+ * See \ref IDS.
  */
 struct stid_t {
     vid_t    vol;

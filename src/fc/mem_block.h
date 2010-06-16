@@ -24,8 +24,10 @@
 #ifndef __MEM_BLOCK_H
 #define __MEM_BLOCK_H
 
+/**\cond skip */
 #include <stddef.h>
 #include <cassert>
+#include "w_base.h"
 
 #define NORET
 
@@ -66,11 +68,11 @@ struct block_list;
 
    A given "chip" may be in one of three states:
    
-   	USABLE: available to be allocated
-	
-	IN-USE: allocated but not yet freed
-	
-	ZOMBIE: freed more recently than the last recycling pass
+       USABLE: available to be allocated
+    
+    IN-USE: allocated but not yet freed
+    
+    ZOMBIE: freed more recently than the last recycling pass
 
    Allocation is double-buffered in a sense: at the beginning of each
    allocation round, the owning thread unions the current set of
@@ -78,40 +80,39 @@ struct block_list;
 
    The class has two members to support higher-level functionality:
    
-   	_owner: an opaque pointer which is used to verify that blocks
-   		are being released properly
-		
-	_next: an embedded linked list node for use by the owner and
-		otherwise ignored by the implementation
+       _owner: an opaque pointer which is used to verify that blocks
+           are being released properly
+        
+    _next: an embedded linked list node for use by the owner and
+        otherwise ignored by the implementation
  */
 struct block_bits {
     
-    typedef
-    unsigned long 	bitmap;
+    typedef w_base_t::uint8_t     bitmap; 
 
-    enum 		{ MAX_CHIPS=8*sizeof(bitmap) };
+    enum         { MAX_CHIPS=8*sizeof(bitmap) };
     
-    NORET		block_bits(size_t chip_count);
+    NORET        block_bits(size_t chip_count);
     
-    size_t 		acquire(size_t chip_count);
+    size_t         acquire(size_t chip_count);
 
-    void		release(size_t idx, size_t chip_count);
-    
-    static
-    bitmap		create_mask(size_t bits_set);
-
-    bitmap volatile* 	usable_chips() { return &_usable_chips; }
-    
-    size_t		usable_count() const { return _popc(_usable_chips); }
-    size_t		zombie_count() const { return _popc(_zombie_chips); }
-
-    void		recycle();
+    void        release(size_t idx, size_t chip_count);
     
     static
-    size_t		_popc(bitmap bm);
+    bitmap        create_mask(size_t bits_set);
 
-    bitmap		_usable_chips; // available as of last recycling (1thr)
-    bitmap volatile	_zombie_chips; // deallocations since last recycling (racy)
+    bitmap volatile*     usable_chips() { return &_usable_chips; }
+    
+    size_t        usable_count() const { return _popc(_usable_chips); }
+    size_t        zombie_count() const { return _popc(_zombie_chips); }
+
+    void        recycle();
+    
+    static
+    size_t        _popc(bitmap bm);
+
+    bitmap        _usable_chips; // available as of last recycling (1thr)
+    bitmap volatile    _zombie_chips; // deallocations since last recycling (racy)
 };
 
 /* Control structure for one block of allocatable memory.
@@ -133,58 +134,58 @@ struct block_bits {
  */
 struct block {
     
-    NORET		block(size_t chip_size, size_t chip_count, size_t block_size);
+    NORET        block(size_t chip_size, size_t chip_count, size_t block_size);
     
-    void* 		acquire(size_t chip_size, size_t chip_count, size_t block_size);
+    void*         acquire(size_t chip_size, size_t chip_count, size_t block_size);
 
     // WARNING: the caller must ensure that ptr is in a valid memory range
     static
-    void		release(void* ptr, size_t chip_size, size_t chip_count, size_t block_size);
+    void        release(void* ptr, size_t chip_size, size_t chip_count, size_t block_size);
 
-    void		recycle() { _bits.recycle(); }
+    void        recycle() { _bits.recycle(); }
 
-    char*		_get(size_t idx, size_t chip_size);
+    char*        _get(size_t idx, size_t chip_size);
     
-    block_bits		_bits;
-    block_list* 	_owner;
-    block* 		_next;
-    char		_data[EMPTY_ARRAY_DIM];
+    block_bits        _bits;
+    block_list*     _owner;
+    block*         _next;
+    char        _data[EMPTY_ARRAY_DIM];
 };
 
 
 struct block_pool {
-    block*		acquire_block(block_list* owner);
-    block*		release_block(block* b);
+    block*        acquire_block(block_list* owner);
+    block*        release_block(block* b);
 
     // true if /ptr/ points to data inside some block managed by this pool
-    virtual bool	validate_pointer(void* ptr)=0;
+    virtual bool    validate_pointer(void* ptr)=0;
     
-    virtual NORET	~block_pool() { }
+    virtual NORET    ~block_pool() { }
     
 protected:
     
-    virtual block* 	_acquire_block()=0;
+    virtual block*     _acquire_block()=0;
     // takes back b, then returns b->_next
-    virtual void 	_release_block(block* b)=0;
+    virtual void     _release_block(block* b)=0;
 };
 
 struct block_list {
-    NORET		block_list(block_pool* pool, size_t chip_size,
-				   size_t chip_count, size_t block_size);
+    NORET        block_list(block_pool* pool, size_t chip_size,
+                   size_t chip_count, size_t block_size);
     
-    NORET		~block_list();
+    NORET        ~block_list();
     
-    void* 		acquire(size_t chip_size, size_t chip_count, size_t block_size);
-    block*		acquire_block(size_t block_size);
+    void*         acquire(size_t chip_size, size_t chip_count, size_t block_size);
+    block*        acquire_block(size_t block_size);
 
-    void*		_slow_acquire(size_t chip_size, size_t chip_count, size_t block_size);
-    void		_change_blocks(size_t chip_size, size_t chip_count, size_t block_size);
+    void*        _slow_acquire(size_t chip_size, size_t chip_count, size_t block_size);
+    void        _change_blocks(size_t chip_size, size_t chip_count, size_t block_size);
 
-    block		_fake_block;
-    block*		_tail;
-    block_pool*		_pool;
-    size_t		_hit_count;
-    double		_avg_hit_rate;
+    block        _fake_block;
+    block*        _tail;
+    block_pool*        _pool;
+    size_t        _hit_count;
+    double        _avg_hit_rate;
     
 };
 
@@ -270,15 +271,15 @@ struct meta_min {
  */
 template<int ChipSize, int OverheadBytes=sizeof(memory_block::block), int MaxChips=block_bits::MAX_CHIPS>
 struct meta_block_size : fail_unless<(ChipSize > 0 && OverheadBytes >= 0)> {
-    enum { CHIP_SIZE	= ChipSize };
-    enum { OVERHEAD 	= OverheadBytes };
-    enum { MAX_CHIPS 	= MaxChips };
-    enum { MIN_CHIPS 	= MAX_CHIPS/2 + 1 };
+    enum { CHIP_SIZE    = ChipSize };
+    enum { OVERHEAD     = OverheadBytes };
+    enum { MAX_CHIPS     = MaxChips };
+    enum { MIN_CHIPS     = MAX_CHIPS/2 + 1 };
     enum { BYTES_NEEDED = MIN_CHIPS*ChipSize+OverheadBytes };
-    enum { LOG2 	= meta_log2<2*BYTES_NEEDED-1>::VALUE };
+    enum { LOG2     = meta_log2<2*BYTES_NEEDED-1>::VALUE };
     
-    enum { BYTES 	= 1 << LOG2 };
-    fail_unless<((BYTES &- BYTES) == BYTES)> 	power_of_two;
+    enum { BYTES     = 1 << LOG2 };
+    fail_unless<((BYTES &- BYTES) == BYTES)>     power_of_two;
     
     /* ugly corner case...
 
@@ -289,15 +290,16 @@ struct meta_block_size : fail_unless<(ChipSize > 0 && OverheadBytes >= 0)> {
        Note that this wasted space would be small compared with the
        enormous overhead that causes the situation in the first place.
      */    
-    enum { REAL_COUNT 	= (BYTES-OverheadBytes)/ChipSize };
+    enum { REAL_COUNT     = (BYTES-OverheadBytes)/ChipSize };
     fail_unless<((OVERHEAD + MIN_CHIPS*ChipSize) > (int)BYTES/2)> sane_chip_count;
     
-    enum { COUNT 	= meta_min<MAX_CHIPS, REAL_COUNT>::VALUE };
-    bounds_check<COUNT, MIN_CHIPS, MAX_CHIPS> 	bounds;
+    enum { COUNT     = meta_min<MAX_CHIPS, REAL_COUNT>::VALUE };
+    bounds_check<COUNT, MIN_CHIPS, MAX_CHIPS>     bounds;
 
 };
 
 } // namespace memory_block
 
+/**\endcond skip */
 
 #endif

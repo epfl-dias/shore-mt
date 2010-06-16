@@ -3,25 +3,6 @@ SUBDIRS = tests
 include $(top_srcdir)/Makefile.generic
 EXTRA_DIST = fc_error.dat
 
-test_me: $(FC_ERROR_GENFILES_H) test_dynarray test_mem_block
-	./test_dynarray
-	./test_mem_block
-
-TEST_CXXFLAGS = $(PEDANTIC)  $(TUNE_FLAGS) -DTEST_ME
-TEST_CXXFLAGS += -g $(GENERIC_YESDEBUG_FLAGS) $(W_WARNINGS) $(PURE_CXXFLAGS)
-TEST_CXXFLAGS += $(ALWAYS_FLAGS) $(TEMPLATEFLAGS) 
-
-TEST_LDADD =  $(top_srcdir)/src/atomic_ops/libatomic_ops.a
-
-bin_PROGRAMS = test_dynarray test_mem_block
-test_dynarray_SOURCES = dynarray.cpp
-test_dynarray_CXXFLAGS = $(TEST_CXXFLAGS)
-test_dynarray_LDADD = $(TEST_LDADD)
-
-test_mem_block_SOURCES = mem_block.cpp
-test_mem_block_CXXFLAGS = $(TEST_CXXFLAGS)
-test_mem_block_LDADD = $(TEST_LDADD)
-
 lib_LIBRARIES     = libfc.a
 
 FC_ERROR_GENFILES_H  = fc_errmsg_gen.h \
@@ -33,17 +14,16 @@ FC_ERROR_GENFILES_H  = fc_errmsg_gen.h \
 GENFILES = $(FC_ERROR_GENFILES_H)
 
 include_HEADERS = \
-    atomic_class_pool.h \
     atomic_container.h \
     atomic_templates.h \
     block_alloc.h \
+    dynarray.h \
+    mem_block.h \
     errlog.h errlog_s.h \
     gethrtime.h \
     largefile_aware.h \
     nbox.h \
     os_types.h \
-    dynarray.h \
-    mem_block.h \
     rand48.h \
     stime.h \
     tls.h \
@@ -60,15 +40,16 @@ include_HEADERS = \
     w_hash.h w_heap.h w_list.h w_minmax.h \
     w_rc.h w_rusage.h w_shore_alloc.h \
     w_stream.h w_strstream.h \
-	w_stat.h \
+    w_stat.h \
     w_workaround.h \
     $(GENFILES)
 
+
 libfc_a_SOURCES      = \
         rand48.cpp \
-	dynarray.cpp \
-	mem_block.cpp \
-	block_alloc.cpp \
+        block_alloc.cpp \
+        dynarray.cpp \
+        mem_block.cpp \
         gethrtime.cpp \
         w_compat_strstream.cpp \
         w_form.cpp w_form_base.cpp \

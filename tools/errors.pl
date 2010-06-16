@@ -2,7 +2,7 @@
 
 # <std-header style='perl' orig-src='shore'>
 #
-#  $Id: errors.pl,v 1.30.2.1 2009/06/01 22:21:43 nhall Exp $
+#  $Id: errors.pl,v 1.32 2010/06/08 22:29:23 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #

@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: file.perf,v 1.10.2.2 2009/10/08 20:52:30 nhall Exp $
+#  $Id: file.perf,v 1.12 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -69,19 +69,19 @@ for {set i 0} {$i < 10} {incr i}  {
 source $script_dir/vol.init
 clearstats
 
-echo "********************************"
-echo "** fileType: $fileType, logging: $logging, numFiles: $numFiles"
-echo "********************************"
+verbose "********************************"
+verbose "** fileType: $fileType, logging: $logging, numFiles: $numFiles"
+verbose "********************************"
 
 set testTime [time {test $fileType}]
 
-echo
-echo testTime=$testTime
-echo ********************************
-echo STAT NUMBERS ARE FOR $numFiles RUNS.
-echo ********************************
+verbose
+verbose testTime=$testTime
+verbose ********************************
+verbose STAT NUMBERS ARE FOR $numFiles RUNS.
+verbose ********************************
 # print bf stats
 verbose [pnzstats [sm gather_stats]]
-echo
-echo
+verbose
+verbose
 

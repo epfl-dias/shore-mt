@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SM_INT_3_H'>
 
- $Id: sm_int_3.h,v 1.9.2.5 2010/03/19 22:20:27 nhall Exp $
+ $Id: sm_int_3.h,v 1.10 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -81,13 +81,13 @@ public:
      * Create a btree index: | Change it to:
      *    t_tmp NO
      *    t_load_file YES    | tmp NO load_file NO insert_file NO regular YES
-     *    t_insert_file YES  | tmp NO load_file NO insert_file NO regular YES
+     *    t_insert_file YES  | tmp NO load_file NO insert_file YES regular YES
      *    t_regular YES      | tmp NO load_file NO insert_file NO regular YES
      *
      * Create an rtree index:
-     *    t_tmp NO
-     *    t_load_file NO    
-     *    t_insert_file NO  
+     *    t_tmp YES          | tmp NO load_file NO insert_file NO regular YES
+     *    t_load_file YES    | tmp NO load_file NO insert_file NO regular YES
+     *    t_insert_file YES  | tmp NO load_file NO insert_file YES regular YES
      *    t_regular YES      | tmp NO load_file NO insert_file NO regular YES
      *
      * Create a file:        | Change it to:

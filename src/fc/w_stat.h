@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='W_STAT_H'>
 
- $Id: w_statistics.h,v 1.25.2.6 2009/11/23 22:32:49 nhall Exp $
+ $Id: w_stat.h,v 1.1 2010/05/26 01:20:26 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -48,7 +48,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 class w_statistics_t; // forward
 class w_stat_module_t; // forward
 
-/**\page STATS Statistics
+/**\page STATS Sets of Statistics
  * Each library (and the client, if you so choose) may have
  * its own collection of statistics. To enable rapid addition and
  * modifying of the counters kept, a Perl script takes a brief

@@ -1,3 +1,5 @@
+#ifndef SHORE_ATOMICS_H
+#define SHORE_ATOMICS_H
 #include "shore-config.h"
 
 #ifndef HAVE_UCHAR_T
@@ -55,4 +57,5 @@ typedef long   long_t;
 #undef _INT64_TYPE_DEFINED
 #endif
 
+#endif
 #endif

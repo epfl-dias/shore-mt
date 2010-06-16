@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: pin.cpp,v 1.138.2.11 2010/01/28 04:54:09 nhall Exp $
+ $Id: pin.cpp,v 1.142 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -106,13 +106,13 @@ pin_i::~pin_i()
 
 rc_t pin_i::pin(const rid_t& rid, smsize_t start, lock_mode_t lmode)
 {
-  return pin(rid, start, lmode, lock_to_latch(lmode));
+    return pin(rid, start, lmode, lock_to_latch(lmode));
 }
 
 rc_t pin_i::pin(const rid_t& rid, smsize_t start, 
         lock_mode_t lmode, latch_mode_t latch_mode)
 {
-    SM_PROLOGUE_RC(pin_i::pin, in_xct, 2);
+    SM_PROLOGUE_RC(pin_i::pin, in_xct, read_only,  2);
     if (lmode != SH && lmode != UD && lmode != EX && lmode != NL)
         return RC(eBADLOCKMODE);
     W_DO(_pin(rid, start, lmode, latch_mode));
@@ -186,7 +186,7 @@ void pin_i::set_ref_bit(int value)
 
 rc_t pin_i::repin(lock_mode_t lmode)
 {
-    SM_PROLOGUE_RC(pin_i::repin, in_xct, 2);
+    SM_PROLOGUE_RC(pin_i::repin, in_xct, read_only,  2);
     if (lmode != SH && lmode != UD && lmode != EX) return RC(eBADLOCKMODE);
     DBG(<<" repin " << this->_rid);
     W_DO(_repin(lmode));
@@ -196,7 +196,7 @@ rc_t pin_i::repin(lock_mode_t lmode)
 // returns eEOF if no more bytes available
 rc_t pin_i::next_bytes(bool& eof)
 {
-    SM_PROLOGUE_RC(pin_i::next_bytes, in_xct, 0);
+    SM_PROLOGUE_RC(pin_i::next_bytes, in_xct, read_only,  0);
     smsize_t        newstart;
     _check_lsn();
 
@@ -227,7 +227,7 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
     bool        was_pinned = pinned(); // must be first due to hp CC bug
     w_rc_t      rc;
 
-    SM_PROLOGUE_RC(pin_i::update_rec, in_xct, 0);
+    SM_PROLOGUE_RC(pin_i::update_rec, in_xct, read_write,  0);
     DBG(<<"update_rec " << this->_rid << " #bytes=" << data.size());
 
     if (was_pinned && _rec->is_small()) {
@@ -331,7 +331,7 @@ rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr
         _check_lsn();
     }
 
-    SM_PROLOGUE_RC(pin_i::update_rec_hdr, in_xct, 0);
+    SM_PROLOGUE_RC(pin_i::update_rec_hdr, in_xct, read_write, 0);
 
     lock_mode_t repin_lock_mode = EX;
 #ifdef SM_DORA
@@ -366,7 +366,7 @@ rc_t pin_i::append_rec(const vec_t& data)
 {
     bool was_pinned = pinned(); // must be first due to hp CC bug
 
-    SM_PROLOGUE_RC(pin_i::append_rec, in_xct, 0);
+    SM_PROLOGUE_RC(pin_i::append_rec, in_xct,  read_write,0);
     DBG(<< this->_rid << " #bytes=" << data.size());
     rid_t  rid;  // local variable for phys rec id
 
@@ -411,7 +411,7 @@ rc_t pin_i::truncate_rec(smsize_t amount)
 {
     bool was_pinned = pinned(); // must be first due to hp CC bug
     rc_t rc;
-    SM_PROLOGUE_RC(pin_i::truncate_rec, in_xct, 0);
+    SM_PROLOGUE_RC(pin_i::truncate_rec, in_xct, read_write, 0);
     DBG(<< this->_rid << " #bytes= " << amount);
 
     rid_t  rid;  // remember phys rec id in here
@@ -497,7 +497,8 @@ void pin_i::_init_constructor()
 {
     //  just make sure _page_alias is big enough
     w_assert2(sizeof(_hdr_page_alias) >= sizeof(file_p) + __alignof__(file_p));
-    w_assert2(sizeof(_data_page_alias) >= sizeof(lgdata_p) + __alignof(lgdata_p));
+    w_assert2(sizeof(_data_page_alias) >= 
+            sizeof(lgdata_p) + __alignof(lgdata_p));
 
     _flags = pin_empty;
     _rec = NULL;
@@ -680,6 +681,18 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
                 // Only wait on the page lock if we can't get it. We
                 // Accomplish this by first trying a conditional instant lock;
                 // if that fails,  we do a long-term, unconditional lock.
+                //
+                // BUGBUG: (filed as GNATS 128) we are now trying to 
+				// lock the PAGE in EX mode
+                // rather than in IX mode (or the record in EX mode),
+                // so we get unnecessary blocking here; If we're locking the
+                // record in EX mode we only need the page in IX mode.
+                // This shows up with the script pin_deadlock.1, where, having
+                // converted to a lock-lock deadlock and discovered that,
+                // we can't get the threads to sync because (even after the abort
+                // due to this deadlock being caught), one of the pinners is
+                // waiting on an EX page lock rather than having
+                // success with the expected IX page lock.
                 rc = lm->lock(_rid.pid, lmode, t_instant, WAIT_IMMEDIATE);
                 if (rc.err_num() == eLOCKTIMEOUT) {
                     // get it long-term

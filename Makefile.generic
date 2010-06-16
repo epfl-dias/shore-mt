@@ -1,4 +1,5 @@
 # rules, macros generic to all Makefile.am
+AUTOMAKE_OPTIONS = check-news dist-bzip2 readme-alpha
 
 # --------------------------------------------------------
 #
@@ -27,8 +28,10 @@ BUILT_SOURCES = $(GENFILES)
 
 ## TODO REMOVE 
 
-## _POSIX_PTHREAD_SEMANTICS is needed on Solaris to ensure that
-# the posix-compliant clib interfaces are there (e.g., ctime_r)
+## _REENTRANT and _POSIX_PTHREAD_SEMANTICS are needed on Solaris to ensure 
+# that the posix-compliant clib interfaces are there (e.g., ctime_r)
+# (Actually, you're supposed to get them both with _POSIX_C_SOURCE > 199506L
+# but I'm not that trusting.)
 
 ALWAYS_FLAGS = -DNO_FASTNEW \
 	 -D_REENTRANT -D_POSIX_PTHREAD_SEMANTICS
@@ -51,10 +54,8 @@ if COMPILER_IS_GCC
 # might be some cases where the underlying library function
 # or system include file uses long long, in which case we will have to.
 #
-
-ALWAYS_FLAGS += -Wno-long-long -Wno-ignored-qualifiers -pthread
-#ALWAYS_FLAGS += -Wno-long-long -Wno-ignored-qualifiers -Werror -pthread
-
+#
+ALWAYS_FLAGS += -Wextra -Wall -Wno-long-long -Werror -pthread
 # NO_INLINE_FLAGS =  -fno-inline
 NO_INLINE_FLAGS =  
 YES_INLINE_FLAGS =  -finline-functions
@@ -218,16 +219,14 @@ GENERIC_YESDEBUG_FLAGS = -UNDEBUG -DDEBUG
 #
 # handle --enable-debug config option
 #
-# TODO: need --enable-tha and other debug options
-# TODO: for now, DEBUG option is bogus, use DBGSYMBOLS
 # --------------------------------------------------------
 if COMPILER_IS_SUNCC
 #----------------- SUN CC -----------------------------------
 # SYMBOLSFLAGS = -g -xs -xinstrument=datarace -DTHA_RACE
-SYMBOLSFLAGS = -g -xs -xinstrument=datarace 
+SYMBOLSFLAGS = -g -xs 
 # -g0 turns off inlining
 NOSYMBOLSFLAGS = -g0 
-NOOPTFLAGS = -g -O0 $(NO_INLINE_FLAGS)
+NOOPTFLAGS = -O0 $(NO_INLINE_FLAGS)
 MIDOPTFLAGS = -O2 $(YES_INLINE_FLAGS)
 FULLOPTFLAGS = -xO4 -xinline=%auto,no%__1cKtatas_lockEspin6M_v_,no%__1cImcs_lockPspin_on_waiting6Mpon0AFqnode__v_,no%__1cImcs_lockMspin_on_next6Mpon0AFqnode__3_,no%__1cLhybrid_lockF_spin6Fpon0AFqnode__l_,no%__1cHmcs_logSspin_while_waiting6Mpn0AFqnode__v_,no%__1cKmcs_rwlockO_spin_on_writer6M_v_,no%__1cKmcs_rwlockP_spin_on_readers6M_v_,no%lock_mutex_acquire,no%returning_eINTRANS,no%__1cKtpmcs_lockMspin_on_next6Mpon0AFqnode__v_,no%__1cKtpmcs_lockPspin_on_waiting6Mpon0AFqnode__v_
 
@@ -237,7 +236,7 @@ else
 # thread1 test won't build with this turned on: -fstack-check
 SYMBOLSFLAGS = -ggdb
 NOSYMBOLSFLAGS = 
-NOOPTFLAGS = -g -O0 $(NO_INLINE_FLAGS) 
+NOOPTFLAGS = -O0 $(NO_INLINE_FLAGS) 
 MIDOPTFLAGS = -O2 $(YES_INLINE_FLAGS)
 FULLOPTFLAGS = -O3 -fexpensive-optimizations $(YES_INLINE_FLAGS)
 
@@ -286,21 +285,6 @@ else
 DEBUGFLAGS  += $(NOSYMBOLSFLAGS)
 endif
 
-# --------------------------------------------------------
-#
-# handle --enable-trace config option
-# (Now is in shore-config.h, so we can take this off
-#  the command line)
-# If we need once again to do something different when
-# --enable-trace/--disable-trace, then we have to 
-# re-install an AM_CONDITIONAL in configure.ac
-#
-# --------------------------------------------------------
-# if TRACE
-# DEBUGFLAGS += -DW_TRACE
-# else
-# DEBUGFLAGS += -UW_TRACE
-# endif
 
 # --------------------------------------------------------
 #

@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='APP_SUPPORT_H'>
 
- $Id: app_support.h,v 1.12.2.5 2010/01/28 04:53:55 nhall Exp $
+ $Id: app_support.h,v 1.14 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -34,8 +34,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-/* BEGIN VISIBLE TO APP */
-
 /*
  * This file contains support for application programs to access
  * file page structures.
@@ -67,14 +65,16 @@ public:
     enum {
     // See comments in sm.cpp where we compute max_small_rec for
     // the config_info.
+    /* old:
     max_small_rec = align(page_s::data_sz - sizeof(file_p_hdr_t) -
             sizeof(page_s::slot_t) - sizeof(rectag_t))
                 - align(1),
+    */
+    max_small_rec = page_s::data_sz - sizeof(file_p_hdr_t) -
+            sizeof(page_s::slot_t) - sizeof(rectag_t),
     lg_rec_page_space = page_s::data_sz
     };
 };
-
-/* END VISIBLE TO APP */
 
 /*<std-footer incl-file-exclusion='APP_SUPPORT_H'>  -- do not edit anything below this line -- */
 

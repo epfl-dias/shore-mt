@@ -72,7 +72,6 @@ struct mcs_lock {
         return false;
     }
     bool attempt(qnode_ptr me) {
-        THA_NOTIFY_ACQUIRE_LOCK(this);
         me->_next = NULL;
         me->_waiting = true;
         membar_producer();
@@ -81,7 +80,6 @@ struct mcs_lock {
         if(pred)
             return false;
         membar_enter();
-        THA_NOTIFY_LOCK_ACQUIRED(this);
         return true;
     }
     // return true if the lock was free
@@ -90,7 +88,6 @@ struct mcs_lock {
         return acquire((qnode*) me);
     }
     void* acquire(qnode_ptr me) {
-        THA_NOTIFY_ACQUIRE_LOCK(this);
         me->_next = NULL;
         me->_waiting = true;
         membar_producer();
@@ -100,7 +97,6 @@ struct mcs_lock {
             spin_on_waiting(me);
         }
         membar_enter();
-        THA_NOTIFY_LOCK_ACQUIRED(this);
         return (void*) pred;
     }
 
@@ -115,14 +111,13 @@ struct mcs_lock {
         return next;
     }
     void release(ext_qnode *me) { 
-        w_assert1(is_mine(&me));
+        w_assert1(is_mine(me));
         me->_held = 0; release((qnode*) me); 
     }
     void release(ext_qnode &me) { release(&me); }
     void release(qnode &me) { release(&me); }
     void release(qnode_ptr me) {
-        w_assert1(is_mine(&me));
-        THA_NOTIFY_RELEASE_LOCK(this);
+        w_assert1(is_mine(me));
         membar_exit();
 
         qnode_ptr next;
@@ -133,8 +128,8 @@ struct mcs_lock {
             next = spin_on_next(me);
         }
         next->_waiting = false;
-        THA_NOTIFY_LOCK_RELEASED(this);
     }
+    bool is_mine(qnode_ptr me) { return me._held == this; }
     bool is_mine(ext_qnode* me) { return me->_held == this; }
 };
 /**\endcond skip */

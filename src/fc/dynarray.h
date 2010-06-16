@@ -24,6 +24,8 @@
 #ifndef __DYNARRAY_H
 #define __DYNARRAY_H
 
+/**\cond skip */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <errno.h>
@@ -238,4 +240,5 @@ private:
 };
 
 
+/**\endcond skip */
 #endif

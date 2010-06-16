@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_RC_H'>
 
- $Id: w_hashing.h,v 1.1.2.1 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_hashing.h,v 1.2 2010/05/26 01:20:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -62,6 +62,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 namespace w_hashing {
 
 /** \brief A "universal hash" class based on a random-number generator.  
+ * \details
  * Helper class for other hashing classes.
  */
 class uhash 
@@ -94,6 +95,7 @@ but bits 32-47 are still far better than 0-15 or 48-63.
 
 
 /**\brief  Wrapper for uhash.
+ * \details
  * A hash class. The operator() is the
  * hash function. It uses two "universal"
  * random-number-based hash functions to produce the

@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: smstats.cpp,v 1.15.2.8 2010/03/25 18:05:16 nhall Exp $
+ $Id: smstats.cpp,v 1.16 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -57,8 +57,8 @@ void bf_htab_stats_t::compute()
     smlevel_0::bf->htab_stats(*this);
     {
         w_base_t::base_float_t *avg = &bf_htab_insert_avg_tries;
-        u_long *a = &bf_htab_insertions;
-        u_long *b = &bf_htab_slots_tried;
+		w_base_t::base_stat_t *a = &bf_htab_insertions;
+		w_base_t::base_stat_t *b = &bf_htab_slots_tried;
         if(*a > 0) {
            *avg = *b /(w_base_t::base_float_t) (*a);
         } else {
@@ -67,8 +67,8 @@ void bf_htab_stats_t::compute()
     }
     {
         w_base_t::base_float_t *avg = &bf_htab_lookup_avg_probes;
-        u_long *a = &bf_htab_lookups;
-        u_long *b = &bf_htab_probes;
+		w_base_t::base_stat_t *a = &bf_htab_lookups;
+		w_base_t::base_stat_t *b = &bf_htab_probes;
         if(*a > 0) {
            *avg = *b /(w_base_t::base_float_t) (*a);
         } else {

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: btree_p.cpp,v 1.33.2.6 2010/01/28 04:53:59 nhall Exp $
+ $Id: btree_p.cpp,v 1.36 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -67,24 +67,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_impl.h"
 #include "sm_du_stats.h"
 #include <crash.h>
-
-
-/*********************************************************************
- *
- *  btree_p::ntoh()
- *
- *  Network to host order.
- *
- *********************************************************************/
-void
-btree_p::ntoh()
-{
-    /*
-     *  BUGBUG -- fill in this function
-     */
-    w_assert1(is_leaf());
-}
-
 
 
 /*********************************************************************
@@ -318,7 +300,7 @@ btree_p::unlink_and_propagate(
         SSMTEST("btree.propagate.d.1");
 
         if (xd)  {
-            xd->compensate(anchor);
+            xd->compensate(anchor,false/*not undoable*/LOG_COMMENT_USE("btree.prop.3"));
         }
         SSMTEST("btree.propagate.d.3");
     }
@@ -462,14 +444,14 @@ btree_p::_set_flag( flag_t f, bool compensate)
                 //and I want to avoid an assertion we'll hit in the releasing
                 //of the anchor.
                 xd->rollback(anchor);
-                xd->release_anchor(true);
+                xd->release_anchor(true LOG_COMMENT_USE("btreep1"));
             }
             return RC_AUGMENT(__e);
         }
     }
 
     if(compensate) {
-        if (xd) xd->compensate(anchor);
+        if (xd) xd->compensate(anchor,false/*not undoable*/LOG_COMMENT_USE("btree._set_flag"));
     }
     return RCOK;
 }
@@ -500,7 +482,7 @@ btree_p::_clr_flag(flag_t f, bool compensate)
                 (uint2_t)(tmp.flags & ~f)), anchor );
 
     if(compensate) {
-        if (xd) xd->compensate(anchor);
+        if (xd) xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree._clr_flag"));
     }
     return RCOK;
 }
@@ -865,21 +847,29 @@ btrec_t::set(const btree_p& page, slotid_t slot)
 
 // TODO NANCY: gnats bug 86 : this computation is no longer accurate.
 // It's off by 6 for some reason
+smsize_t                        
+btree_p::overhead_requirement_per_entry =
+            2 // for the key length (in btree_p)
+            +
+            4 // for the key length (in zkeyed_p)
+            +
+            sizeof(shpid_t) // for the interior nodes (in btree_p)
+            ;
+
 smsize_t         
 btree_p::max_entry_size = // must be able to fit 2 entries to a page
     (
-    ((smlevel_0::page_sz - 
-        (page_p::_hdr_size +
-        sizeof(page_p::slot_t) +
-        align(sizeof(btree_p::btctrl_t)))) >> 1
-    ) - (
-        2 // for the key length (in btree_p)
-        +
-        4 // for the key length (in zkeyed_p)
-        +
-        sizeof(shpid_t) // for the interior nodes (in btree_p)
-        )
-
+        ( (smlevel_0::page_sz - 
+              (
+                 page_p::_hdr_size +
+                 // leave off footer for this computation
+                 sizeof(page_p::slot_t) + // page_p add back in one slot
+                 sizeof(lsn_t) + // page_p: add back in lsn
+                 align(sizeof(btree_p::btctrl_t))
+              )
+           ) >> 1) 
+        - 
+        overhead_requirement_per_entry
     ) 
     // round down to aligned size
     & ~ALIGNON1 

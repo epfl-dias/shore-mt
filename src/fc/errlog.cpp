@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: errlog.cpp,v 1.30.2.9 2010/03/19 22:17:16 nhall Exp $
+ $Id: errlog.cpp,v 1.31 2010/05/26 01:20:21 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -222,11 +222,11 @@ ErrLog::_init2()
 {
     ErrLogInfo *ei;
     if((ei = _tab.search(this->_ident)) == 0) {
-    ei = new ErrLogInfo(this);
-    _tab.put_in_order(ei); // not really ordered
+		ei = new ErrLogInfo(this);
+		_tab.put_in_order(ei); // not really ordered
     } else {
-    cerr <<  "An ErrLog called " << _ident << " already exists." << endl;
-    W_FATAL(fcINTERNAL);
+		cerr <<  "An ErrLog called " << _ident << " already exists." << endl;
+		W_FATAL(fcINTERNAL);
     }
 }
 
@@ -374,12 +374,10 @@ ErrLog::log(enum LogPriority prio, const char *format, ...)
     // clear the slate for the next use of operator<<
     w_reset_strstream(this->clog);
 
-    if (prio == log_fatal) {
-        W_FATAL(fcINTERNAL);
-    }
 #if defined(_WIN32) && defined(FC_ERRLOG_WIN32_LOCK)
     LeaveCriticalSection(&_crit);
 #endif
+
 }
 
 void 
@@ -414,9 +412,6 @@ ErrLog::_flush(bool
                 break;
         }
     } 
-    if (this->clog._prio == log_fatal) {
-        W_FATAL(fcINTERNAL);
-    }
     this->clog.flush();
 
     // reset to beginning of buffer
@@ -461,7 +456,7 @@ flush_and_setprio(ostream& o, LogPriority p)
     // cerr << "flush_and_setprio o=" << &o << endl;
     logstream *l = is_logstream(o);
     if(l) {
-    l->_log->_flush(false); 
+        l->_log->_flush(false); 
     if(p != log_none) {
         l->_prio =  p;
     }

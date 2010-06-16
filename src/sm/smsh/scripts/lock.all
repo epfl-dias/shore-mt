@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: lock.all,v 1.14 1999/06/07 19:05:33 kupsch Exp $
+#  $Id: lock.all,v 1.16 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -27,12 +27,16 @@
 #
 #   -- do not edit anything above this line --   </std-header>
 
+#NOTE deadlock.3 moved to pin_deadlock.1; it's not
+#runnable in any of the "all" scripts.
+
 set scripts [ list	\
-    deadlock.1 deadlock.2 deadlock.3 deadlock.4 \
+    deadlock.1 deadlock.2 deadlock.4 \
     lock.1 \
     lock.hier lock.hier_sm \
     lock.upgrade \
     lockrec_pin lockrec_sm lockfile_sm \
     ]
+
 
 runscripts $scripts

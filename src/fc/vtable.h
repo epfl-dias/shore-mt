@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='VTABLE_INFO_H'>
 
- $Id: vtable.h,v 1.1.2.2 2010/03/25 18:04:14 nhall Exp $
+ $Id: vtable.h,v 1.2 2010/05/26 01:20:23 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -201,12 +201,7 @@ private:
  * can be int or double.  But for now, they are string representations of the
  * values.
  *
- * \todo If a server-writer wants to use this to collect anything other than
- * what is collectable via ss_m::*collect(), she will have to study the
- * sm code that collects into vtables, as this is not documented. 
- * 
- * For now, suffice it to say that
- * test programs may use ss_m::xct_collect(vtable &) and kin,
+ * Test programs may use ss_m::xct_collect(vtable &) and kin,
  * and output the results with the operator<< for vtable_t.
  */
 class vtable_t {
@@ -333,7 +328,7 @@ public:
         _size = size_t(mx)+1; // leave room for trailing null.
         if(_size < sizeof(double)) _size = sizeof(double);
     }
-    char const* name(int i) const {
+    const char *name(int i) const {
         return _argv[i];
     }
     void collect_names(vtable_row_t &t) {

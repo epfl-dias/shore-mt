@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: file_scan_many.cpp,v 1.1.2.4 2010/03/19 22:20:38 nhall Exp $
+ $Id: file_scan_many.cpp,v 1.3 2010/06/08 22:28:15 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -342,8 +342,8 @@ void smthread_main_t::run()
                          opt_num_rec));
 
     W_COERCE(options.add_option("rec_size", "# > 0",
-                         NULL, "size for records",
-                         true, option_t::set_value_long,
+                         "7800", "size for records",
+                         false, option_t::set_value_long,
                          opt_rec_size));
 
     // have the SSM add its options to the group

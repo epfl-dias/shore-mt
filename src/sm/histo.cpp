@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: histo.cpp,v 1.15.2.12 2010/03/25 18:05:12 nhall Exp $
+ $Id: histo.cpp,v 1.18 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -321,7 +321,7 @@ histoid_t::copy() const
     histoid_t *I = (histoid_t *) this;
     if(!histo_pin_if_pinned(&I->refcount)) {
         I->_grab_mutex();
-        atomic_add(I->refcount, 1);
+        atomic_inc(I->refcount);
         I->_release_mutex();
     }
     return I;
@@ -341,7 +341,7 @@ histoid_t::acquire(const stid_t& s)
           w_assert1(h->refcount >= 0);
           DBGTHRD(<<"incr refcount for " << s
               << " from " << h->refcount);
-          atomic_add(h->refcount, 1);    // give reference before unlocking lookup table
+          atomic_inc(h->refcount);// give reference before unlocking lookup table
         }
         htab_mutex.release_read();
         if(!pinned)
@@ -396,7 +396,7 @@ histoid_t::acquire(const stid_t& s)
 
         // give reference before unlocking lookup table!
         w_assert2(h->refcount == 0);
-        long new_count = atomic_add_nv(h->refcount, 1);
+        long new_count = atomic_inc_nv(h->refcount);
         w_assert0(new_count == 1);
 
         h->_insert_store_pages(s);
@@ -457,24 +457,34 @@ histoid_t::release()
     << " this=" << this
     << " from " << refcount);
 
-    long new_count = atomic_add_nv(refcount, -1);
+    long new_count = atomic_dec_nv(refcount);
     w_assert0(new_count >= 0);
     bool deleteit = ((new_count==0) && !_in_hash_table());
     return deleteit;
 }
 
+#if W_DEBUG_LEVEL > 2
+#define TRACEIT
+#endif
+#ifdef TRACEIT
 struct trace_info {
     int line;
     int members;
     histoid_t *h;
     // trace_info(int l, int m, histoid_t*x) : line(l), members(m), h(x) {}
 };
+#endif
+
+#ifdef TRACEIT
 const int  TRACE_NUM=10;
-static __thread struct trace_info TRACE_LINE[TRACE_NUM];
-static __thread int TRACE_IDX=0;
+static __thread struct trace_info TRACE_LINE[TRACE_NUM]; // DEBUGGING
+static __thread int TRACE_IDX=0; // DEBUGGING
 #define T(l,c,h)\
 { trace_info &x=TRACE_LINE[TRACE_IDX];  \
     x.line=l; x.members=c; x.h=h; TRACE_IDX++; }
+#else
+#define T(l,c,h)
+#endif
 
 void     
 histoid_t::destroyed_store(const stid_t&s, sdesc_t*sd) 
@@ -482,7 +492,9 @@ histoid_t::destroyed_store(const stid_t&s, sdesc_t*sd)
     DBGTHRD(<<"histoid_t::destroyed_store " << s);
 
     bool success = false;
-TRACE_IDX=0;
+#ifdef TRACEIT
+   TRACE_IDX=0;
+#endif
     while (!success) {
         // Only one thread can request the
         // htab_mutex in write mode. 
@@ -547,6 +559,7 @@ T(__LINE__, htab->num_members(), h);
                  * the reference to h, so we can't
                  * delete it, even though we have removed
                  * it from the table.
+				 *
                  * The problem here is that it WILL get
                  * cleaned up if we're in fwd/rollback (when
                  * the dir cache gets invalidated), but
@@ -555,8 +568,15 @@ T(__LINE__, htab->num_members(), h);
                  * realized by ssh "sm restart" command.  
                  */
 T(__LINE__, htab->num_members(), h);
-#if W_DEBUG_LEVEL >0
-                fprintf(stderr, "GNATS 108 BUGBUG histoid cleanup problem\n");
+#if W_DEBUG_LEVEL >= 0
+                fprintf(stderr, 
+		"GNATS 108 histoid cleanup problem. Refcount %d sd %p in_recov %d\n",
+				h->refcount ,
+				sd,
+				smlevel_0::in_recovery()
+				);
+                // croak here
+                // RE-insert this to debug : w_assert0(0);
 #endif
                  DBGTHRD(<<"ROLLBACK! can't delete h= " << h);
             }
@@ -848,19 +868,31 @@ histoid_t::latch_lock_get_slot(
         /* while we have the page fixed, we have to check
          * its store membership. The above check only catches
          * a changed allocation status if it were re-allocated to
-         * a different store. It doesn't catch the case
-         * in which the page is freed but not re-formatted.
+         * a different store, which shows up on the page only
+         * as it's formatted.
+         * It doesn't catch the case in which the page is freed from
+         * the store but not re-formatted.  In theory, our caches shouldn't
+         * find it as an allocated page and we should have been forced
+         * to allocate it first, but...
+         *
          * The problem here is that if we check that first, we
          * won't have the protection of a lock on the page.
-         * We grab a medium-duration lock, which we'll free if
-         * we don't get the record lock.
-         * Note that if the page changed stores, this lock will not
+         * What we really need to do is to IX-lock the page iff
+         * the page is allocated to the store.  The layering of
+         * histo/file/sm_io/vol makes that difficult.
+         *
+         * We grab an IS lock, which we'll upgrade to an IX if
+         * the page is used (one of its records is locked). 
+         * The down side is that this will prevent the page from
+         * being freed until we commit.
+         *
+         * Note that if the page has changed stores, this lock will not
          * conflict with that page lock, however, all we need to do
          * here is to protect ourselves  from the page being freed
          * from THIS store while we are doing this check of the
          * extent's allocation-to-store info.
          */
-        rc_t rc = lm->lock_force(pid, IX, t_medium, WAIT_IMMEDIATE);
+        rc_t rc = lm->lock_force(pid, IS, t_long, WAIT_IMMEDIATE);
         if(rc.is_error()) {
             DBGTHRD(<<"rc=" << rc);
             pagep->unfix();
@@ -873,7 +905,6 @@ histoid_t::latch_lock_get_slot(
             DBGTHRD(<<"page no longer in store " << cmp.key);
             // reject this page
             //
-            W_COERCE(lm->unlock(pid));
             pagep->unfix();
             INC_TSTAT(fm_page_invalid);
             return RCOK; 
@@ -892,7 +923,6 @@ histoid_t::latch_lock_get_slot(
         if(rc.is_error()) {
             DBGTHRD(<<"rc=" << rc);
 
-            W_COERCE(lm->unlock(pid));
             pagep->unfix();
 
             if (rc.err_num() == eRECWONTFIT) {
@@ -1302,11 +1332,7 @@ histoid_update_t::update()
     w_assert3(_page->is_fixed());
     w_assert3(_page->latch_mode() == LATCH_EX);
 
-#ifdef BUG_SPACE_FIX
     smsize_t newamt = _page->usable_space_for_slots();
-#else
-    smsize_t newamt = _page->usable_space();
-#endif
 
     DBGTHRD(<<"update() page " << _page->pid().page
             << " newamt=" << newamt

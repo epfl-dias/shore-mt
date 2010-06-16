@@ -1,6 +1,6 @@
 #<std-header style='tcl' orig-src='shore'>
 #
-#  $Id: sort.mkey.1,v 1.9.2.3 2009/12/14 23:57:58 nhall Exp $
+#  $Id: sort.mkey.1,v 1.11 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -130,6 +130,20 @@ set xlist_ui { \
     i1@FAN:u1@V:u1@VN:u1@AVN\
 }
 
+set xlist_uiL { \
+    u2L@FAN\
+    u2L@FA\
+    u2L@VN\
+    u2L@V\
+    u2L@F\
+    u2L@FN\
+    i4L@FNA \
+    u4L@FA:u4@FA:u4@FA:u4@FA:u4@FA\
+    u4L@V:u4@V:u4@V:u4@V\
+    i2L@FAN:u2@N:u1@V:u2@VN:u2@AVN\
+    i1L@FAN:u1@V:u1L@VN:u1@AVN\
+}
+
 set xlist_b { \
     i1@FA:b*1000@FN \
     b1@V \
@@ -141,11 +155,11 @@ set xlist_b { \
 }
 
 set xlist_f { \
-    f8@FA:u4@FA:i2@FA:b1@FA:u1@FA \
+    f8L@FA:u4@FA:i2@FA:b1@FA:u1@FA \
     u1@FA:i2@V:f4@V:b1@A:u4@VN \
     f8@FNA \
     f8@V \
-    f4@V \
+    f4L@V \
     f4@FA:f8@N \
 }
 
@@ -226,23 +240,23 @@ for {set x 0} {$x < $xlistlen} {incr x} {
 
 			# keep 
 			for {set k 0} {$k < $keeplen} {incr k} {
-			set keep_file [lindex $keep $k]
+				set keep_file [lindex $keep $k]
 
-			verbose  KEEP/DESTROY  = $keep
+				verbose  KEEP/DESTROY  = $keep
 
-			set cmd "sm multikey_sort_file $volid $nrecs $runsize $dir $uniq $outfile $keep_file $deep_copy $carry_obj"
+				set cmd "sm multikey_sort_file $volid $nrecs $runsize $dir $uniq $outfile $keep_file $deep_copy $carry_obj"
 					
-					set command "$cmd $nkeys $rest"
-					verbose $command
+				set command "$cmd $nkeys $rest"
+				verbose $command
 
-					if {$do_eval} {
-						sm begin_xct
-						# set save_verbose_flag $verbose_flag 
-						#set verbose_flag 0
-						eval $command
-						# set verbose_flag $save_verbose_flag
-						sm commit_xct
-					}
+				if {$do_eval} {
+					sm begin_xct
+					# set save_verbose_flag $verbose_flag 
+					#set verbose_flag 0
+					eval $command
+					# set verbose_flag $save_verbose_flag
+					sm commit_xct
+				}
 			}
 			# for keep file
 

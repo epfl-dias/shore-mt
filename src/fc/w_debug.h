@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_DEBUG_H'>
 
- $Id: w_debug.h,v 1.18.2.7 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_debug.h,v 1.19 2010/05/26 01:20:23 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -73,7 +73,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif /* ERRLOG_H */
 
 /**\file w_debug.h
- *\ingroup Macros
+ *\ingroup MACROS
  *
 *  This is a set of macros for use with C or C++. They give various
 *  levels of debugging printing when compiled with --enable-trace.

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SDISK_H'>
 
- $Id: sdisk.h,v 1.22.2.7 2010/03/25 18:04:41 nhall Exp $
+ $Id: sdisk.h,v 1.23 2010/05/26 01:21:28 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -98,12 +98,11 @@ public:
         bool        is_file;
         bool        is_dir;
         bool        is_device;
-        bool        is_raw_device;
 
         filestat_t() : st_size(0),
             st_file_id(0), st_device_id(0), st_block_size(0),
             is_file(false), is_dir(false), 
-            is_device(false), is_raw_device(false) 
+            is_device(false)
         { }
     };
 

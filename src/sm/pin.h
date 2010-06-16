@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='PIN_H'>
 
- $Id: pin.h,v 1.86.2.10 2010/03/19 22:20:24 nhall Exp $
+ $Id: pin.h,v 1.89 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -68,37 +68,37 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <page_alias.h>
 
 /* DOXYGEN Documentation */
-/**\defgroup SSMPIN Pinning Records
- * \ingroup SSMFILE
+/**\addtogroup SSMPIN  
  * You may pin (force to remain in the buffer pool at a fixed location)
  * portions (no larger than a page) of a record for short periods of time
  * while you operate on them.   You may step through a large record pinning
  * a sequence of such portions.
  *
- * You may not operate on the in-buffer-pool copy directly, as the
+ * \b Use \b of \b the \b pin_i \b requires \b care.  
+ * \b Take \b care \b to \b observe \b the \b following \b constraints:
+ *
+ * - You may not operate on the in-buffer-pool copy directly, as the
  * only storage manager knows the format of these data. You may
  * operate on these pinned data through the class pin_i.
  *
+ * - Do not hold page latches (keep a page pinned) for
+ * long periods (while a thread sleeps, awaits I/O, or otherwise
+ * blocks long-term. Operating system scheduling
+ * of threads is not under your control for this purpose).  
+ * Latches are meant to be short-term. Holding a latch for
+ * a long time interferes with other aspects of the storage manager, 
+ * including buffer-pool cleaning.  
+ *
+ * - A latch is held by a thread, not by a transaction.
+ * Under no circumstances can a pin_i be passed from thread to thread.
+ *
+ * - It is dangerous to operate on a record through the static
+ * storage manager methods (such as append_rec) while holding records pinned
+ * through pin_i.  This can lead to invalid pin_i with undefined results
+ * when they are used; doing so with concurrent threads in a single transaction
+ * can lead to undetectable deadlocks (latch-latch deadlocks, for example).
  */
 
-#if defined(PIN_C) || defined(SCAN_C)
-inline 
-latch_mode_t lock_to_latch(lock_mode_t m)
-{
-    switch(m) {
-    case SH:
-    case UD:
-    case NL:
-        return LATCH_SH;
-    case EX:
-        return LATCH_EX;
-
-    default:
-        W_FATAL(smlevel_0::eNOTIMPLEMENTED);
-    }
-    return LATCH_NL; // never gets here
-}
-#endif
 
 class file_p;
 class lgdata_p;
@@ -340,7 +340,7 @@ public:
      * @param[in] start The offset from the beginning of the record of the
      * place to perform the update.
      * @param[in] data A vector containing the data to place in the record
-     * at location \e start.
+     * at location \a start.
      * @param[out] old_value deprecated
      * The portion of the record containing the start byte need not
      * be pinned before this is called.
@@ -356,7 +356,7 @@ public:
      * @param[in] start The offset from the beginning of the header of the
      * place to perform the update.
      * @param[in] hdr A vector containing the data to place in the header
-     * at location \e start.
+     * at location \a start.
      */
     rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr
 #ifdef SM_DORA
@@ -484,7 +484,29 @@ private:
     NORET        pin_i(const pin_i&);
     NORET        pin_i& operator=(const pin_i&);
 
+public:
+	/**\cond skip */
+	// Put inside pin_i only for the purpose of namescoping.
+	static latch_mode_t lock_to_latch(lock_mode_t m);
+	/**\endcond skip */
 };
+
+/**\cond skip */
+inline latch_mode_t pin_i::lock_to_latch(lock_mode_t m) {
+	switch(m) {
+	case SH:
+	case UD:
+	case NL:
+		return LATCH_SH;
+	case EX:
+		return LATCH_EX;
+
+	default:
+		W_FATAL(smlevel_0::eNOTIMPLEMENTED);
+	}
+	return LATCH_NL; // never gets here
+};
+/**\endcond skip */
 
 /*<std-footer incl-file-exclusion='PIN_H'>  -- do not edit anything below this line -- */
 

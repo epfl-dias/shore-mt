@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: file.cpp,v 1.195.2.19 2010/03/25 18:05:10 nhall Exp $
+ $Id: file.cpp,v 1.201 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -402,6 +402,7 @@ file_m::_find_slotted_page_with_space(
 
     /*
      * First, if policy calls for it, look in the cache
+     * The cache is the histoid_t taken from the store descriptor.
      */
     if(policy & t_cache) {
         INC_TSTAT(fm_cache);
@@ -469,13 +470,9 @@ file_m::_find_slotted_page_with_space(
                 DBG(<<"usable space=" << page.usable_space()
                         << " needed= " << space_needed);
 
-#ifdef BUG_SPACE_FIX
                 if (page.usable_space_for_slots() >= sizeof(file_p::slot_t) 
                      &&
                    page.usable_space() >= space_needed) 
-#else
-                if (page.usable_space() >= space_needed ) 
-#endif
                 {
                     W_DO(h->latch_lock_get_slot( 
                         lpid.page, &page, space_needed,
@@ -673,13 +670,11 @@ file_m::_create_rec_in_slot(
 
 #if W_DEBUG_LEVEL >= 2
             fprintf(stderr, 
-            "line %d : hdr.sz %ld data.sz %ld usable %d, %d, nfree %d,%d\n", 
-                __LINE__, hdr.size(), data.size(), page.usable_space(),
-#ifdef BUG_SPACE_FIX
+            "line %d : hdr.sz %lld data.sz %lld usable %d, %d, nfree %d,%d\n", 
+                __LINE__, 
+                (long long) hdr.size(), (long long) data.size(), 
+                page.usable_space(),
                 page.usable_space_for_slots(), 
-#else
-                11111111,
-#endif
                 page.nfree(), page.nrsvd()
             );
 #endif
@@ -784,12 +779,7 @@ file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data
     file_p    page;
     record_t*            rec;
 
-    // IP: here we could possibly do the update without LATCH_EX the page 
-    //     however, it is disabled for now, because it is dangerous
     latch_mode_t page_latch_mode = LATCH_EX;
-#if 0
-    if (bIgnoreLocks) page_latch_mode = LATCH_SH;
-#endif
 
     DBGTHRD(<<"update_rec");
     W_DO(_locate_page(rid, page, page_latch_mode));
@@ -887,13 +877,11 @@ file_m::append_rec(const rid_t& rid, const vec_t& data, const sdesc_t& sd)
 
         if (page.usable_space() < data.size()) { return RC(eRECWONTFIT); }
 
-#ifdef BUG_SPACE_FIX
         // This is append_rec: assume we are adding a slot, not
         // trying to reuse a free-up slot
         if( page.usable_space_for_slots() < sizeof(file_p::slot_t)) {
             return RC(eRECWONTFIT);
         }
-#endif
 
         W_DO( page.append_rec(rid.slot, data) );
         // reaquire since may have moved
@@ -1318,36 +1306,49 @@ file_m::_free_page(file_p& page)
             // If we failed with the immediate locks, now try 
             // longer-term locks:
 
-	    // FRJ: actually, we *can't* resolve it because unfixing
-	    // the page here doesn't unfix the page in
-	    // alloc_file_page_log::undo
+			// FRJ: actually, we *can't* resolve it because unfixing
+			// the page here doesn't unfix the page in
+			// alloc_file_page_log::undo
+			// and if we hang onto the fixed page while we do the
+			// lock_force, we can deadlocok.
             if (0 && rc.err_num() == eLOCKTIMEOUT) {
                 page.unfix();
                 rc = lm->lock_force(pid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
-		if(!rc.is_error()) {
-		    // got lock. nothing should go wrong with the latch
-		    W_DO(page.conditional_fix(pid, LATCH_EX));
+				if(!rc.is_error()) {
+					// got lock. nothing should go wrong with the latch
+					W_DO(page.conditional_fix(pid, LATCH_EX));
 
-		    // Re-check.   Because we unfixed the page and
-		    // re-fixed it, we have to check that it's
-		    // still part of this store.  That's done by
-		    // passing in "true" to io_m::free_page
-		    if (page.rec_count() == 0)
-			rc = smlevel_0::io->free_page(pid, true/*chk store memb*/ );
-		    
-		    // else leave it as eOK
-		}
-	    }
+					// Re-check.   Because we unfixed the page and
+					// re-fixed it, we have to check that it's
+					// still part of this store.  That's done by
+					// passing in "true" to io_m::free_page
+					if (page.rec_count() == 0) {
+						rc = smlevel_0::io->free_page(pid, 
+								true/*chk store memb*/ );
+						// Could fail to get the lock - eDEADLOCK 
+						// this time.
+						if(rc.is_error()) {
+							if(rc.err_num() == eDEADLOCK) {
+								// Ok give up and let other xct free the
+								// page. We could have two xcts trying to
+								// free the page at the same time.
+								return RCOK;
+							}
+							w_assert1(rc.err_num() != eLOCKTIMEOUT);
+						} 
+					}
+					// else leave it as eOK
+				}
+			} // if 0 && eLOCKTIMEOUT
 
-	    // Bail on eOK or any unacceptable failure
-	    if(rc.err_num() != eDEADLOCK && rc.err_num() != eLOCKTIMEOUT)
-		return rc.reset(); 
+			// Bail on eOK or any unacceptable failure
+			if(rc.err_num() != eDEADLOCK && rc.err_num() != eLOCKTIMEOUT)
+				return rc.reset(); 
 	    
-	    // It's OK if we couldn't get the lock. Give up and let
-	    // other xct free the page. We could have two xcts trying
-	    // to free the page at the same time.
-	    fprintf(stderr, "- ^ - ^ - ^ - Unable to undo alloc for page %d.%d.%d... giving up\n",
-		    pid.vol().vol, pid.store(), pid.page);
+			// It's OK if we couldn't get the lock. Give up and let
+			// other xct free the page. We could have two xcts trying
+			// to free the page at the same time.
+			// Drop down and return RCOK.
         }
     }
     return RCOK;
@@ -1526,7 +1527,7 @@ file_m::_alloc_page(
      *  to the page init is undoable; the insert-expand or reclaim part (part 2)
      *  is undoable.  So we cannot compensate around this now.
      *
-     *  HOWEVER (GNATS 77):   we do need to compensate to avoid the problem of
+     *  HOWEVER:   we do need to compensate to avoid the problem of
      *  undoing this allocation from underneath another xct that has
      *  allocated a record on the same page.
      *  Consequently, we'll compensate around this and we'll log
@@ -1551,29 +1552,16 @@ file_m::_alloc_page(
     }
 
 
-#if GNATS110_FIX
     {
+		// Filter EX-latches the page; we hold the ex latch
+		// and return the page latched.
         alloc_file_page_filter_t ok(store_flags, page);
-        W_DO(io->alloc_a_file_page(&ok, fid, near_p, allocPid, IX, search_file));
+        W_DO(io->alloc_a_file_page(&ok, fid, near_p, allocPid, IX,search_file));
+		w_assert1(page.is_mine()); // EX-latched
         // Now we format, since it couldn't be done during accept()
-        W_DO(page.format(allocPid, page.t_file_p, page.t_virgin,   store_flags));
+        W_DO(page.format(allocPid, page.t_file_p, page.t_virgin, store_flags));
     }
 
-#else
-    W_DO(io->alloc_a_file_page(fid, near_p, allocPid, 
-                /*GNATS 110 use EX instead of IX */ EX, search_file));
-
-    /* RACE *************************/
-    {
-        /*
-         * Cause the page to be formatted and the first slot to be
-         * created/used.
-         * (fix figures out the store flags, but doesn't pass
-         * it back to us, so we got it above)
-         */
-        W_DO(page.fix(allocPid, LATCH_EX, page.t_virgin, store_flags) );
-    }
-#endif
 
     /*
      * We expect that even st_tmp pages will have a valid lsn,
@@ -1586,6 +1574,7 @@ file_m::_alloc_page(
      * point to the log record of the alloc_file_page for *this* page.
      */
     w_assert2(page.lsn().valid());
+	w_assert2(page.is_mine()); // EX-latched
 
     return RCOK;
 }
@@ -1921,13 +1910,10 @@ file_p::fill_slot(
 #if W_DEBUG_LEVEL >= 2
             if(rc.is_error()) {
                 fprintf(stderr, 
-                "line %d : hdr.sz %ld data.sz %ld usable %d, %d, nfree %d,%d\n", 
-                __LINE__, hdr.size(), data.size(), usable_space(),
-#ifdef BUG_SPACE_FIX
+                "line %d : hdr.sz %lld data.sz %lld usable %d, %d, nfree %d,%d\n", 
+                __LINE__, 
+                (long long) hdr.size(), (long long) data.size(), usable_space(),
                 usable_space_for_slots(), 
-#else
-                11111111,
-#endif
                 nfree(), nrsvd()
                 );
             }
@@ -1953,14 +1939,11 @@ file_p::fill_slot(
 #if W_DEBUG_LEVEL >= 2
     if(rc.is_error()) {
         fprintf(stderr, 
-        "line %d : sizeof(rectag_t) %ld sizeof(slot_t) %ld vec.sz %ld usable %d, %d, nfree %d,%d, idx %d/%d\n", 
-            __LINE__, sizeof(rectag_t), sizeof(slot_t), 
-            vec.size(), usable_space(),
-#ifdef BUG_SPACE_FIX
-                usable_space_for_slots(), 
-#else
-                11111111,
-#endif
+        "line %d : sizeof(rectag_t) %lld sizeof(slot_t) %lld vec.sz %lld usable %d, %d, nfree %d,%d, idx %d/%d\n", 
+            __LINE__, 
+            (long long) sizeof(rectag_t), (long long) sizeof(slot_t), 
+            (long long) vec.size(),  usable_space(),
+            usable_space_for_slots(), 
             nfree(), nrsvd(), 
             // slot index requested, #slots table has (indicates whether we are
             // requesting a new slot entry)
@@ -1978,8 +1961,17 @@ file_p::format(const lpid_t& pid, tag_t tag, uint4_t flags,
 {
     w_assert3(tag == t_file_p);
 
-    // NOTE: this is the same action as clr_deadbeef():
     file_p_hdr_t ctrl;
+
+/* NOTE: We tried to put DEADBEEF into file page headers
+ *  when the page was deleted so we could use asserts about
+ *  pages (not being deleted).
+ * The problem is that set_hdr was never used before; never worked.
+ *  Using set: either reclaim or overwrite, depending on whether
+ *  the slot exists. It should exist if formatted, so we don't want
+ *  to reclaim it, but I had problems using overwrite too, and I don't
+ *  know why.
+ */
     ctrl.cluster = DUMMY_CLUSTER_ID;                // dummy cluster ID
     vec_t file_p_hdr_vec;
     file_p_hdr_vec.put(&ctrl, sizeof(ctrl));
@@ -2036,7 +2028,10 @@ file_p::_find_and_lock_free_slot(
 {
     FUNC(find_and_lock_free_slot);
     w_assert3(is_file_p());
-    slotid_t start_slot = 0;  // first slot to check if free
+    slotid_t start_slot = 1;  // first slot to check if free
+    // _find_and_lock_free_slot should never be using slot 0 on
+    // a file page because that's the header slot; even though
+    // the header is unused.  We will hit assertions if we use slot 0.
     rc_t rc;
 
     DBG(<< "space_needed " << space_needed);
@@ -2250,12 +2245,6 @@ file_p::choose_rec_implementation(
      
     W_FATAL(eNOTIMPLEMENTED);
     return t_badflag;  // keep compiler quite
-}
-
-void file_p::ntoh()
-{
-    // vid_t vid = pid().vol();
-    // TODO: byteswap the records on the page
 }
 
 MAKEPAGECODE(file_p, page_p)
@@ -2580,113 +2569,3 @@ file_m::update_rectag(const rid_t& rid, uint4_t len, uint2_t flags)
     
     return RCOK;
 }
-
-/*********************************************************************
- *  detect hack to mark a page as deleted.
- *  This value 0xdeadbeef is stuffed into the header, slot 0
- *********************************************************************/
-bool
-file_p::is_deadbeef() const
-{
-#if DEAD /* deadbeef */
-      int offset = _pp->slot[0].offset;
-      w_assert1(offset < _pp->data_sz);
-      char* addr = (_pp->data + _pp->slot[0].offset);
-      w_assert1(addr > &_pp->data[0]);
-      w_assert1(addr < &_pp->data[_pp->data_sz]);
-      w_assert1((char *)alignon(addr,sizeof(int)) == addr);
-      int hval = *((int*) _pp->data + _pp->slot[0].offset);
-      return ((unsigned int)hval == 0xdeadbeef);
-#else
-      // Should not be called for any other kind of page */
-      w_assert1(is_file_p());
-      /* the safe way */
-      file_p_hdr_t local;
-      if(nslots() > 0) {
-          W_COERCE(((file_p *)this)->file_p::get_hdr(local));
-          return (local.cluster == 0xdeadbeef);
-      }
-      //if never set, it's false.
-      return false;
-#endif
-}
-
-/* TODO: get this DEADBEEF thing going or get rid of it.
- * The problem is that set_hdr was never used before; never worked.
- *  Using set: either reclaim or overwrite, depending on whether
- *  the slot exists. It should exist if formatted, so we don't want
- *  to reclaim it, but I had problems using overwrite too, and I don't
- *  know why.
- */
-
-void
-file_p::set_deadbeef() 
-{
-#if DEAD /* deadbeef */
-      int offset = _pp->slot[0].offset;
-      w_assert1(offset < _pp->data_sz);
-      char* addr = (_pp->data + _pp->slot[0].offset);
-      w_assert1(addr > &_pp->data[0]);
-      w_assert1(addr < &_pp->data[_pp->data_sz]);
-      w_assert1((char *)alignon(addr,sizeof(int)) == addr);
-
-      *((int*)_pp->data + _pp->slot[0].offset) = 0xdeadbeef;
-#elsif DEADBEEF
-      // Should not be called for any other kind of page */
-      w_assert1(is_file_p());
-      /* the safe way */
-
-      // DO NOT LOG THIS
-      xct_log_switch_t toggle(smlevel_0::OFF);
-      file_p_hdr_t local;
-      local.cluster = 0xdeadbeef;
-      W_COERCE(((file_p *)this)->file_p::set_hdr(local));
-#endif
-}
-
-void
-file_p::clr_deadbeef() 
-{
-#if DEAD /* deadbeef */
-      int offset = _pp->slot[0].offset;
-      w_assert1(offset < _pp->data_sz);
-      char* addr = (_pp->data + _pp->slot[0].offset);
-      w_assert1(addr > &_pp->data[0]);
-      w_assert1(addr < &_pp->data[_pp->data_sz]);
-      w_assert1((char *)alignon(addr,sizeof(int)) == addr);
-
-      *((int*)_pp->data + _pp->slot[0].offset) = DUMMY_CLUSTER_ID;
-#elsif DEADBEEF
-      // Should not be called for any other kind of page */
-      w_assert1(is_file_p());
-      /* the safe way */
-
-      // DO NOT LOG THIS
-      xct_log_switch_t toggle(smlevel_0::OFF);
-      file_p_hdr_t local;
-      local.cluster = DUMMY_CLUSTER_ID;
-      W_COERCE(((file_p *)this)->file_p::set_hdr(local));
-#endif
-}
-
-bool
-page_p::is_deadbeef() const
-{
-    w_assert1(rsvd_mode());
-    return ((file_p *)this)->file_p::is_deadbeef();
-}
-
-void
-page_p::set_deadbeef() 
-{
-    w_assert1(rsvd_mode());
-    ((file_p *)this)->file_p::set_deadbeef();
-}
-
-void
-page_p::clr_deadbeef() 
-{
-    w_assert1(rsvd_mode());
-    ((file_p *)this)->file_p::clr_deadbeef();
-}
-

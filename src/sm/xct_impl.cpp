@@ -21,6 +21,7 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
+// -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
  $Id: xct_impl.cpp,v 1.56.2.23 2010/03/25 18:05:18 nhall Exp $
@@ -58,30 +59,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define XCT_C
 #define XCT_IMPL_C
 
-#if W_DEBUG_LEVEL > 1
-// for 
-extern "C" void xstop() { }
-#endif
-
-#if W_DEBUG_LEVEL > 1
-#define  X_LOG_COMMENT_ON 1
-#endif
-
-/* NB: OLD_LOG_FLUSH2  (now removed) are being
-* used to phase out the old way of logging compensations.
-* Once everything is working without these, we'll get rid
-* of all these ifdefs; then we won't have each transaction
-* keeping the last modified page pinned, and we'll have a
-* much easier time eliminating latch-latch deadlocks,
-* and latch/lock/mutex deadlocks
-* When removing this stuff, we also need to remove:
-*  the extra lsn (commented out) in logrec.h, _undo_nxt.
-* We could also get rid of all code having to do with 
-* undoable clr's. TODO NANCY REMOVE
-* The next step is to put whatever we can from xct_t into
-* the xct-thread structure, so that we can multi-thread the
-* log.
-*/
 
 #ifdef __GNUG__
 #pragma implementation "xct_impl.h"
@@ -89,7 +66,10 @@ extern "C" void xstop() { }
 #endif
 
 #include <new>
+#define USE_BLOCK_ALLOC_FOR_LOGREC 0
+#if USE_BLOCK_ALLOC_FOR_LOGREC 
 #include "block_alloc.h"
+#endif
 #include <sm_int_4.h>
 #include <sm.h>
 #include "tls.h"
@@ -118,6 +98,10 @@ debugflags(const char *a)
 }
 #endif /* W_TRACE */
 
+SPECIALIZE_CS(xct_impl, int _dummy, (_dummy=0),
+    _mutex->acquire_1thread_xct_mutex(), 
+    _mutex->release_1thread_xct_mutex());
+
 #ifdef EXPLICIT_TEMPLATE
 template class w_auto_delete_array_t<lockid_t>;
 // template class w_auto_delete_array_t<lock_mode_t>; in xct.cpp
@@ -126,14 +110,6 @@ template class w_list_t<xct_dependent_t,queue_based_lock_t>;
 template class w_list_i<xct_dependent_t,queue_based_lock_t>;
 #endif
 
-/*********************************************************************
- *
- *  _1thread_name is the name of the mutex protecting the xct_t from
- *          multi-thread access
- * NB: there is a _1thread_xct_mutex for each of xct_impl and xct_t
- *
- *********************************************************************/
-const char*                         xct_impl::_1thread_log_name = "1thLI";
 
 /*********************************************************************
  *
@@ -170,19 +146,6 @@ operator<<(ostream& o, const xct_impl& x)
     return o;
 }
 
-/**\var static __thread queue_based_lock_t::ext_qnode _1thread_xct_me;
- * \brief Queue node for holding mutex to serialize access to xct structure. 
- * \ingroup TLS
- */
-static __thread queue_based_lock_t::ext_qnode _1thread_xct_me = EXT_QNODE_INITIALIZER;
-
-/**\var static __thread queue_based_lock_t::ext_qnode _1thread_log_me;
- * \brief Queue node for holding mutex to serialize access to log.
- * \ingroup TLS
- */
-static __thread queue_based_lock_t::ext_qnode _1thread_log_me = EXT_QNODE_INITIALIZER;
-
-#define USE_BLOCK_ALLOC_FOR_LOGREC 1
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
 DECLARE_TLS(block_alloc<logrec_t>, logrec_pool);
 #endif
@@ -225,7 +188,7 @@ xct_impl::xct_impl(xct_t* that)
     _log_buf = new logrec_t; // deleted when xct goes away
 #endif
     
-#ifdef ZERO_INIT
+#if ZERO_INIT
     memset(_log_buf, '\0', sizeof(logrec_t));
 #endif
 
@@ -307,13 +270,17 @@ xct_impl::xct_impl(xct_t* that,
  *********************************************************************/
 xct_impl::~xct_impl()
 {
+    FUNC(xct_t::~xct_t);
+    DBGX( << " ended: _log_bytes_rsvd " << _log_bytes_rsvd  
+            << " _log_bytes_ready " << _log_bytes_ready
+            << " _log_bytes_used " << _log_bytes_used
+            );
+
     if(long leftovers = _log_bytes_rsvd + _log_bytes_ready) {
 	w_assert2(smlevel_0::log);
 	smlevel_0::log->release_space(leftovers);
     };
-	
-    FUNC(xct_t::~xct_t);
-    DBGX( << " ended" );
+    
 
     w_assert3(_state == xct_ended);
     w_assert3(_in_compensated_op==0);
@@ -323,21 +290,23 @@ xct_impl::~xct_impl()
     }
 
     w_assert1(one_thread_attached());
-    // Don't grab the mutex on destruction.
-    // w_assert1(is_1thread_xct_mutex_mine());
+    {
+        CRITICAL_SECTION(xctstructure, *this);
+        // w_assert1(is_1thread_xct_mutex_mine());
 
-    while (_dependent_list.pop()) ;
+        while (_dependent_list.pop()) ;
 
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
-    logrec_pool->destroy_object(_log_buf);
+        logrec_pool->destroy_object(_log_buf);
 #else
-    delete _log_buf;
+        delete _log_buf;
 #endif
-    delete _global_tid;
-    delete _coord_handle;
+        delete _global_tid;
+        delete _coord_handle;
 
-    // clean up what's stored in the thread
-    me()->no_xct(_that);
+        // clean up what's stored in the thread
+        me()->no_xct(_that);
+    }
 
     _that = 0;
 
@@ -390,9 +359,10 @@ xct_impl::get_coordinator() const
 void
 xct_impl::change_state(state_t new_state)
 {
+    FUNC(xct_impl::change_state);
     w_assert1(one_thread_attached());
 
-    acquire_1thread_xct_mutex();
+    CRITICAL_SECTION(xctstructure, *this);
     w_assert1(is_1thread_xct_mutex_mine());
 
     w_assert2(_state != new_state);
@@ -407,7 +377,6 @@ xct_impl::change_state(state_t new_state)
     while ((d = i.next()))  {
         d->xct_state_changed(old_state, new_state);
     }
-    release_1thread_xct_mutex();
 }
 
 
@@ -422,26 +391,24 @@ xct_impl::change_state(state_t new_state)
 rc_t
 xct_impl::add_dependent(xct_dependent_t* dependent)
 {
-    // PROTECT
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::add_dependent);
+    CRITICAL_SECTION(xctstructure, *this);
     w_assert9(dependent->_link.member_of() == 0);
     
     w_assert1(is_1thread_xct_mutex_mine());
     _dependent_list.push(dependent);
     dependent->xct_state_changed(_state, _state);
-    release_1thread_xct_mutex();
     return RCOK;
 }
 rc_t
 xct_impl::remove_dependent(xct_dependent_t* dependent)
 {
-    // PROTECT (GNATS 99)
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::remove_dependent);
+    CRITICAL_SECTION(xctstructure, *this);
     w_assert9(dependent->_link.member_of() != 0);
     
     w_assert1(is_1thread_xct_mutex_mine());
     dependent->_link.detach(); // is protected
-    release_1thread_xct_mutex();
     return RCOK;
 }
 
@@ -459,18 +426,16 @@ xct_impl::remove_dependent(xct_dependent_t* dependent)
 bool
 xct_impl::find_dependent(xct_dependent_t* ptr)
 {
-    // PROTECT
+    FUNC(xct_impl::find_dependent);
     xct_dependent_t        *d;
-    acquire_1thread_xct_mutex();
+    CRITICAL_SECTION(xctstructure, *this);
     w_assert1(is_1thread_xct_mutex_mine());
     w_list_i<xct_dependent_t,queue_based_lock_t>    iter(_dependent_list);
     while((d=iter.next())) {
         if(d == ptr) {
-            release_1thread_xct_mutex();
             return true;
         }
     }
-    release_1thread_xct_mutex();
     return false;
 }
 
@@ -494,7 +459,8 @@ xct_impl::prepare()
 {
     // This is to be applied ONLY to the local thread.
 
-    W_DO(check_one_thread_attached());
+    // W_DO(check_one_thread_attached()); // now checked in prologue
+    w_assert1(one_thread_attached());
 
     if(lock_info() && lock_info()->in_quark_scope()) {
         return RC(eINQUARK);
@@ -522,9 +488,6 @@ xct_impl::prepare()
         // in until we can run all the scripts.
         // The question is: should the lock 
         // be held until the tx is resolved,
-        // even though no updates were done???
-        // 
-        // THIS IS A SIZZLING QUESTION.  Needs to be resolved
         if(!forced_readonly()) {
             int        total_EX, total_IX, total_SIX, num_extents;
             W_DO(lock_info()->get_lock_totals(total_EX, total_IX, total_SIX, num_extents));
@@ -547,6 +510,13 @@ xct_impl::prepare()
         INC_TSTAT(s_prepared);
         return RCOK;
     }
+#if X_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "prepare ";
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
 
     ///////////////////////////////////////////////////////////
     // NOT read only
@@ -765,13 +735,16 @@ done:
  *  If flag t_chain, a new transaction is instantiated inside
  *  this one, and inherits all its locks.
  *
- *  In plastlsn it returns the lsn of the last LSN that got hardened.
- *
  *********************************************************************/
 rc_t
 xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
 {
-    W_DO(check_one_thread_attached());
+    DBGX( << " commit: _log_bytes_rsvd " << _log_bytes_rsvd  
+            << " _log_bytes_ready " << _log_bytes_ready
+            << " _log_bytes_used " << _log_bytes_used
+            );
+    // W_DO(check_one_thread_attached()); // now checked in prologue
+    w_assert1(one_thread_attached());
 
     if(is_extern2pc()) {
         w_assert1(_state == xct_prepared);
@@ -783,7 +756,7 @@ xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
         return RC(eINQUARK);
     }
 
-    w_assert1(1 == atomic_add_nv(_xct_ended, 1));
+    w_assert1(1 == atomic_inc_nv(_xct_ended));
 
     W_DO( ConvertAllLoadStoresToRegularStores() );
 
@@ -808,10 +781,13 @@ xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
         
         // wait for the checkpoint to finish
 	chkpt_serial_m::trx_acquire();
+        // Have to re-check since in the meantime another thread might
+        // have attached. Of course, that's always the case...
         W_DO(check_one_thread_attached());
 
-        // don't allow a chkpt to occur between changing the state and writing
-        // the log record, since otherwise it might try to change the state
+        // don't allow a chkpt to occur between changing the 
+        // state and writing the log record, 
+        // since otherwise it might try to change the state
         // to the current state (which causes an assertion failure).
 
         change_state(xct_freeing_space);
@@ -823,7 +799,6 @@ xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
 
         if (!(flags & xct_t::t_lazy) /* && !_read_only */)  {
             _sync_logbuf();
-            // W_COERCE(log->flush_all());        /* sync log */
         }
         else { // IP: If lazy, wake up the flusher but do not block
             _sync_logbuf(false);
@@ -924,6 +899,10 @@ xct_impl::commit(uint4_t flags,lsn_t* plastlsn)
 	    smlevel_0::log->release_space(leftovers);
 	};
 	_log_bytes_rsvd = _log_bytes_ready = _log_bytes_used = 0;
+	DBG( << " commit: _log_bytes_rsvd " << _log_bytes_rsvd  
+	    << " _log_bytes_ready " << _log_bytes_ready
+	    << " _log_bytes_used " << _log_bytes_used
+	    );
 	
         W_COERCE(_that->acquire_xlist_mutex());
         _that->_xlink.detach();
@@ -967,14 +946,21 @@ xct_impl::abort()
 {
     // If there are too many threads attached, tell the VAS and let it
     // ensure that only one does this.
-    W_DO(check_one_thread_attached());
+    // W_DO(check_one_thread_attached()); // now done in the prologues.
+    
+    w_assert1(one_thread_attached());
     w_assert1(_state == xct_active || _state == xct_prepared);
-
-    w_assert1(1 == atomic_add_nv(_xct_ended, 1));
-
+    w_assert1(1 == atomic_inc_nv(_xct_ended));
     w_assert1(_state == xct_active || _state == xct_prepared);
 
     change_state(xct_aborting);
+#if X_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "aborting... ";
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
 
     /*
      * clear the list of load stores as they are going to be destroyed
@@ -996,7 +982,7 @@ xct_impl::abort()
 #if X_LOG_COMMENT_ON
         {
             w_ostrstream s;
-            s << "abort ";
+            s << "rolled back ";
             W_DO(log_comment(s.c_str()));
         }
 #endif
@@ -1071,7 +1057,7 @@ xct_impl::abort()
 rc_t 
 xct_impl::enter2pc(const gtid_t &g)
 {
-    W_DO(check_one_thread_attached());
+    W_DO(check_one_thread_attached());// ***NOT*** checked in prologue
     w_assert1(_state == xct_active);
 
     if(is_extern2pc()) {
@@ -1100,7 +1086,8 @@ rc_t
 xct_impl::save_point(lsn_t& lsn)
 {
     // cannot do this with >1 thread attached
-    W_DO(check_one_thread_attached());
+    // W_DO(check_one_thread_attached()); // now checked in prologue
+    w_assert1(one_thread_attached());
 
     lsn = _last_lsn;
     return RCOK;
@@ -1131,15 +1118,17 @@ xct_impl::dispose()
 
 /*********************************************************************
  *
- *  xct_t::_flush_logbuf(bool sync=false)
+ *  xct_t::_flush_logbuf()
  *
  *  Write the log record buffered and update lsn pointers.
- *  If "sync" is true, force it to disk also.
  *
  *********************************************************************/
 w_rc_t
-xct_impl::_flush_logbuf( bool sync )
+xct_impl::_flush_logbuf()
 {
+    DBG( << " _flush_logbuf: _log_bytes_rsvd " << _log_bytes_rsvd  
+            << " _log_bytes_ready " << _log_bytes_ready
+            << " _log_bytes_used " << _log_bytes_used);
     // ASSUMES ALREADY PROTECTED BY MUTEX
 
     w_assert2(is_1thread_log_mutex_mine() || one_thread_attached());
@@ -1166,7 +1155,7 @@ xct_impl::_flush_logbuf( bool sync )
         LOGTRACE( << setiosflags(ios::right) << _last_lsn
                       << resetiosflags(ios::right) << " I: " << *_last_log 
                       << " ... " );
-        {
+        if(log) {
 	    logrec_t* l = _last_log;
 	    _last_log = 0;
             W_DO( log->insert(*l, &_last_lsn) );
@@ -1189,44 +1178,59 @@ xct_impl::_flush_logbuf( bool sync )
 	       compensations and undo was already accounted for)
 	    */
 	    if(smlevel_0::operating_mode == t_forward_processing) {
-	    long bytes_used = l->length();
-	    if(_rolling_back || state() != xct_active) {
+		long bytes_used = l->length();
+		DBG( << " _flush_logbuf: using  " << l->length() );
+		if(_rolling_back || state() != xct_active) {
 #if USE_LOG_RESERVATIONS
-		w_assert0(_log_bytes_rsvd >= bytes_used);
-		_log_bytes_rsvd -= bytes_used;
-#else
-		if(_log_bytes_rsvd >= bytes_used) {
+		    w_assert0(_log_bytes_rsvd >= bytes_used);
 		    _log_bytes_rsvd -= bytes_used;
-		}
-		else if(_log_bytes_ready >= bytes_used) {
-		    _log_bytes_ready -= bytes_used;
-		}
-		else {
-		    return RC(eOUTOFLOGSPACE);
-		}
+#else
+                   if(_log_bytes_rsvd >= bytes_used) {
+                       _log_bytes_rsvd -= bytes_used;
+                   }
+                   else if(_log_bytes_ready >= bytes_used) {
+                       _log_bytes_ready -= bytes_used;
+                   }
+                   else {
+					   w_ostrstream trouble;
+					   trouble << "Log reservations disabled." <<
+						   endl;
+					   trouble << " tid " << tid() 
+					   << " state " << state() 
+					   << "_log_bytes_ready " << _log_bytes_ready
+					   << "_log_bytes_rsvd " << _log_bytes_rsvd 
+					   << " bytes_used " << bytes_used
+					   << endl;
+					   fprintf(stderr, "%s\n", trouble.c_str());
+                       // return RC(eOUTOFLOGSPACE);
+                   }
 #endif
-	    }
-	    else {
-		long to_reserve = UNDO_FUDGE_FACTOR(bytes_used);
-		w_assert0(_log_bytes_ready >= bytes_used + to_reserve);
-		_log_bytes_ready -= bytes_used + to_reserve;
-		_log_bytes_rsvd += to_reserve;
-	    }
-	    _log_bytes_used += bytes_used;
-	    }
+                }
+                else {
+                    long to_reserve = UNDO_FUDGE_FACTOR(bytes_used);
+                    w_assert0(_log_bytes_ready >= (bytes_used + to_reserve));
+                    _log_bytes_ready -=  (bytes_used + to_reserve);
+                    _log_bytes_rsvd += to_reserve;
+                }
+                _log_bytes_used += bytes_used;
+                DBG( << " commit: _log_bytes_rsvd " << _log_bytes_rsvd  
+                << " _log_bytes_ready " << _log_bytes_ready
+                << " _log_bytes_used " << _log_bytes_used
+                );
+            }
 
-            // log insert effectively set_lsn to the lsn of the *next* byte of
-            // the log.
+            // log insert effectively set_lsn to the lsn of 
+            // the *next* byte of the log.
             if ( ! _first_lsn.valid())  
                     _first_lsn = _last_lsn;
     
             _undo_nxt = (
                     l->is_undoable_clr() ? _last_lsn :
                     l->is_cpsn() ? l->undo_nxt() : _last_lsn);
-        }
+        } // log non-null
     }
 
-    return sync? _sync_logbuf() : RCOK;
+    return RCOK;
 }
 
 /*********************************************************************
@@ -1234,9 +1238,6 @@ xct_impl::_flush_logbuf( bool sync )
  *  xct_t::_sync_logbuf()
  *
  *  Force log entries up to the most recently written to disk.
- *
- *  block: If not set it does not block, but kicks the flusher. The
- *         default is to block, the no block option is used by AsynchCommit
  *
  *********************************************************************/
 w_rc_t
@@ -1259,26 +1260,15 @@ xct_impl::_sync_logbuf(bool block)
  *  IS PREDICATED ON THAT -- in that it's expected that in the case of
  *  a normal  return (no error), give_logbuf will be called, but in
  *  the error case (out of log space), it will not, and so we must
- *  release the mutex in get_logbuf.
- *  
+ *  release the mutex in get_logbuf error cases.
  *
  *********************************************************************/
 rc_t 
 xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 {
-    // PROTECT
-    ret = 0;
-#if GNATS_69_FIX
-    // GNATS 69: we need to return if we can't get the mutex
-    // to avoid latch-mutex deadlocks between code that's latch-log-ing 
-    // and code that's compensating actions (anchor-latch-log)
-    //
-    // We'll get this right away if we don't have multiple threads
-    // attached.
-    W_DO(acquire_1thread_log_mutex_conditional());
-#else
+    // protect the log buf that we'll return
     acquire_1thread_log_mutex();
-#endif
+    ret = 0;
 
     INC_TSTAT(get_logbuf);
 
@@ -1287,6 +1277,7 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
     w_assert1(!_last_log);
 
     /* LOG_RESERVATIONS
+    // logrec_t is 3 pages, even though the real record is shorter.
 
        Make sure we have enough space, both to continue now and to
        guarantee the ability to roll back should something go wrong
@@ -1439,6 +1430,10 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 	    acquire_1thread_log_mutex();
 	}
 	_log_bytes_ready += MIN_BYTES_READY;
+        DBG( << " get_logbuf: _log_bytes_rsvd " << _log_bytes_rsvd  
+            << " _log_bytes_ready " << _log_bytes_ready
+            << " _log_bytes_used " << _log_bytes_used
+            );
     }
 
     /* Transactions must make some log entries as they complete
@@ -1448,17 +1443,24 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
        just because of this.
      */
     if(!_rolling_back && _state == xct_active
-       && _log_bytes_rsvd < MIN_BYTES_RSVD) {
+                && _log_bytes_rsvd < MIN_BYTES_RSVD) {
 	_log_bytes_ready -= MIN_BYTES_RSVD;
 	_log_bytes_rsvd += MIN_BYTES_RSVD;
     }
     
+    DBG( << " get_logbuf: _log_bytes_rsvd " << _log_bytes_rsvd  
+            << " _log_bytes_ready " << _log_bytes_ready
+            << " _log_bytes_used " << _log_bytes_used
+            );
     ret = _last_log = _log_buf;
+
+    // We hold the mutex to protect the log buf we are returning.
     w_assert3(is_1thread_log_mutex_mine());
+
     return RCOK;
 }
 
-
+// See comments above get_logbuf, above
 rc_t
 xct_impl::give_logbuf(logrec_t* l, const page_p *page)
 {
@@ -1472,7 +1474,11 @@ xct_impl::give_logbuf(logrec_t* l, const page_p *page)
 
     // WAL: hang onto last mod page so we can
     // keep it from being flushed before the log
-    // is written.
+    // is written.  The log isn't synced here, but the buffer
+    // manager does a log flush to the lsn of the page before
+    // it writes the page, which makes the log record durable
+    // before the page gets written.   Our job here is to
+    // get the lsn into the page before we unfix the page.
     page_p last_mod_page;
 
     if(page != (page_p *)0) {
@@ -1512,20 +1518,24 @@ xct_impl::give_logbuf(logrec_t* l, const page_p *page)
         w_assert3(last_mod_page.latch_mode() == LATCH_NL);
     }
 
-    rc_t rc = _flush_logbuf(); // stuffs tid, _last_lsn into our record,
-        // then inserts it into the log, getting _last_lsn
+    rc_t rc = _flush_logbuf(); 
+                      // stuffs tid, _last_lsn into our record,
+                      // then inserts it into the log, getting _last_lsn
     if(rc.is_error())
 	goto done;
     
     if(last_mod_page.is_fixed() ) {
         w_assert2(last_mod_page.latch_mode() == LATCH_EX);
+        // WAL: stuff the lsn into the page so the buffer manager
+        // can force the log to that lsn before writing the page.
         last_mod_page.set_lsns(_last_lsn);
         last_mod_page.unfix_dirty();
         w_assert1(last_mod_page.check_lsn_invariant());
     }
 
  done:
-    release_1thread_log_mutex();
+    release_1thread_log_mutex(); // this is give_logbuf
+    // We no longer hold the mutex to protect the log buf.
     return rc;
 }
 
@@ -1539,10 +1549,18 @@ xct_impl::give_logbuf(logrec_t* l, const page_p *page)
  *
  *********************************************************************/
 void
-xct_impl::release_anchor( bool and_compensate )
+xct_impl::release_anchor( bool and_compensate ADD_LOG_COMMENT_SIG )
 {
     FUNC(xct_t::release_anchor);
 
+#if X_LOG_COMMENT_ON
+    if(and_compensate) {
+        w_ostrstream s;
+        s << "release_anchor at " 
+            << debugmsg;
+        W_COERCE(log_comment(s.c_str()));
+    }
+#endif
     w_assert3(is_1thread_log_mutex_mine());
     DBGX(    
             << " RELEASE ANCHOR " 
@@ -1577,16 +1595,26 @@ xct_impl::release_anchor( bool and_compensate )
                }
            } else {
                DBG(<<"no _last_log:" << _anchor);
-               /* perhaps we can update the log record in the log buffer */
-               if( log && !log->compensate(_last_lsn, _anchor).is_error()) {
+               /* Can we update the log record in the log buffer ? */
+               if( log && 
+                   !log->compensate(_last_lsn, _anchor).is_error()) {
+                   // Yup.
                     INC_TSTAT(compensate_in_log);
                } else {
-		   // compensations use _log_bytes_rsvd, not _log_bytes_ready
-		   bool was_rolling_back = _rolling_back;
-		   _rolling_back = true;
-                    W_COERCE(log_compensate(_anchor));
-		    _rolling_back = was_rolling_back;
-                    INC_TSTAT(compensate_records);
+                   // Nope, write a compensation log record.
+                   // Really, we should return an rc from this
+                   // method so we can W_DO here, and we should
+                   // check for eBADCOMPENSATION here and
+                   // return all other errors  from the
+                   // above log->compensate(...)
+                   
+                   // compensations use _log_bytes_rsvd, 
+                   // not _log_bytes_ready
+                   bool was_rolling_back = _rolling_back;
+                   _rolling_back = true;
+                   W_COERCE(log_compensate(_anchor));
+                   _rolling_back = was_rolling_back;
+                   INC_TSTAT(compensate_records);
                }
             }
         }
@@ -1602,17 +1630,19 @@ xct_impl::release_anchor( bool and_compensate )
         << " holds xct_mutex_1==" 
         /*        << (const char *)(_1thread_xct.is_mine()? "true" : "false")*/
     );
-    release_1thread_log_mutex();
+    release_1thread_log_mutex(); // this is releasee_anchor
 }
 
 /*********************************************************************
  *
- *  xct_t::anchor()
+ *  xct_t::anchor( bool grabit )
  *
  *  Return a log anchor (begin a top level action).
+ *
  *  If argument==true (most of the time), it stores
- *  the anchor for use with compensations.  When the
- *  argument==false, this is used (by I/O monitor) not
+ *  the anchor for use with compensations.  
+ *
+ *  When the  argument==false, this is used (by I/O monitor) not
  *  for compensations, but only for concurrency control.
  *
  *********************************************************************/
@@ -1620,7 +1650,7 @@ const lsn_t&
 xct_impl::anchor(bool grabit)
 {
     // PROTECT
-    acquire_1thread_log_mutex();
+    acquire_1thread_log_mutex(); // this is anchor
     _in_compensated_op ++;
 
     INC_TSTAT(anchors);
@@ -1655,13 +1685,13 @@ xct_impl::compensate_undo(const lsn_t& lsn)
 {
     DBGX(    << " compensate_undo (" << lsn << ") -- state=" << state());
 
-    acquire_1thread_log_mutex(); 
+    acquire_1thread_log_mutex();  // this is compensate_undo
     w_assert3(_in_compensated_op);
     // w_assert9(state() == xct_aborting); it's active if in sm::rollback_work
 
     _compensate(lsn, _last_log?_last_log->is_undoable_clr() : false);
 
-    release_1thread_log_mutex();
+    release_1thread_log_mutex(); // this is compensate_undo
 }
 
 /*********************************************************************
@@ -1674,7 +1704,7 @@ xct_impl::compensate_undo(const lsn_t& lsn)
  *
  *********************************************************************/
 void 
-xct_impl::compensate(const lsn_t& lsn, bool undoable)
+xct_impl::compensate(const lsn_t& lsn, bool undoable ADD_LOG_COMMENT_SIG)
 {
     DBGX(    << " compensate(" << lsn << ") -- state=" << state());
 
@@ -1684,7 +1714,7 @@ xct_impl::compensate(const lsn_t& lsn, bool undoable)
     _compensate(lsn, undoable);
 
     w_assert3(is_1thread_log_mutex_mine());
-    release_anchor();
+    release_anchor(true ADD_LOG_COMMENT_USE);
 }
 
 /*********************************************************************
@@ -1697,7 +1727,21 @@ xct_impl::compensate(const lsn_t& lsn, bool undoable)
  *  Generates a new log record only if it has to do so.
  *
  *  Special case of undoable compensation records is handled by the
- *  boolean argument. (NOT USED FOR NOW)
+ *  boolean argument. (NOT USED FOR NOW -- undoable_clrs were removed
+ *  in 1997 b/c they weren't needed anymore;they were originally
+ *  in place for an old implementation of extent-allocation. That's
+ *  since been replaced by the dealaying of store deletion until end
+ *  of xct).  The calls to the methods and infrastructure regarding
+ *  undoable clrs was left in place in case it must be resurrected again.
+ *  The reason it was removed is that there was some complexity involved
+ *  in hanging onto the last log record *in the xct* in order to be
+ *  sure that the compensation happens *in the correct log record*
+ *  (because an undoable compensation means the log record holding the
+ *  compensation isn't being compensated around, whereas turning any
+ *  other record into a clr or inserting a stand-alone clr means the
+ *  last log record inserted is skipped on undo).
+ *  That complexity remains, since log records are flushed to the log
+ *  immediately now (which was precluded for undoable_clrs ).
  *
  *********************************************************************/
 void 
@@ -1709,6 +1753,10 @@ xct_impl::_compensate(const lsn_t& lsn, bool undoable)
     if ( _last_log ) {
         // We still have the log record here, and
         // we can compensate it.
+        // NOTE: we used to use this a lot but now the only
+        // time this is possible (due to the fact that we flush
+        // right at insert) is when the logging code is hand-written,
+        // rather than Perl-generated.
 
         /*
          * lsn is got from anchor(), and anchor() returns _last_lsn.
@@ -1753,6 +1801,7 @@ xct_impl::_compensate(const lsn_t& lsn, bool undoable)
         // that's there is an undoable/compensation and will be
         // undone (and we *really* want to compensate around it)
         */
+
 	// compensations use _log_bytes_rsvd, not _log_bytes_ready
 	bool was_rolling_back = _rolling_back;
 	_rolling_back = true;
@@ -1772,17 +1821,24 @@ xct_impl::_compensate(const lsn_t& lsn, bool undoable)
  *
  *********************************************************************/
 rc_t
-xct_impl::rollback(lsn_t save_pt)
+xct_impl::rollback(const lsn_t &save_pt)
 {
     FUNC(xct_t::rollback);
-    W_DO(check_one_thread_attached());
+    // W_DO(check_one_thread_attached()); // now checked in prologue
+    w_assert1(one_thread_attached());
 
+    if(!log) { 
+        ss_m::errlog->clog  << emerg_prio
+        << "Cannot roll back with logging turned off. " 
+        << flushl; 
+        return RC(eNOABORT);
+    }
 
     w_rc_t            rc;
     logrec_t*         buf =0;
 
     // MUST PROTECT anyway, since this generates compensations
-    acquire_1thread_log_mutex();
+    acquire_1thread_log_mutex(); // this is rollback
 
     if(_in_compensated_op > 0) {
         w_assert3(save_pt >= _anchor);
@@ -1802,13 +1858,6 @@ xct_impl::rollback(lsn_t save_pt)
 
     LOGTRACE( << "abort begins at " << nxt);
 
-    if(!log) { 
-        ss_m::errlog->clog  <<
-        "Cannot roll back with logging turned off. " 
-        << flushl; 
-        return RC(eNOABORT);
-    }
-
     { // Contain the scope of the following __copy__buf:
 
     logrec_t* __copy__buf = new logrec_t; // auto-del
@@ -1820,7 +1869,7 @@ xct_impl::rollback(lsn_t save_pt)
         rc =  log->fetch(nxt, buf, 0);
         if(rc.is_error() && rc.err_num()==eEOF) {
             DBG(<< " fetch returns EOF" );
-            log->release(); // GNATS_10_FIX
+            log->release(); 
             goto done;
         } else
         {
@@ -1864,7 +1913,8 @@ xct_impl::rollback(lsn_t save_pt)
 
 #if W_DEBUG_LEVEL > 2
             if(was_rsvd - _log_bytes_rsvd  > r.length()) {
-                  LOGTRACE(<< " len=" << r.length() << " B=" << (was_rsvd - _log_bytes_rsvd) );
+                  LOGTRACE(<< " len=" << r.length() << " B= " <<
+                          (was_rsvd - _log_bytes_rsvd));
             }
 #endif 
             if(r.is_cpsn()) {
@@ -1908,18 +1958,32 @@ xct_impl::rollback(lsn_t save_pt)
 
 done:
 
-    DBGX( << " out compensated op");
+    DBGX( << "leaving rollback: compensated op " << _in_compensated_op);
     _in_compensated_op --;
     _rolling_back = false;
     w_assert3(_anchor == lsn_t::null ||
                 _anchor == save_pt);
-    release_1thread_log_mutex();
+    release_1thread_log_mutex(); // this is rollback
 
     if(save_pt != lsn_t::null) {
         INC_TSTAT(rollback_savept_cnt);
     }
 
     return rc;
+}
+
+void xct_impl::AddStoreToFree(const stid_t& stid)
+{
+    FUNC(x);
+    CRITICAL_SECTION(xctstructure, *this);
+    _storesToFree.push(new stid_list_elem_t(stid));
+}
+
+void xct_impl::AddLoadStore(const stid_t& stid)
+{
+    FUNC(x);
+    CRITICAL_SECTION(xctstructure, *this);
+    _loadStores.push(new stid_list_elem_t(stid));
 }
 
 /*
@@ -1934,14 +1998,12 @@ void
 xct_impl::ClearAllStoresToFree()
 {
     w_assert2(one_thread_attached());
-    // acquire_1thread_xct_mutex();
     stid_list_elem_t*        s = 0;
     while ((s = _storesToFree.pop()))  {
         delete s;
     }
 
     w_assert3(_storesToFree.is_empty());
-    // release_1thread_xct_mutex();
 }
 
 
@@ -1956,13 +2018,11 @@ void
 xct_impl::FreeAllStoresToFree()
 {
     w_assert2(one_thread_attached());
-    // acquire_1thread_xct_mutex();
     stid_list_elem_t*        s = 0;
     while ((s = _storesToFree.pop()))  {
         W_COERCE( io->free_store_after_xct(s->stid) );
         delete s;
     }
-    // release_1thread_xct_mutex();
 }
 
 /*
@@ -1972,13 +2032,13 @@ xct_impl::FreeAllStoresToFree()
 void
 xct_impl::num_extents_marked_for_deletion(base_stat_t &num)
 {
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::num_extents_marked_for_deletion);
+    CRITICAL_SECTION(xctstructure, *this);
     stid_list_elem_t*        s = 0;
     num = 0;
     SmStoreMetaStats _stats;
     base_stat_t j;
 
-    {
     w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_storesToFree);
     while ((s = i.next()))  {
         _stats.Clear();
@@ -1988,15 +2048,13 @@ xct_impl::num_extents_marked_for_deletion(base_stat_t &num)
         j /= ss_m::ext_sz;
         num += j;
     }
-    }
-    release_1thread_xct_mutex();
 }
 
 rc_t
 xct_impl::PrepareLogAllStoresToFree()
 {
     // This check is more for internal documentation than for anything
-    W_DO(check_one_thread_attached());
+    w_assert1(one_thread_attached());
 
     stid_t* stids = new stid_t[prepare_stores_to_free_t::max]; // auto-del
     w_auto_delete_array_t<stid_t> auto_del_stids(stids);
@@ -2027,12 +2085,12 @@ xct_impl::DumpStoresToFree()
     stid_list_elem_t*                e;
     w_list_i<stid_list_elem_t,queue_based_lock_t>        i(_storesToFree);
 
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::DumpStoresToFree);
+    CRITICAL_SECTION(xctstructure, *this);
     cout << "list of stores to free";
     while ((e = i.next()))  {
         cout << " <- " << e->stid;
     }
-    release_1thread_xct_mutex();
     cout << endl;
 }
 
@@ -2084,7 +2142,7 @@ xct_impl::ConvertAllLoadStoresToRegularStores()
     {
         static int volatile uniq=0;
         static int volatile last_uniq=0;
-        int    nv =  atomic_add_nv(uniq, 1);
+        int    nv =  atomic_inc_nv(uniq);
         //Even if someone else slips in here, the
         //values should never match. 
         w_assert1(last_uniq != nv);
@@ -2095,10 +2153,10 @@ xct_impl::ConvertAllLoadStoresToRegularStores()
         // if the problem is in the log code or the
         // grabbing of the 1thread log mutex 
         w_ostrstream s;
-        s << "commit " << uniq << ", ConvertAllLoadStores " 
+        s << "ConvertAllLoadStores uniq=" << uniq 
             << " xct state " << _state
             << " xct ended " << _xct_ended
-            << " this " << this
+            << " tid " << tid()
             << " thread " << me()->id;
         W_DO(log_comment(s.c_str()));
     }
@@ -2149,28 +2207,31 @@ xct_impl::ClearAllLoadStores()
 smlevel_0::concurrency_t                
 xct_impl::get_lock_level()  
 { 
+    FUNC(xct_impl::get_lock_level);
+    CRITICAL_SECTION(xctstructure, *this);
     smlevel_0::concurrency_t l = t_cc_bad;
-    acquire_1thread_xct_mutex();
     l =  convert(lock_info()->lock_level());
-    release_1thread_xct_mutex();
     return l;
 }
 
 void                           
 xct_impl::lock_level(concurrency_t l) 
 {
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::lock_level);
+    CRITICAL_SECTION(xctstructure, *this);
     lockid_t::name_space_t n = convert(l);
     if(n != lockid_t::t_bad) {
         lock_info()->set_lock_level(n);
     }
-    release_1thread_xct_mutex();
 }
 
 void 
 xct_impl::attach_thread() 
 {
-    acquire_1thread_xct_mutex();
+    FUNC(xct_impl::attach_thread);
+    CRITICAL_SECTION(xctstructure, *this);
+
+    w_assert2(is_1thread_xct_mutex_mine());
 #ifdef NANCY
     // NANCY TODO what about this?
     // Would like to disallow attach/detach while
@@ -2180,25 +2241,27 @@ xct_impl::attach_thread()
         return RC(eINQUARK);
     }
 #endif
-    int nt=atomic_add_nv(_threads_attached, 1);
+    int nt=atomic_inc_nv(_threads_attached);
     if(nt > 1) {
         INC_TSTAT(mpl_attach_cnt);
     }
     w_assert2(_threads_attached >=0);
+    w_assert2(is_1thread_xct_mutex_mine());
     me()->new_xct(_that);
-    release_1thread_xct_mutex();
+    w_assert2(is_1thread_xct_mutex_mine());
 }
 
 
 void
 xct_impl::detach_thread() 
 {
-    acquire_1thread_xct_mutex();
-    atomic_add(_threads_attached, -1);
+    FUNC(xct_impl::detach_thread);
+    CRITICAL_SECTION(xctstructure, *this);
+    w_assert3(is_1thread_xct_mutex_mine());
+
+    atomic_dec(_threads_attached);
     w_assert2(_threads_attached >=0);
     me()->no_xct(_that);
-
-    release_1thread_xct_mutex();
 }
 
 w_rc_t
@@ -2213,7 +2276,13 @@ xct_impl::lockblock(timeout_in_ms timeout)
     if(num_threads() > 1) {
         DBGTHRD(<<"blocking on condn variable");
         // Don't block if other thread has gone away
-        // BUGBUG This is still racy!  multi.1 shows us that.
+        // GNATS 119 This is still racy!  multi.1 shows us that.
+        //
+        xct_lock_info_t*       the_xlinfo = lock_info();
+        if(! the_xlinfo->waiting_request()) {
+            // No longer has waiting request - return w/o blocking.
+            return RCOK;
+        }
 
         // this code taken from scond_t implementation, from when
         // _waiters_cond was an scond_t:
@@ -2242,9 +2311,11 @@ xct_impl::lockunblock()
 // who was waiting on this other resource because I was 
 // blocked in the lock manager.
     CRITICAL_SECTION(bcs, _waiters_mutex);
-    DBGTHRD(<<"signalling waiters on cond'n variable");
-    DO_PTHREAD(pthread_cond_broadcast(&_waiters_cond));
-    DBGTHRD(<<"signalling cond'n variable done");
+    if(num_threads() > 1) {
+		DBGTHRD(<<"signalling waiters on cond'n variable");
+		DO_PTHREAD(pthread_cond_broadcast(&_waiters_cond));
+		DBGTHRD(<<"signalling cond'n variable done");
+	}
 }
 
 //
@@ -2277,7 +2348,6 @@ xct_impl::one_thread_attached() const
             "threads are attached to xct",
             tid().get_hi(), tid().get_lo()
             );
-            xstop();
 #endif
             return false;
         }
@@ -2288,121 +2358,77 @@ xct_impl::one_thread_attached() const
 bool
 xct_impl::is_1thread_log_mutex_mine() const
 {
-  return _1thread_log.is_mine(&_1thread_log_me);
+  return _1thread_log.is_mine(&me()->get_1thread_log_me());
 }
 bool
 xct_impl::is_1thread_xct_mutex_mine() const
 {
-  return _1thread_xct.is_mine(&_1thread_xct_me);
+  return _1thread_xct.is_mine(&me()->get_1thread_xct_me());
 }
 
 extern "C" void xctstophere(int c);
 void xctstophere(int ) {
 }
 
-#if GNATS_69_FIX
-w_rc_t
-xct_impl::acquire_1thread_log_mutex_conditional() 
-{
-    if(is_1thread_log_mutex_mine())
-    { 
-        if(!_in_compensated_op) {
-            // This is a programming error
-            W_FATAL_MSG(eINTERNAL, 
-                    << " duplicate acquire of 1thread log mutex");
-            return RC(eINTERNAL);
-        }
-        // we're logging something while in a compensated operation.
-        // The last release from the compensated op will free the mutex.
-        return RCOK;
-    }
-    // GNATS 69:
-    // Multi-threaded xcts cat get into a latch-mutex deadlock
-    // if we unconditionally acquire here.
-    // Specifically, the following scenario demonstrates the
-    // problem, but in theory it could happen in file code and
-    // anywhere we compensate using anchor():
-    // thread 1: latch page, log update (log update calls this)
-    // thread 2: grab anchor (calls this), do updates that latch pages.
-    // In the single-threaded xct case the btree code is safe because
-    // the different threads don't contend for this mutex.
-    // This macro gives the number of retries we're willing to make
-    // before returning an rc error.
-    
-#define ONE_THREAD_LOG_MUTEX_WAIT 1
-    int  retries = (_in_compensated_op+1) * ONE_THREAD_LOG_MUTEX_WAIT;
-    bool gotit  = _1thread_log.attempt(&_1thread_log_me);
-
-    while( (!gotit) && (retries-- > 0) ) {
-        usleep(1000);
-        gotit = _1thread_log.attempt(&_1thread_log_me);
-    }
-    int tried = (ONE_THREAD_LOG_MUTEX_WAIT-retries);
-    if(tried > 0) {
-        ADD_TSTAT(await_1thread_log, tried);
-    }
-    INC_TSTAT(acquire_1thread_log);
-
-    DBGX(    << " acquired log mutex: " << _in_compensated_op
-    << " after " << (ONE_THREAD_LOG_MUTEX_WAIT-retries) << " tries ");
-
-    if(!gotit) {
-        static int count=0;
-        atomic_add(count, 1);
-        bool mine = is_1thread_log_mutex_mine();
-        bool in_comp = _in_compensated_op;
-        fprintf(stderr, 
-        "NOT ACQUIRING LOG MUTEX %d after %d tries, _in_compensated_op %d mine %d\n", 
-                count, tried, in_comp, int(mine)
-                );
-        xctstophere(count);
-        return RC(eRETRY);
-    }
-    return RCOK;
-}
-#endif
-
 void
 xct_impl::acquire_1thread_log_mutex() 
 {
+    // Ordered acquire: we must not be able to acquire
+    // these two mutexen in opposite orders.
+    // Normally we acquire the 1thread log mutex, then, if
+    // necessary, the 1thread xct mutex, but never the
+    // other way around. The 1thread xct mutex just protects
+    // the xct structure and is held for a short time only; the
+    // 1thread log mutex can be held for the duration of a
+    // top-level action.
+    w_assert1(is_1thread_xct_mutex_mine() == false);
+
     if(is_1thread_log_mutex_mine()) {
         DBGX( << " duplicate acquire log mutex: " << _in_compensated_op);
+        w_assert0(_in_compensated_op > 0);
         return;
     }
     // the queue_based_lock_t implementation can tell if it was
     // free or held; the w_pthread_lock_t cannot,
     // and always returns false.
-    bool was_contended = _1thread_log.acquire(&_1thread_log_me);
+    bool was_contended = _1thread_log.acquire(&me()->get_1thread_log_me());
     if(was_contended)
         INC_TSTAT(await_1thread_log);
     INC_TSTAT(acquire_1thread_log);
 
     DBGX(    << " acquired log mutex: " << _in_compensated_op);
+    w_assert0(_in_compensated_op == 0);
 }
 
+// Should be used with CRITICAL_SECTION
 void
 xct_impl::acquire_1thread_xct_mutex() // default: true
 {
+    // We can already own the 1thread log mutx, if we're
+    // in a top-level action or in the io_m.
+    DBGX( << " acquire xct mutex");
     if(is_1thread_xct_mutex_mine()) {
+        DBGX(<< "already mine");
         return;
     }
     // the queue_based_lock_t implementation can tell if it was
     // free or held; the w_pthread_lock_t cannot,
     // and always returns false.
-    bool was_contended = _1thread_xct.acquire(&_1thread_xct_me);
+    bool was_contended = _1thread_xct.acquire(&me()->get_1thread_xct_me());
     if(was_contended) 
         INC_TSTAT(await_1thread_xct);
-    DBGX(    << " acquired xct mutex");
+    DBGX(    << " acquireD xct mutex");
+    w_assert2(is_1thread_xct_mutex_mine());
 }
 
 void
 xct_impl::release_1thread_xct_mutex()
 {
-    w_assert3(is_1thread_xct_mutex_mine());
-
     DBGX( << " release xct mutex");
-
-    _1thread_xct.release(_1thread_xct_me);
+    w_assert3(is_1thread_xct_mutex_mine());
+    _1thread_xct.release(me()->get_1thread_xct_me());
+    DBGX(    << " releaseD xct mutex");
+    w_assert2(!is_1thread_xct_mutex_mine());
 }
 
 void
@@ -2410,13 +2436,13 @@ xct_impl::release_1thread_log_mutex()
 {
     w_assert2(is_1thread_log_mutex_mine());
 
-    DBGX( << " release log mutex: " << _in_compensated_op
-        << " holds xct_mutex_1==" 
-          /*        << (const char *)(_1thread_xct.is_mine()? "true" : "false")*/
+    DBGX( << " maybe release log mutex: in_compensated_op = " 
+            << _in_compensated_op << " holds xct_mutex_1==" 
+    /*<< (const char *)(_1thread_xct.is_mine()? "true" : "false")*/
     );
 
     if(_in_compensated_op==0 ) {
-        _1thread_log.release(_1thread_log_me);
+        _1thread_log.release(me()->get_1thread_log_me());
     } else {
         DBGX( << " in compensated operation: can't release log mutex");
     }
@@ -2524,7 +2550,6 @@ xct_dependent_t::~xct_dependent_t()
     // was called, so be prepared for null
     if (_link.member_of() != NULL) {
         w_assert1(_xd);
-        // GNATS 99 was: _link.detach();
         // Have to remove it under protection of the 1thread_xct_mutex
         W_COERCE(_xd->remove_dependent(this));
     }
