@@ -438,7 +438,7 @@ btree_p::_set_flag( flag_t f, bool compensate)
         w_rc_t __e = set_hdr(tmp.root, tmp.level, tmp.pid0, 
                     (uint2_t)(tmp.flags | f));
         if (__e.is_error()) {
-            if(xd && compensate && (__e.err_num() != eOUTOFLOGSPACE)) 
+            if(xd && compensate) 
             {
                 //Cannot rollback or do anything graceful with eOUTOFLOGSPACE,
                 //and I want to avoid an assertion we'll hit in the releasing
