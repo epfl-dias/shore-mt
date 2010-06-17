@@ -98,6 +98,25 @@ class option_t;
 
 typedef   w_rc_t        rc_t;
 
+
+struct check_compensated_op_nesting {
+#if W_DEBUG_LEVEL > 0
+    xct_t* _xd;
+    int _depth;
+    int _line;
+    static int compensated_op_depth(xct_t* xd);
+    check_compensated_op_nesting(xct_t* xd, int line)
+	: _xd(xd), _depth(_xd? compensated_op_depth(_xd) : 0), _line(line)
+    {
+    }
+    ~check_compensated_op_nesting() {
+	w_assert0(!_xd || _depth == compensated_op_depth(_xd));
+    }
+#else
+    check_compensated_op_nesting(xct_t*, int) { }
+#endif
+};
+
 /**\cond skip */
 
 /**\brief Encapsulates a few types uses in the API */

@@ -1609,6 +1609,7 @@ rtree_m::_propagate_insert(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd && compensate) {
         anchor = xd->anchor();
         X_DO(__propagate_insert(xd, pl), anchor);
@@ -1661,6 +1662,7 @@ rtree_m::_propagate_remove(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd && compensate)  {
         anchor = xd->anchor();
         X_DO(__propagate_remove(xd,pl), anchor);
@@ -1738,6 +1740,7 @@ rtree_m::create(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     anchor = xd->anchor();
 
     X_DO( io->alloc_a_page(stid, 
@@ -1837,6 +1840,7 @@ rtree_m::insert(
         lsn_t anchor;
             xct_t* xd = xct();
         w_assert3(xd);
+	check_compensated_op_nesting ccon(xd, __LINE__);
             if(xd) anchor = xd->anchor();
 
         // overflow treatment
@@ -2804,6 +2808,7 @@ rtree_m::bulk_load(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd) anchor = xd->anchor();
 
     lpid_t pid;

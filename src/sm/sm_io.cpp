@@ -1084,6 +1084,7 @@ io_m::alloc_a_file_page(
     // we compensate, but we don't want to do that until
     // we have finished logging the page allocation.
     
+    check_compensated_op_nesting ccon(xct(), __LINE__);
     auto_release_anchor_t auto_anchor(true/*and compensate*/, __LINE__); 
     // see xct.h for auto_release_anchor_t.
 

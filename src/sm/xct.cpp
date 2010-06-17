@@ -757,6 +757,17 @@ xct_t::compensate(const lsn_t& lsn, bool undoable ADD_LOG_COMMENT_SIG)
     i_this->compensate(lsn, undoable ADD_LOG_COMMENT_USE);
 }
 
+int
+xct_t::compensated_op_depth() const
+{
+    return i_this->_in_compensated_op;
+}
+int
+check_compensated_op_nesting::compensated_op_depth(xct_t* xd)
+{
+    return xd->compensated_op_depth();
+}
+
 auto_release_anchor_t::~auto_release_anchor_t() 
 {
 	if(_xd) _xd->release_anchor(_and_compensate LOG_COMMENT_USE("autorel"));

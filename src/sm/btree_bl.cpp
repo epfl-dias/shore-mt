@@ -332,6 +332,7 @@ btree_m::purge(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     anchor = xd->anchor();
 
     lpid_t pid;
@@ -758,6 +759,7 @@ btsink_t::map_to_root()
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert1(xd);
+    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd)  anchor = xd->anchor();
 
     for (int i = 0; i <= _top; i++)  {
@@ -826,6 +828,7 @@ btsink_t::_add_page(const int i, shpid_t pid0)
 {
     lsn_t anchor;
     xct_t* xd = xct();
+    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd) anchor = xd->anchor();
 
     {
