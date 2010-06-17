@@ -1314,12 +1314,6 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 	       have no dirty pages or active transactions associated
 	       with it. If we're one of those overly old transactions
 	       we have no choice but to abort.
-
-	       FRJ: note that we must release the 1thread_log mutex if
-	       we end up returning eOUTOFLOGSPACE (which would prevent
-	       our caller from calling give_logbuf to release the
-	       mutex). If there's a compensated op in progress this
-	       will just be an expensive nop.
 	     */
 	    INC_TSTAT(log_full);
 	    bool badnews=false;
@@ -1373,6 +1367,7 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 
                 static queue_based_block_lock_t emergency_log_flush_mutex;
                 CRITICAL_SECTION(cs, emergency_log_flush_mutex);                
+                release_1thread_log_mutex(); // the  checkpoint will acquire this
 		for(int tries_left=3; tries_left > 0; tries_left--) {
 		    if(tries_left == 1) {
 			// the checkpoint should also do this, but just in case...
@@ -1386,7 +1381,6 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 			    extern void dump_all_sm_stats();
 			    dump_all_sm_stats();
 #endif
-			    release_1thread_log_mutex(); 
 			    if(rc.err_num() == eBPFORCEFAILED) 
 				return RC(eOUTOFLOGSPACE);
 			    return rc;
@@ -1429,12 +1423,11 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 		}
 	    }
 
-	    if(badnews) {
-		release_1thread_log_mutex(); 
+	    if(badnews)
 		return RC(eOUTOFLOGSPACE);
-	    }
 	    
 	success:
+	    acquire_1thread_log_mutex();
 	}
 	_log_bytes_ready += MIN_BYTES_READY;
         DBG( << " get_logbuf: _log_bytes_rsvd " << _log_bytes_rsvd  
