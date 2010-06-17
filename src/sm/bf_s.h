@@ -151,7 +151,7 @@ public:
     bool  dirty() const  { return _dirty;  }
     void  set_dirty_bit() { _dirty = true;  }
 
-    lsn_t const &safe_rec_lsn() const {
+    lsn_t safe_rec_lsn() const {
 		/* Work with a copy of _old_rec_lsn in case the original gets
 		   cleared while we're deciding whether to return it.
 
