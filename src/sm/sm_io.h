@@ -503,11 +503,10 @@ private:
     class auto_leave_t {
     private:
         xct_t *_x;
-	check_compensated_op_nesting ccon;
         void on_entering();
         void on_leaving() const;
     public:
-        auto_leave_t(): _x(xct()), ccon(_x, __LINE__) { if(_x) on_entering(); }
+        auto_leave_t(): _x(xct()) { if(_x) on_entering(); }
         ~auto_leave_t()               { if(_x) on_leaving(); }
     };
     // This is used to enter and leave while grabbing the

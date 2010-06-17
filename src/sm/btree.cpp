@@ -123,7 +123,6 @@ btree_m::create(
     lsn_t anchor;
     xct_t* xd = xct();
 
-    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd)  anchor = xd->anchor();
 
 

@@ -253,7 +253,6 @@ btree_p::unlink_and_propagate(
 
         lsn_t anchor;
         xct_t* xd = xct();
-	check_compensated_op_nesting ccon(xd, __LINE__);
         if (xd)  anchor = xd->anchor();
 
         /* 
@@ -428,7 +427,6 @@ btree_p::_set_flag( flag_t f, bool compensate)
 
     lsn_t anchor;
     xct_t* xd = xct();
-    check_compensated_op_nesting ccon(xd, __LINE__);
     if(compensate) {
     if (xd)  anchor = xd->anchor();
     }
@@ -475,7 +473,6 @@ btree_p::_clr_flag(flag_t f, bool compensate)
 
     lsn_t anchor;
     xct_t* xd = xct();
-    check_compensated_op_nesting ccon(xd, __LINE__);
     if(compensate) {
         if (xd)  anchor = xd->anchor();
     }

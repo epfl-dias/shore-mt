@@ -810,7 +810,6 @@ again:
                                     bool left_heavy;
                                     slotid_t slot = 1;
                                     int addition = key.size() + el.size() + 2;
-				    check_compensated_op_nesting ccon(xd, __LINE__);
                                     if(xd) anchor = xd->anchor();
                 DBG(<<" splitting page " << leaf.pid() 
                         << " parent.usabel_space()= " << parent.usable_space()
@@ -3021,7 +3020,6 @@ btree_impl::_split_leaf(
     lsn_t         anchor;         // serves as savepoint too
     xct_t*         xd = xct();
 
-    check_compensated_op_nesting ccon(xd, __LINE__);
     if (xd)  anchor = xd->anchor();
 
 #if BTREE_LOG_COMMENT_ON

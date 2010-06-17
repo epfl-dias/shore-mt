@@ -266,7 +266,6 @@ public:
     void                        release_anchor(bool compensate
 			                       ADD_LOG_COMMENT_SIG
                                    );
-    int				compensated_op_depth() const;
 
     // -------------------------------------------------------------
     // start_crit and stop_crit are used by the io_m to
