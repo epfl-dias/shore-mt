@@ -218,6 +218,7 @@ log_core::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
 {
     FUNC(log_core::scavenge);
     CRITICAL_SECTION(cs, _partition_lock);
+    pthread_mutex_lock(&_scavenge_lock);
 
 #if W_DEBUG_LEVEL > 2
     _sanity_check();
@@ -260,17 +261,27 @@ log_core::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
         p->destroy();
     }
     if(count > 0) {
-        /* We scavenged at least one partition, so we should
-         * probably do a checkpoint, in case our only checkpoint
-         * was in or partly in the partition we just scavenged.
-         * We hope this isn't the case, and we wakeup_and_take
-         * when a new partition is opened, but that's no
-         * guarantee, since the checkpoint might have been going on
-         * when the partition was near the end, and the wakeup_and_take
-         * might not have accomplished anything... 
-         */
-        smlevel_1::chkpt->wakeup_and_take();
+	/* LOG_RESERVATIONS
+
+	   reinstate the log space from the reclaimed partitions. We
+	   can put back the entire partition size because every log
+	   insert which finishes off a partition will consume whatever
+	   unused space was left at the end.
+
+	   Skim off the top of the released space whatever it takes to
+	   top up the log checkpoint reservation.
+	 */
+	fileoff_t reclaimed = recoverable_space(count);
+	fileoff_t max_chkpt = max_chkpt_size();
+	while(!verify_chkpt_reservation() && reclaimed > 0) {
+	    long skimmed = std::min(max_chkpt, reclaimed);
+	    atomic_add_long((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
+	    reclaimed -= skimmed;
+	}
+	release_space(reclaimed);
+	pthread_cond_signal(&_scavenge_cond);
     }
+    pthread_mutex_unlock(&_scavenge_lock);
 
     return RCOK;
 }
@@ -305,6 +316,25 @@ log_core::_flushX(lsn_t start_lsn,
         w_assert3(n != 0);
 
         {
+	    /* FRJ: before starting into the CS below we have to be
+	       sure an empty partition waits for us (otherwise we
+	       deadlock because partition scavenging is protected by
+	       the _partition_lock as well).
+	     */
+	    pthread_mutex_lock(&_scavenge_lock);
+	retry:
+	    bf->activate_background_flushing();
+	    smlevel_1::chkpt->wakeup_and_take();
+	    u_int oldest = log->global_min_lsn().hi();
+	    if(oldest + PARTITION_COUNT == start_lsn.file()) {
+		fprintf(stderr, "Can't open partition %d until partition %d is reclaimed\n",
+			start_lsn.file(), oldest);
+		pthread_cond_wait(&_scavenge_cond, &_scavenge_lock);
+		goto retry;
+	    }
+	    pthread_mutex_unlock(&_scavenge_lock);
+		
+
             // grab the lock -- we're about to mess with partitions
             CRITICAL_SECTION(cs, _partition_lock);
             p->close();  
@@ -963,6 +993,8 @@ log_core::log_core(
     DO_PTHREAD(pthread_mutex_init(&_wait_flush_lock, NULL));
     DO_PTHREAD(pthread_cond_init(&_wait_cond, NULL));
     DO_PTHREAD(pthread_cond_init(&_flush_cond, NULL));
+    pthread_mutex_init(&_scavenge_lock, NULL);
+    pthread_cond_init(&_scavenge_cond, NULL);
 
     /* Create thread o flush the log */
     _flush_daemon = new flush_daemon_thread_t(this);
