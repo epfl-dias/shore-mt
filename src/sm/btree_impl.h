@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='BTREE_IMPL_H'>
 
- $Id: btree_impl.h,v 1.15.2.8 2010/01/28 04:53:58 nhall Exp $
+ $Id: btree_impl.h,v 1.17 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -296,16 +296,17 @@ public:
                             // work because _fixed will be true.
                             // So we can make check() always work if we
                             // don't check the latch state in the !_fixed case.
-        if(_fixed) {w_assert2(_latch.held_by_me() != 0);}
-                            // if(!_fixed) w_assert2(_latch.held_by_me() == 0);
+                            W_IFDEBUG2(
+								if(_fixed) w_assert2(_latch.held_by_me() != 0);)
                             }
 };
 
-#if W_DEBUG_LEVEL > 2
+#if W_DEBUG_LEVEL > 4
+
 #define BTREE_CHECK_LATCHES
-// TODO NANCY turn this back to debug level 3 or higher
 extern "C" {
     void bstop();
+	// only in single-thread tests, senseless in mt-environment:
     void _check_latches(int line, uint _nsh, uint _nex, uint _max,
             const char *file);
 }

@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: pin.all,v 1.17.4.1 2009/10/27 16:44:51 nhall Exp $
+#  $Id: pin.all,v 1.19 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -27,7 +27,10 @@
 #
 #   -- do not edit anything above this line --   </std-header>
 
-set scripts [list pin.1 pin.2 pin.3 \
+# NOTE: pin.3 removed until its timing-dependencies are resolved.
+# pin_deadlock.1 is a copy of pin.3 that I was using
+# to debug/fix this problem.
+set scripts [list pin.1 pin.2 \
 	pin.5 \
 	]
 

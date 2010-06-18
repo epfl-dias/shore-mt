@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: shell2.cpp,v 1.58.2.8 2010/03/19 22:20:30 nhall Exp $
+ $Id: shell2.cpp,v 1.61 2010/05/26 01:20:51 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -390,12 +390,12 @@ char *LASTSTRING = (char *)&_laststring;
 
 static int
 _t_test_typed_btree(
-    Tcl_Interp* ip,
-    int vid,
-    int n, 
-    const char *_keytype,
-    const char *ccstring
-    )
+	Tcl_Interp* ip,
+	int vid,
+	int n, 
+	const char *_keytype,
+	const char *ccstring
+	)
 {
     // args: $volid $nrec $ktype $cc
     ss_m::concurrency_t build_cc = ss_m::t_cc_kvl;
@@ -409,10 +409,10 @@ _t_test_typed_btree(
     w_rc_t rc;
     FUNC(_t_test_typed_btree);
     DBG(<<"test typed btree vid= " << vid
-    << " n=" << n
-    << " _keytype=" << _keytype
-    << " keytype=" << keytype
-    );
+	<< " n=" << n
+	<< " _keytype=" << _keytype
+	<< " keytype=" << keytype
+	);
     char *key_buffer =0;
     {
     int duplicates = 0;
@@ -1933,301 +1933,301 @@ _t_test_typed_btree(
                 );
 
     #define DONTCARE -999999
-            int what=i;
-            if(op2==scan_file_i::eq) {
-                int first_last = (last > high ? high : last) ;
-                while( first_last > low &&
-                    duplicated[first_last-1]) {
-                w_assert3(first_last >= 1);
-                w_assert3(first_last <= high);
-                first_last--;
-                }
-                if(what < first_last) what = first_last;
-                i = what;
+			int what=i;
+			if(op2==scan_file_i::eq) {
+			    int first_last = (last > high ? high : last) ;
+			    while( first_last > low &&
+				    duplicated[first_last-1]) {
+				w_assert3(first_last >= 1);
+				w_assert3(first_last <= high);
+				first_last--;
+			    }
+			    if(what < first_last) what = first_last;
+			    i = what;
 
-            } else if(op1==scan_file_i::eq) {
-                // special case for duplicates
-                int last_first = first < low? low : first;
-                while(last_first < high &&
-                    duplicated[last_first]) {
-                last_first++;
-                }
-                if(what > last_first) what = last_first;
+			} else if(op1==scan_file_i::eq) {
+			    // special case for duplicates
+			    int last_first = first < low? low : first;
+			    while(last_first < high &&
+				    duplicated[last_first]) {
+				last_first++;
+			    }
+			    if(what > last_first) what = last_first;
 
-                i = what;
-            } else {
-                if(first >= low && last <= high) {
-                w_assert3((NORMALIZE(i) >= 0) 
-                    && (NORMALIZE(i) < n));
-                } else {
-                if (linked.verbose_flag) {
-                cerr<< bounds_set
-                << "POSSIBLE ERROR: Special case not handled," 
-                << " i=" << i
-                << " low=" << low
-                << " high=" << high
-                <<endl;
-                cerr << "IN SCAN# " <<bounds_set 
-                 << " scanning " 
-                 << cvt2string(op1) <<" " << first 
-                 << " " 
-                 << cvt2string(op2) <<" " << last
-                 << endl;
-                }
-                special();
-                w_assert1(bounds_set >= 14);
-                what = DONTCARE;
-                }
-            }
-            /*
-             * NB: for the time being, we're assuming
-             * that the btree sort is stable.  If we
-             * don't care if it's stable, do this here:
-             sort_is_stable = false;
-             */
-         sort_is_stable = false;
-        // w_assert1(sort_is_stable);
-            if(what != DONTCARE && expected != -2) {
-                if (elemvalue != NORMALIZE(what)) {
-                if(sort_is_stable) {
-            cerr << "WARNING!****BTREE SORT IS NOT STABLE" <<endl;
-                } else {
-                    // it's a duplicate
-                    // elemvalue must match ONE of the
-                    // duplicates
-                    int f = what;
-                    if(!duplicated[f]) f--;
-                    while(duplicated[f]) f--;
-                    f++;
+			    i = what;
+			} else {
+			    if(first >= low && last <= high) {
+				w_assert3((NORMALIZE(i) >= 0) 
+				    && (NORMALIZE(i) < n));
+			    } else {
+				if (linked.verbose_flag) {
+				cerr<< bounds_set
+				<< "POSSIBLE ERROR: Special case not handled," 
+				<< " i=" << i
+				<< " low=" << low
+				<< " high=" << high
+				<<endl;
+				cerr << "IN SCAN# " <<bounds_set 
+				 << " scanning " 
+				 << cvt2string(op1) <<" " << first 
+				 << " " 
+				 << cvt2string(op2) <<" " << last
+				 << endl;
+				}
+				special();
+				w_assert1(bounds_set >= 14);
+				what = DONTCARE;
+			    }
+			}
+			/*
+			 * NB: for the time being, we're assuming
+			 * that the btree sort is stable.  If we
+			 * don't care if it's stable, do this here:
+			 sort_is_stable = false;
+			 */
+		 sort_is_stable = false;
+		// w_assert1(sort_is_stable);
+			if(what != DONTCARE && expected != -2) {
+			    if (elemvalue != NORMALIZE(what)) {
+				if(sort_is_stable) {
+		    cerr << "WARNING!****BTREE SORT IS NOT STABLE" <<endl;
+				} else {
+				    // it's a duplicate
+				    // elemvalue must match ONE of the
+				    // duplicates
+				    int f = what;
+				    if(!duplicated[f]) f--;
+				    while(duplicated[f]) f--;
+				    f++;
 
-                    w_assert1(duplicated[f]);
-                    bool found=false;
-                    while(duplicated[f]) {
-                    if(elemvalue == NORMALIZE(f)) {
-                        DBG(<<"elemvalue found at " << f);
-                        found = true;
-                        break;
-                    }
-                    f++;
-                    }
-                    if(elemvalue == NORMALIZE(f)) {
-                    DBG(<<"elemvalue found at " << f);
-                    found = true;
-                    }
-                    // Either we found what
-                    // we're looking for, or the
-                    // test is possibly bogus because
-                    // the range of values.
-                    w_assert1(found); 
-                }
-                }
-            }
+				    w_assert1(duplicated[f]);
+				    bool found=false;
+				    while(duplicated[f]) {
+					if(elemvalue == NORMALIZE(f)) {
+					    DBG(<<"elemvalue found at " << f);
+					    found = true;
+					    break;
+					}
+					f++;
+				    }
+				    if(elemvalue == NORMALIZE(f)) {
+					DBG(<<"elemvalue found at " << f);
+					found = true;
+				    }
+				    // Either we found what
+				    // we're looking for, or the
+				    // test is possibly bogus because
+				    // the range of values.
+				    w_assert1(found); 
+				}
+			    }
+			}
 
 
-            /*
-             * check key value
-             */
-            {
-            int len=0;
-            switch(t) {
-                case test_i1:
-                case test_u1:
-                DBG(<<"i1=" <<(u_char) i1
-                << " expect " << values_i1[sorted[elemvalue]]);
-                w_assert1(i1 == values_i1[sorted[elemvalue]]);
-                break;
+			/*
+			 * check key value
+			 */
+			{
+			int len=0;
+			switch(t) {
+			    case test_i1:
+			    case test_u1:
+			    DBG(<<"i1=" <<(u_char) i1
+				<< " expect " << values_i1[sorted[elemvalue]]);
+			    w_assert1(i1 == values_i1[sorted[elemvalue]]);
+			    break;
 
-                case test_i2:
-                case test_u2:
-                DBG(<<"i2=" <<i2
-                << " expect " << values_i2[sorted[elemvalue]]);
-                w_assert1(i2 == values_i2[sorted[elemvalue]]);
-                break;
+			    case test_i2:
+			    case test_u2:
+			    DBG(<<"i2=" <<i2
+				<< " expect " << values_i2[sorted[elemvalue]]);
+			    w_assert1(i2 == values_i2[sorted[elemvalue]]);
+			    break;
 
-                case test_u4:
-                DBG(<<"i4=" <<(unsigned) i4
-                << " expect " 
-                << values_u4[sorted[elemvalue]]);
-                w_assert1(i4 == values_i4[sorted[elemvalue]]);
-                break;
+			    case test_u4:
+			    DBG(<<"i4=" <<(unsigned) i4
+				<< " expect " 
+				<< values_u4[sorted[elemvalue]]);
+			    w_assert1(i4 == values_i4[sorted[elemvalue]]);
+			    break;
 
-                case test_i4:
-                DBG(<<"i4=" <<i4
-                << " expect " 
-                << values_i4[sorted[elemvalue]]);
-                w_assert1(i4 == values_i4[sorted[elemvalue]]);
-                break;
+			    case test_i4:
+			    DBG(<<"i4=" <<i4
+				<< " expect " 
+				<< values_i4[sorted[elemvalue]]);
+			    w_assert1(i4 == values_i4[sorted[elemvalue]]);
+			    break;
 
-                case test_u8:
-                DBG(<<"i8=" << (w_base_t::uint8_t) i8
-                << " expect " 
-                << values_u8[sorted[elemvalue]]);
-                w_assert1(i8 == values_i8[sorted[elemvalue]]);
-                break;
+			    case test_u8:
+			    DBG(<<"i8=" << (w_base_t::uint8_t) i8
+				<< " expect " 
+				<< values_u8[sorted[elemvalue]]);
+			    w_assert1(i8 == values_i8[sorted[elemvalue]]);
+			    break;
 
-                case test_i8:
-                DBG(<<"i8=" <<i8
-                << " expect " 
-                << values_i8[sorted[elemvalue]]);
-                w_assert1(i8 == values_i8[sorted[elemvalue]]);
-                break;
+			    case test_i8:
+			    DBG(<<"i8=" <<i8
+				<< " expect " 
+				<< values_i8[sorted[elemvalue]]);
+			    w_assert1(i8 == values_i8[sorted[elemvalue]]);
+			    break;
 
-                case test_f4:
-                DBG(<<"f4=" <<f4
-                << " expect " << values_f4[sorted[elemvalue]]);
-                w_assert1(f4 == values_f4[sorted[elemvalue]]);
-                break;
+			    case test_f4:
+			    DBG(<<"f4=" <<f4
+				<< " expect " << values_f4[sorted[elemvalue]]);
+			    w_assert1(f4 == values_f4[sorted[elemvalue]]);
+			    break;
 
-                case test_f8:
-                DBG(<<"f8=" <<f8
-                << " expect " << values_f8[sorted[elemvalue]]);
-                w_assert1(f8 == values_f8[sorted[elemvalue]]);
-                break;
+			    case test_f8:
+			    DBG(<<"f8=" <<f8
+				<< " expect " << values_f8[sorted[elemvalue]]);
+			    w_assert1(f8 == values_f8[sorted[elemvalue]]);
+			    break;
 
-                case test_b1:
-                len=1;
-                case test_b23:
-                if(!len) len=23;
-                case test_blarge:
-                case test_bv:
-                if(!len) len=LARGEKEYSTRING;
-                DBG(<<"b=" << key_buffer
-                << " expect " << values_b[sorted[elemvalue]]);
-                break;
+			    case test_b1:
+				len=1;
+			    case test_b23:
+				if(!len) len=23;
+			    case test_blarge:
+			    case test_bv:
+				if(!len) len=LARGEKEYSTRING;
+			    DBG(<<"b=" << key_buffer
+				<< " expect " << values_b[sorted[elemvalue]]);
+			    break;
 
-                case test_spatial:
-                default: w_assert1(0);
-            }
-            } // close scope of len
-            }
+			    case test_spatial:
+			    default: w_assert1(0);
+			}
+			} // close scope of len
+		    }
 
-            /*
-             * EPILOGUE TO MAIN SCAN LOOP 
-             * check ending conditions
-             */
-            DBG(<<" rc= " << rc << " eof=" << eof);
-            scan->finish();
-            DO_GOTO( rc );
+		    /*
+		     * EPILOGUE TO MAIN SCAN LOOP 
+		     * check ending conditions
+		     */
+		    DBG(<<" rc= " << rc << " eof=" << eof);
+		    scan->finish();
+		    DO_GOTO( rc );
 
-            if(expected>0) {
-            int boundary ;
-            bool do_incr=false;
-            if(op1==scan_file_i::eq) {
-                boundary = first;
-                // boundary should be the last of the duplicates
-                do_incr = true;
-            } else if(op2==scan_file_i::eq) {
-                boundary = last;
-                // boundary should be the last of the duplicates
-                do_incr = true;
-            } else if(op2==scan_file_i::lt) {
-                boundary = (last>high)?high:last-1;
-                // boundary should be last of the duplicates
-                // of the value < value(last).  We find
-                // that by decrementing from last until
-                // we get to the first value < value(last).
-            } else {
-                w_assert3(op2==scan_file_i::le);
-                // op2 == scan_file_i::le
-                // boundary should be last of the duplicates
-                // of high/last. 
-                boundary = (last>high)?high:last;
-                do_incr = true;
-            }
-            if(do_incr) {
-                // We'll reach !duplicated at that last
-                // copy of the value
-                while(duplicated[NORMALIZE(boundary)]) {
-                DBG(<<"incrementing dup boundary " 
-                    << boundary);
-                boundary++;
-                expected++;
-                }
-            } else {
-                // We'll reach !duplicated at the last
-                // copy of the previous value
-                while(duplicated[NORMALIZE(boundary)]
-                    && NORMALIZE(boundary) > 0) {
-                DBG(<<"decrementing dup boundary " 
-                    << boundary);
-                expected--;
-                boundary--;
-                }
-            }
+		    if(expected>0) {
+			int boundary ;
+			bool do_incr=false;
+			if(op1==scan_file_i::eq) {
+			    boundary = first;
+			    // boundary should be the last of the duplicates
+			    do_incr = true;
+			} else if(op2==scan_file_i::eq) {
+			    boundary = last;
+			    // boundary should be the last of the duplicates
+			    do_incr = true;
+			} else if(op2==scan_file_i::lt) {
+			    boundary = (last>high)?high:last-1;
+			    // boundary should be last of the duplicates
+			    // of the value < value(last).  We find
+			    // that by decrementing from last until
+			    // we get to the first value < value(last).
+			} else {
+			    w_assert3(op2==scan_file_i::le);
+			    // op2 == scan_file_i::le
+			    // boundary should be last of the duplicates
+			    // of high/last. 
+			    boundary = (last>high)?high:last;
+			    do_incr = true;
+			}
+			if(do_incr) {
+			    // We'll reach !duplicated at that last
+			    // copy of the value
+			    while(duplicated[NORMALIZE(boundary)]) {
+				DBG(<<"incrementing dup boundary " 
+				    << boundary);
+				boundary++;
+				expected++;
+			    }
+			} else {
+			    // We'll reach !duplicated at the last
+			    // copy of the previous value
+			    while(duplicated[NORMALIZE(boundary)]
+				    && NORMALIZE(boundary) > 0) {
+				DBG(<<"decrementing dup boundary " 
+				    << boundary);
+				expected--;
+				boundary--;
+			    }
+			}
 
-            // i is incremented..., so it should
-            // end up at 1 after the so-far computed boundary
-            // so we'll now increment boundary:
-            boundary++; 
+			// i is incremented..., so it should
+			// end up at 1 after the so-far computed boundary
+			// so we'll now increment boundary:
+			boundary++; 
 
-            DBG(<<"boundary ends up at " << boundary);
+			DBG(<<"boundary ends up at " << boundary);
 
-            if( i < boundary) {
-                if (linked.verbose_flag) {
-                cerr << "POSSIBLE PREMATURE EOF : eof at " << i
-                << " expected eof at " << boundary << endl;
-                cerr << "IN SCAN# " <<bounds_set 
-                 << " scanning " 
-                 << cvt2string(op1) <<" " << first 
-                 << " " 
-                 << cvt2string(op2) <<" " << last
-                 << endl;
-                }
-                possible();
-            }
-            // w_assert1(i == boundary);
-            }
+			if( i < boundary) {
+			    if (linked.verbose_flag) {
+			    cerr << "POSSIBLE PREMATURE EOF : eof at " << i
+				<< " expected eof at " << boundary << endl;
+			    cerr << "IN SCAN# " <<bounds_set 
+				 << " scanning " 
+				 << cvt2string(op1) <<" " << first 
+				 << " " 
+				 << cvt2string(op2) <<" " << last
+				 << endl;
+			    }
+			    possible();
+			}
+			// w_assert1(i == boundary);
+		    }
 
-            if( expected >= 0 && num_scanned != expected ) {
-            if (linked.verbose_flag) {
-            cerr 
-                << (char *)(duplicates? "POSSIBLE " : "")
-                << "WRONG NUMBER : expected " 
-                << expected
-                << " got " << num_scanned 
-                << " #duplicates= " << duplicates
-                << endl;
-            cerr << "IN SCAN# " <<bounds_set 
-                 << " scanning " 
-                 << cvt2string(op1) <<" " << first 
-                 << " " 
-                 << cvt2string(op2) <<" " << last
-                 << endl;
-            }
-            possible();
-            }
+		    if( expected >= 0 && num_scanned != expected ) {
+			if (linked.verbose_flag) {
+			cerr 
+			    << (char *)(duplicates? "POSSIBLE " : "")
+			    << "WRONG NUMBER : expected " 
+			    << expected
+			    << " got " << num_scanned 
+			    << " #duplicates= " << duplicates
+			    << endl;
+			cerr << "IN SCAN# " <<bounds_set 
+			     << " scanning " 
+			     << cvt2string(op1) <<" " << first 
+			     << " " 
+			     << cvt2string(op2) <<" " << last
+			     << endl;
+			}
+			possible();
+		    }
 
-            // It's not yet accurate in the presence of duplicates
-            if(expected == 0 || 
-                (duplicates == 0 && expected >= 0)) {
-            w_assert1(num_scanned == expected);
-            }
+		    // It's not yet accurate in the presence of duplicates
+		    if(expected == 0 || 
+			    (duplicates == 0 && expected >= 0)) {
+			w_assert1(num_scanned == expected);
+		    }
 
-            scan->~scan_index_i();
-        }
-        }
-        // DO( sm->print_index(stid) );
+		    scan->~scan_index_i();
+		}
+	    }
+		// DO( sm->print_index(stid) );
 
-        {
-        DBG(<<"destroying store " << stid);
-        DO_GOTO( sm->destroy_index(stid) );
-        }
-    }
-    if(values_i1) { delete[] values_i1; values_i1=0; values_u1=0; }
-    if(values_i2) { delete[] values_i2; values_i2=0; values_u2=0; }
-    if(values_i4) { delete [] values_i4; values_i4=0; values_u4=0; }
-    if(values_i8) { delete [] values_i8; values_i8=0; values_u8=0; }
-    if(values_f4) { delete[] values_f4; values_f4=0; }
-    if(values_f8) { delete[] values_f8; values_f8=0; }
-    if(values_b) { 
-        int k;
-        for(k=0; k < n; k++) {
-        if(values_b[k]) delete[] values_b[k];
-        }
-        delete[] values_b; values_b=0; 
-        delete[] key_buffer;
-    }
-    return TCL_OK;
+	    {
+		DBG(<<"destroying store " << stid);
+		DO_GOTO( sm->destroy_index(stid) );
+	    }
+	}
+	if(values_i1) { delete[] values_i1; values_i1=0; values_u1=0; }
+	if(values_i2) { delete[] values_i2; values_i2=0; values_u2=0; }
+	if(values_i4) { delete [] values_i4; values_i4=0; values_u4=0; }
+	if(values_i8) { delete [] values_i8; values_i8=0; values_u8=0; }
+	if(values_f4) { delete[] values_f4; values_f4=0; }
+	if(values_f8) { delete[] values_f8; values_f8=0; }
+	if(values_b) { 
+	    int k;
+	    for(k=0; k < n; k++) {
+		if(values_b[k]) delete[] values_b[k];
+	    }
+	    delete[] values_b; values_b=0; 
+	    delete[] key_buffer;
+	}
+	return TCL_OK;
     }
 failure:
     DBG(<<"rc=" <<rc);
@@ -2256,11 +2256,11 @@ t_test_int_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     const int n = atoi(av[2]);
     int vid = 0;
     {
-    vid = atoi(av[1]);
+	vid = atoi(av[1]);
     }
     int e;
     e= _t_test_typed_btree(ip, vid, 
-        n, "i4", 0);
+	    n, "i4", 0);
     // if( e != TCL_OK) { return e; }
 
     // e= _t_test_typed_btree(ip, vid, lstid, n, "i2", 0);
@@ -2280,7 +2280,7 @@ t_test_typed_btree(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     const int n = atoi(av[2]);
     int vid = 0;
     {
-    vid = atoi(av[1]);
+	vid = atoi(av[1]);
     }
     return _t_test_typed_btree(ip, vid, 
         n, av[3], av[4]);
@@ -2384,8 +2384,8 @@ t_create_typed_hdr_body_rec(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     }
     
     {
-    stid_t  stid;
-    rid_t   rid;
+	stid_t  stid;
+	rid_t   rid;
 
     w_istrstream anon(av[fid_arg]); 
         anon >> stid;
@@ -2457,14 +2457,14 @@ t_create_typed_hdr_rec(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     break;
 
     default:
-    cvt2typed_value(t, av[hdr_arg], vh);
-    hdr.put(&vh._u, vh._length);
-    break;
+	cvt2typed_value(t, av[hdr_arg], vh);
+	hdr.put(&vh._u, vh._length);
+	break;
     }
 
     {
-    stid_t  stid;
-    rid_t   rid;
+	stid_t  stid;
+	rid_t   rid;
 
     w_istrstream anon(av[fid_arg]); anon >> stid;
     DO( sm->create_rec(stid, hdr, 
@@ -2488,21 +2488,21 @@ t_get_store_info(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
     sm_store_info_t info(100);
     {
-    stid_t  fid;
-    w_istrstream anon(stidstring); anon >> fid;
-    DO(sm->get_store_info(fid, info));
+	stid_t  fid;
+	w_istrstream anon(stidstring); anon >> fid;
+	DO(sm->get_store_info(fid, info));
     }
     w_reset_strstream(tclout);
     tclout 
-    << info.store << " "
-    << cvt_store_t((ss_m::store_t)info.stype) << " "
-    << cvt_ndx_t((ss_m::ndx_t)info.ntype) << " "
-    << cvt_concurrency_t((ss_m::concurrency_t)info.cc) << " "
-    << info.eff << " "
-    << info.large_store << " "
-    << info.root << " "
-    << info.nkc << " "
-    << info.keydescr << ends;
+	<< info.store << " "
+	<< cvt_store_t((ss_m::store_t)info.stype) << " "
+	<< cvt_ndx_t((ss_m::ndx_t)info.ntype) << " "
+	<< cvt_concurrency_t((ss_m::concurrency_t)info.cc) << " "
+	<< info.eff << " "
+	<< info.large_store << " "
+	<< info.root << " "
+	<< info.nkc << " "
+	<< info.keydescr << ends;
     Tcl_AppendResult(ip, tclout.c_str(), 0);
     w_reset_strstream(tclout);
     return TCL_OK;
@@ -2510,7 +2510,7 @@ t_get_store_info(Tcl_Interp* ip, int ac, TCL_AV char* av[])
 
 typed_btree_test 
 get_key_type( Tcl_Interp *
-    , const char *stidstring )
+	, const char *stidstring )
 {
     typed_btree_test tstored;
     w_rc_t rc;
@@ -2564,9 +2564,9 @@ t_scan_sorted_recs(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     typed_btree_test tb = cvt2type(av[3]);
 
     {
-        stid_t  fid;
-        w_istrstream anon(av[1]); anon >> fid;
-        scan = new scan_file_i(fid, ss_m::t_cc_file);
+	stid_t  fid;
+	w_istrstream anon(av[1]); anon >> fid;
+	scan = new scan_file_i(fid, ss_m::t_cc_file);
     }
     TCL_HANDLE_FSCAN_FAILURE(scan);
 
@@ -2921,17 +2921,17 @@ t_sort_file(Tcl_Interp* ip, int ac, TCL_AV char* av[])
     info.est_reclen = MAX(info.len, ALIGNON);
 
     {
-    stid_t in_fid;
-    w_istrstream anon(av[fid_arg]); 
-        anon >> in_fid;
-    stid_t out_fid;
+	stid_t in_fid;
+	w_istrstream anon(av[fid_arg]); 
+		anon >> in_fid;
+	stid_t out_fid;
 
-    DO( sm->sort_file(in_fid, 
-          atoi(av[vid_arg]), out_fid, property,
-          info, atoi(av[runsize_arg]), true, unique, destruct,
-          newsort) );
-    w_reset_strstream(tclout);
-    tclout << out_fid << ends;
+	DO( sm->sort_file(in_fid, 
+	      atoi(av[vid_arg]), out_fid, property,
+	      info, atoi(av[runsize_arg]), true, unique, destruct,
+	      newsort) );
+	w_reset_strstream(tclout);
+	tclout << out_fid << ends;
     }
     Tcl_AppendResult(ip, tclout.c_str(), 0);
     w_reset_strstream(tclout);
@@ -3094,4 +3094,13 @@ cvt2type(const char *s)
     if (streq(s, p->name))  return p->type;
     }
     return test_nosuch;
+}
+
+const char *
+cvtFROMtype( typed_btree_test t)
+{
+    for (const name2type_t* p = name2type; p->name; p++)  {
+		if (p->type == t)  return p->name;
+    }
+    return "Unknown";
 }

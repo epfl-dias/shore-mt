@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: bt.insert.0,v 1.17.4.2 2010/01/12 02:01:58 nhall Exp $
+#  $Id: bt.insert.0,v 1.19 2010/06/08 22:28:28 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -29,7 +29,10 @@
 
 #
 # this is the guts of bt.insert.[1234]
-# it assumes that the calling script has defined keylist
+# it assumes that the calling script has defined keylist (a list,
+# e.g., { 200 32433 8 98 }
+# and unique is set in bt.tcl, sourced by the
+# calling script.
 # 
 
 # set maxnum 2022
@@ -38,13 +41,8 @@ set maxnum 4044
 # 1 key/value per page:
 set elemlength 4044
 
-
-
 #
 # create index and load it up 
-#
-# make it start out a 1-page index and expand to a regular 
-# index.
 #
 #
 sm begin_xct
@@ -52,7 +50,6 @@ verbose tid [sm xct_to_tid [sm xct]]
 set ndx [sm create_index $volid $unique regular b*1000 t_cc_kvl]
 verbose created index $ndx
 sm commit_xct
-
 
 # 
 # insert values in list
@@ -64,73 +61,78 @@ verbose $nrec records: $keylist
 proc random_restart { a } {
     set j [random 3]
     for { set i 0 } { $i <= $j } { incr i } {
-	_restart $a
+		_restart $a
     }
 }
-proc runtest { term unique ndx nrec logging keylist } {
+
+proc runtest { term ndx nrec logging keylist } {
+# term: how to terminate this xct: commit abort or restart
+# ndx id of which index 
+# logging 0 or 1; if 0, the abort won't happen
+# keylist { list of keys }
 
     verbose runtest $term logging=$logging nrec $nrec
 	
     set key 1
     set value 1
     sm begin_xct
-verbose tid [sm xct_to_tid [sm xct]]
-    for {set i 0} {$i < $nrec} {incr i} {
-	verbose inserting $i
-	set key [lindex $keylist $i] 
-	verbose2 key $key
+	verbose tid [sm xct_to_tid [sm xct]]
+	for {set i 0} {$i < $nrec} {incr i} {
+		verbose inserting $i
+		set key [lindex $keylist $i] 
+		verbose2 key $key
 
-	set value [mkval $i $key]
-	verbose2 value $value
+		set value [mkval $i $key]
+		verbose2 value $value
 
-	verbose sm create_assoc $ndx $key <elem $key length>
-	sm create_assoc $ndx $key $value
+		verbose sm create_assoc $ndx $key <elem $key length>
+		sm create_assoc $ndx $key $value
 
-	# verbose sm find_assoc $ndx $key
-	# set res [sm find_assoc $ndx $key]
-	# assert {[expr [string compare $value $res] == 0]}
-	# verbose FOUND
-    }
-    switch $term {
-       abort { 
-	    if {$logging==0} {
-		verbose "Logging off: sm abort_xct not done.  Committing instead."
-		sm commit_xct 
-	    } else {
-		verbose sm abort_xct 
-		sm abort_xct 
-	    }
+		# verbose sm find_assoc $ndx $key
+		# set res [sm find_assoc $ndx $key]
+		# assert {[expr [string compare $value $res] == 0]}
+		# verbose FOUND
 	}
-       commit { 
+    switch $term {
+	abort {
+		if {$logging==0} {
+			verbose "Logging off: sm abort_xct not done.  Committing instead."
+			sm commit_xct 
+		} else {
+			verbose sm abort_xct 
+			sm abort_xct 
+		}
+	}
+   commit { 
 	    verbose sm commit_xct 
 	    sm commit_xct 
 	}
-       restart { 
-	    if {$logging==0} {
-		verbose "Logging off: restart not done.  Committing instead."
-		sm commit_xct 
-	    } else {
-		verbose random_restart
-		random_restart false
-	    }
+	restart {
+		if {$logging==0} {
+			verbose "Logging off: restart not done.  Committing instead."
+			sm commit_xct 
+		} else {
+			verbose random_restart
+			random_restart false
+		}
 	}
     }
 }
 
-runtest abort $unique $ndx $nrec $logging $keylist 
+runtest abort $ndx $nrec $logging $keylist 
 
 # sm begin_xct
 # test_scan $ndx 0
 # sm commit_xct
 
-runtest restart $unique $ndx $nrec $logging $keylist 
+runtest restart $ndx $nrec $logging $keylist 
 
 # sm begin_xct
 # test_scan $ndx 0
 # sm commit_xct
 
 clearstats
-runtest commit $unique $ndx $nrec $logging $keylist 
+runtest commit $ndx $nrec $logging $keylist 
 pstats 
 
 #

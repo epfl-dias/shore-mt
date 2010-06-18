@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_DEFINES_H' no-defines='true'>
 
- $Id: w_defines.h,v 1.2.2.6 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_defines.h,v 1.5 2010/06/08 22:27:22 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -93,16 +93,17 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  */
 #if defined(HAVE_PURIFY_H) || defined(PURIFY)
 #include <purify.h>
-#define ZERO_INIT
+#define ZERO_INIT 1
 #endif
+
 #ifdef HAVE_VALGRIND_H
 #define USING_VALGRIND 1
 #include <valgrind.h>
-#define ZERO_INIT
+#define ZERO_INIT 1
 #elif HAVE_VALGRIND_VALGRIND_H
 #define USING_VALGRIND 1
 #include <valgrind/valgrind.h>
-#define ZERO_INIT
+#define ZERO_INIT 1
 #endif
 
 #ifdef USING_VALGRIND
@@ -146,6 +147,11 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 /* ARCH_LP64 not defined */
+#endif
+
+
+#if SM_PAGESIZE > 32768 
+#error SM does not support pages this large.
 #endif
 
 

@@ -31,11 +31,10 @@
 /**\file tls.h
  * Cause macro definitions to show up in doxygen-generated
  * pages
- *\ingroup Macros
+ *\ingroup MACROS
  * */
 
-/**\defgroup TLS Thread-Local Variables
- * \ingroup MISC
+/**\addtogroup TLS 
  * The following are some of the thread-local variables 
  * defined in the storage manager libraries. (This is far from
  * a complete list.)

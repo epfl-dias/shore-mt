@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='LGREC_H'>
 
- $Id: lgrec.h,v 1.40.2.4 2010/01/28 04:54:05 nhall Exp $
+ $Id: lgrec.h,v 1.41 2010/05/26 01:20:39 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -147,7 +147,7 @@ private:
     lg_tag_chunks_s&    _cref;        // chunk handle
 };
 
-class lg_tag_indirect_h {
+class lg_tag_indirect_h : public w_base_t {
 public:
     lg_tag_indirect_h(const file_p& p, lg_tag_indirect_s& i, uint4_t page_cnt) :
         _page(p), _iref(i), _page_cnt(page_cnt) {}

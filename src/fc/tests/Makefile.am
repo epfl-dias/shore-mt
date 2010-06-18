@@ -3,15 +3,25 @@ include $(top_srcdir)/Makefile.generic
 
 RESULT_COMPARISON_FILES = stats2-out \
 	 box.2-out box.3-out box.4-out \
-	 list1-out
+	 list1-out  darray-out memblock-out
 
-EXTRA_DIST = testall test_stat.dat test_stat.h $(RESULT_COMPARISON_FILES)
+EXTRA_DIST = testall test_stat.dat test_stat.h $(RESULT_COMPARISON_FILES) test_me.h
+
+## no-op rule for making the -out files
+## this is to avoid automagic makefiles thinking that the -out
+## files are executable files to be made from the cpp files of the same
+## prefix
+$(RESULT_COMPARISON_FILES) : noop
+
+noop:
 
 AM_CXXFLAGS    += -I$(top_srcdir)/src/fc
 
 check_PROGRAMS     = list1$(EXEEXT) list2$(EXEEXT) list3$(EXEEXT) \
 		hash1$(EXEEXT) hash2$(EXEEXT) \
 		ntime$(EXEEXT) \
+			darray$(EXEEXT) \
+			memblock$(EXEEXT) \
 	        heap$(EXEEXT) \
 	       	rc$(EXEEXT) \
 			errlogtest$(EXEEXT) \
@@ -31,7 +41,12 @@ check_PROGRAMS     = list1$(EXEEXT) list2$(EXEEXT) list3$(EXEEXT) \
 
 
 TESTS = testall
+
 LDADD = ../libfc.a  $(LOCALLDADD)
+
+memblock_SOURCES = memblock.cpp
+
+darray_SOURCES = darray.cpp
 
 basic_sizes_SOURCES      = basic_sizes.cpp
 

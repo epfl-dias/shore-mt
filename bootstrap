@@ -8,15 +8,13 @@ echo /bin/rm -f config/shore-config.h
 echo aclocal  --force  ...
 aclocal  --force 
 
+# Insert activities of your choice for morning and afternoon.
+am="meditate"
+pm="take a break"
+
 OS=`uname`
 
 if [ "$OS" = "SunOS" ] ; then
-    t=`date +%H`
-	if test $t -gt 16 -a $t -lt 22; then
-		bev="beer"
-	else
-		bev="coffee"
-	fi
     echo "Running autoheader. Don't expect lightning speed ..."
 fi
 
@@ -32,11 +30,11 @@ autoheader  --force
 if [ "$OS" = "SunOS" ] ; then
     t=`date +%H`
 	if test $t -gt 16 -a $t -lt 22; then
-		bev="beer"
+		act=$pm
 	else
-		bev="coffee"
+		act=$am
 	fi
-    echo "Running autoconf.  Go have a $bev and come back later."
+    echo "Running autoconf.  Go $act and come back later."
 fi
 
 # autoconf: produce the shore-config.h file for make to use
@@ -51,13 +49,7 @@ autoconf --force
 # input: <dirs>/Makefile.am
 # output: <dirs>/Makefile.in
 if [ "$OS" = "SunOS" ] ; then
-    t=`date +%H`
-	if test $t -gt 16 -a $t -lt 22; then
-		bev="beer"
-	else
-		bev="coffee"
-	fi
-    echo "Running autoconf.  Go have another $bev and come back later."
+    echo "Running autoconf. This is like watching paint dry.  Go $act again."
 fi
 echo automake  -a --include-deps ...
 automake  -a --include-deps
@@ -75,11 +67,19 @@ echo     ./configure --help
 echo            to see the options
 echo
 echo Example configurations:
-echo      ./configure  CXX=CC
-echo     ./configure --with-debug-level2 --enable-checkrc --enable-trace
-echo     ./configure --with-hugetlbfs
-echo     ./configure --enable-dependency-tracking 
-echo      ./configure CXX=/usr/bin/g++ --enable-valgrind
+echo For use with valgrind and to override CXX shell variable:
+echo     ./configure CXX=/usr/bin/g++ --enable-valgrind
+echo For maximum debugging and tracing :
+echo     ./configure --with-debug-level3 --enable-checkrc --enable-trace
+echo For lots of debugging and tracing :
+echo     ./configure --with-debug-level2 --enable-trace
+echo For debugging and no tracing :
+echo     ./configure --with-debug-level1 
+echo
+echo For SOLARIS, we suggest that you use --enable-dependendency-tracking and CC:
+echo     ./configure  CXX=CC --enable-dependency-tracking 
+echo For no debugging and no tracing :
+echo     ./configure 
 echo
 echo After you configure, run
 echo     make

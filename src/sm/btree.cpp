@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: btree.cpp,v 1.279.2.12 2010/03/19 22:20:23 nhall Exp $
+ $Id: btree.cpp,v 1.282 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -70,16 +70,11 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_du_stats.h"
 #include <crash.h>
 
-#if W_DEBUG_LEVEL > 3
+#if W_DEBUG_LEVEL > 0
 #define  BTREE_LOG_COMMENT_ON 1
 #else
 #define  BTREE_LOG_COMMENT_ON 0
 #endif
-
-__thread  char kc_buf[smlevel_0::page_sz]; // not initialized
-// __thread  cvec_t kc_vec;
-DECLARE_TLS(cvec_t, kc_vec);
-
 
 static 
 rc_t badcc() {
@@ -134,11 +129,8 @@ btree_m::create(
     X_DO( io->alloc_a_page(stid, 
             lpid_t::eof,  // hint
             root,        // resulting page
-            // GNATS 103: changed this to true
             true,        // may_realloc
-            NL,        // ignored
-            // TODO NANCY: This lock mode is NOT ignored; it
-            // acquires a lock on the page in this mode
+            NL,          // acquires a lock on the page in this mode
             true        // search file
             ), anchor );
     SSMTEST("btree.create.1");
@@ -161,7 +153,7 @@ btree_m::create(
     
     if (xd)  {
         SSMTEST("btree.create.2");
-        xd->compensate(anchor);
+        xd->compensate(anchor, false/*not undoable*/ LOG_COMMENT_USE("btree.create.2"));
     }
 
     bool empty=false;
@@ -223,13 +215,13 @@ btree_m::is_empty(
 rc_t
 btree_m::insert(
     const lpid_t&        root,                // I-  root of btree
-    int                        nkc,
-    const key_type_s*        kc,
-    bool                unique,                // I-  true if tree is unique
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
     const cvec_t&        el,                // I-  which element
-    int                 split_factor)        // I-  tune split in %
+    int                  split_factor)        // I-  tune split in %
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -246,10 +238,6 @@ btree_m::insert(
     w_assert1(kc && nkc > 0);
 
     if(key.size() + el.size() > btree_p::max_entry_size) {
-        /* NB: this isn't sufficient for 1-page btrees,
-         * since they get the sinfo_s stuffed into slot 0
-         * until they run out of space on the page.
-         */
         DBG(<<"RECWONTFIT: key.size=" << key.size() 
                 << " el.size=" << el.size());
         return RC(eRECWONTFIT);
@@ -407,13 +395,13 @@ btree_m::remove(
 rc_t
 btree_m::lookup(
     const lpid_t&         root,        // I-  root of btree
-    int                        nkc,
-    const key_type_s*        kc,
-    bool                unique, // I-  true if btree is unique
-    concurrency_t        cc,        // I-  concurrency control
+    int                   nkc,
+    const key_type_s*     kc,
+    bool                  unique, // I-  true if btree is unique
+    concurrency_t         cc,        // I-  concurrency control
     const cvec_t&         key,        // I-  key we want to find
     void*                 el,        // I-  buffer to put el found
-    smsize_t&                 elen,        // IO- size of el
+    smsize_t&             elen,        // IO- size of el
     bool&                 found)        // O-  true if key is found
 {
     if(
@@ -592,7 +580,7 @@ btree_m::fetch_reinit(
     cursor_t&                 cursor // IO- cursor to be filled in
 ) 
 {
-    smsize_t         elen = cursor.elen();
+    smsize_t    elen = cursor.elen();
     bool        found = false;
 
     get_latches(___s,___e); 
@@ -922,8 +910,8 @@ btree_m::get_du_statistics(
         if (!((alloc_cnt+unalloc_cnt) % smlevel_0::ext_sz == 0)) {
 #if W_DEBUG_LEVEL > 0
             fprintf(stderr, 
-                "alloc_cnt %ld + unalloc_cnt %ld not a mpl of ext size\n",
-                alloc_cnt, unalloc_cnt);
+                "alloc_cnt %lld + unalloc_cnt %lld not a mpl of ext size\n",
+                (long long) alloc_cnt, (long long) unalloc_cnt);
 #endif
             return RC(fcINTERNAL);
         }
@@ -931,8 +919,9 @@ btree_m::get_du_statistics(
                         smlevel_0::ext_sz == 0)) {
 #if W_DEBUG_LEVEL > 0
             fprintf(stderr, 
-            "lf_cnt %ld + int_cnt %ld + unlink_cnt %ld + unalloc_cnt %ld not a mpl of ext size\n",
-                    lf_cnt, int_cnt, unlink_cnt, unalloc_cnt);
+            "lf_cnt %lld + int_cnt %lld + unlink_cnt %lld + unalloc_cnt %lld not a mpl of ext size\n",
+			(long long) lf_cnt, (long long) int_cnt, 
+			(long long) unlink_cnt, (long long) unalloc_cnt);
 #endif
             return RC(fcINTERNAL);
         }
@@ -940,7 +929,9 @@ btree_m::get_du_statistics(
         // I think if audit is true, and we have the right locks,
         // there should be no unlinked pages
         if ( unlink_cnt != 0) {
-            fprintf(stderr, " found %lu unlinked pages\n", unlink_cnt);
+            fprintf(stderr, " found %lu unlinked pages\n", 
+                    // make it work for LP32
+                    (unsigned long) unlink_cnt);
             return RC(fcINTERNAL);
         }
 
@@ -988,9 +979,7 @@ btree_m::_scramble_key(
     }
 
 
-    // ret = &me()->kc_vec();
-    cvec_t *tls_vec = kc_vec.operator->();
-    ret = tls_vec;
+    ret = me()->get_kc_vec();
     ret->reset();
 
     char* p = 0;
@@ -1004,7 +993,7 @@ btree_m::_scramble_key(
             t == key_type_s::f ||
             t == key_type_s::F 
             ) {
-            p = &kc_buf[0];
+            p = me()->get_kc_buf();
             break;
         }
     }
@@ -1075,7 +1064,7 @@ btree_m::_scramble_key(
         }
         ret->put(p, s - p);
     }
-    DBGTHRD(<<" SCrambled " << key << " into " << *ret);
+    DBGTHRD(<<" Scrambled " << key << " into " << *ret);
     return RCOK;
 }
 
@@ -1090,7 +1079,7 @@ btree_m::_unscramble_key(
     FUNC(btree_m::_unscramble_key);
     DBGTHRD(<<" UNscrambling " << key );
     w_assert1(kc && nkc > 0);
-    ret = kc_vec.operator->();
+    ret = me()->get_kc_vec();
     ret->reset();
     char* p = 0;
     int i;
@@ -1109,7 +1098,7 @@ btree_m::_unscramble_key(
                 t == key_type_s::f ||
                 t == key_type_s::F 
                 )  {
-            p = &kc_buf[0];
+            p = me()->get_kc_buf();
             break;
         }
     }

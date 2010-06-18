@@ -29,48 +29,44 @@
 #
 #   -- do not edit anything above this line --   </std-header>
 
-function executeWithResult  {
+function execute  {
 print -n "$1\t--> running --> "
 print "running $1" >> $2
 
-OLD_PATH=$PATH
-PATH=$PATH:.
-if [[ -a $3 ]]; then
-	of=/tmp/$$
-	if $1 1> $of 2> $of.err ; then
-	    if diff $of $3 >> $2; then
-			print "ok"
-	    else
-			print "diff failed; results in " $of " and " $of.err 
-			print "  expected results in " $3
-			print "  All diffs in " $2
-			exit 1
-	    fi
-	else
-	    print "failed to execute $1 ( $? )"
-		exit 1
-	fi
-	cat $of >> $2
-	rm $of
-
-elif $1 >> $2 2>&1; then
-	print "ok"
+if [[ -z $3 ]]; then
+    # no comparison file
+	echo >> /dev/null
+elif [[ -a $3 ]]; then
+	echo >> /dev/null
 else
-	print "failed to execute $1 ( $? )"
-	exit 1
+    # given argument doesn't exist
+    print "comparison file $3 doesn't exist" 
+    exit -1
 fi
-PATH=$OLD_PATH
-}
 
-function execute  {
-    print -n "$1\t--> running --> "
-    print "running $1" >> $2
-    if ./$1 >> $2 2>&1; then
-	print "ok"
+if [[ -n $3 ]]; then
+    of=/tmp/$$
+    if $1 1> $of 2> $of.err ; then
+        if diff $of $3 >> $2; then
+            print "ok"
+        else
+            print "diff failed; results in " $of " and " $of.err 
+            print "  expected results in " $3
+            print "  All diffs in " $2
+            exit 1
+        fi
     else
-	print "failed to execute $1 ($?)"
-	exit 1
+        print "failed to execute $1 ( $? )"
+        exit 1
     fi
+    cat $of >> $2
+    rm $of
+elif $1 >> $2 2>&1; then
+    print "ok"
+else
+    print "failed to execute $1 ( $? )"
+    exit 1
+fi
 }
 
 rm -f /tmp/all*.out
@@ -81,16 +77,16 @@ outf=/tmp/all$$.out
 # so they cannot be compared against output files. 
 #
 
-executeWithResult "box 4 5,-908,300,44444/55555,-1,1,82"  $outf box.4.out
-executeWithResult "box 3 -908,300,44444/-1,1,82"  $outf box.3.out
-executeWithResult "box 2 -908,44444/-1,1"  $outf box.2.out
+execute "box 4 5,-908,300,44444/55555,-1,1,82"  $outf box.4-out
+execute "box 3 -908,300,44444/-1,1,82"  $outf box.3-out
+execute "box 2 -908,44444/-1,1"  $outf box.2-out
 
 execute errlogtest $outf
 
 execute hash1 $outf
 execute hash2 $outf
 
-executeWithResult list1 $outf list1.out
+execute list1 $outf list1-out
 execute list2 $outf
 execute list3 $outf
 
@@ -100,11 +96,19 @@ execute ntime $outf
 execute random $outf
 execute rc $outf
 execute stats $outf
+
+## warning: results will differ on -m32, which we don't yet support
+## execute darray $outf darray-out
+execute darray $outf 
+## warning: results will differ on -m32, which we don't yet support
+## execute memblock $outf memblock-out
+execute memblock $outf 
+
 execute "container -n 100"  $outf
 execute "rand -n 30"  $outf
 execute "ss 40 abcd fghi klmn pqrs uvwxyz"  $outf
 execute "cuckoo -n 1000 -s 1024" $outf
-executeWithResult stats2 $outf stats2-out
+execute stats2 $outf stats2-out
 
 print
 print "result in $outf"

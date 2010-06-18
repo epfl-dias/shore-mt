@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SM_VAS_H'>
 
- $Id: sm_vas.h,v 1.29.2.4 2010/03/19 22:19:19 nhall Exp $
+ $Id: sm_vas.h,v 1.30 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -39,26 +39,59 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 /**\addtogroup SSMAPI 
  *
  * \details
- * This page summarizes programming interface
- * for the
- * SHORE Storage Manager.
+ * The rest of this page points to examples of code that uses 
+ * the storage manager, and the modules listed below describe
+ * various aspects of the functionality and methods provided by the
+ * storage manager.
  *
- * \section SSMVAS Minimal Example
+ * \section SSMVAS Examples of Server Code
  * \addtogroup SSMAPI
  *
+ * \subsection EXMIN Minimal Example
  * Any code that uses the SHORE Storage Manager requires 
  * \code
  * #include <sm_vas.h>
  * \endcode
- * For an example, see \ref startstop.cpp
+ * For a simple example, see \ref startstop.cpp
  *
- * \sa Architecture Guide
- * \todo Architecture Guide
+ * \subsection EXINIT_CONFIG_OPTIONS Setting Up Run-Time Options
+ * The example \ref init_config_options.cpp
+ * demonstrates a more extensive handling of option, and
+ * is used in other examples, below.
+ *
+ * \subsection EXCREATE_REC Creating a file of Records
+ * The example \ref create_rec.cpp
+ * shows a server that creates a file of records.
+  * It must also contain, of course, the creation of options, starting up
+  * and shutting down a storage manager.
+ *
+ * \subsection EXLOG_EXCEED  Use of ss_m::ss_m Arguments
+ * The example \ref log_exceed.cpp
+ * demonstrates the use of the ss_m::ss_m arguments.
+ * It is an extension of the above example that
+ * generates enough log to run out of log space.
  */
+
  /**\example startstop.cpp
   * This is an example of using \<sm_vas.h\>. It shows a minimal
   * storage manager server, which does nothing but start up (recover) and
   * shut down.
+  */
+ /**\example init_config_options.cpp
+  * This example demonstrates the use of run-time options. 
+  * This code is used for other examples.
+  */
+ /**\example create_rec.cpp
+  * This example demonstrates creating a file of records.
+  * It also demonstrates scanning the file of records,
+  * creating a device and volume, and use of the root index.
+  * It must also contain, of course, the creation of options, starting up
+  * and shutting down a storage manager.
+  */
+ /**\example log_exceed.cpp
+  * This example demonstrates the use of the ss_m::ss_m arguments.
+  * It is an extension of the \ref create_rec.cpp example that
+  * generates enough log to run out of log space.
   */
 #include "w.h"
 #include <cstddef>

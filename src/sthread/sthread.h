@@ -78,7 +78,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  */
 
 /**\file sthread.h
- *\ingroup Macros
+ *\ingroup MACROS
  *
  * This file contains the Shore Threads API.
  */
@@ -282,88 +282,8 @@ class sthread_priority_list_t;
 class sthread_main_t;
 
 // these macros allow us to notify the SunStudio race detector about lock acquires/releases
-#ifdef THA_RACE
-#include "tha_interface.h"
-#define THA_NOTIFY(name, who) tha_notify_##name ((uintptr_t) who)
-#else
-#define THA_NOTIFY(name, who)
-#endif
 
 #include "os_interface.h"
-
-#define THA_NOTIFY_ACQUIRE_LOCK(who) THA_NOTIFY(acquire_lock, who)
-#define THA_NOTIFY_READLOCK_ACQUIRED(who) THA_NOTIFY(readlock_acquired, who)
-#define THA_NOTIFY_WRITELOCK_ACQUIRED(who) THA_NOTIFY(writelock_acquired, who)
-#define THA_NOTIFY_LOCK_ACQUIRED(who) THA_NOTIFY(lock_acquired, who)
-#define THA_NOTIFY_RELEASE_LOCK(who) THA_NOTIFY(release_lock, who)
-#define THA_NOTIFY_LOCK_RELEASED(who) THA_NOTIFY(lock_released, who)
-
-/**\page REFERENCES References
- *
- *\section REFSYNC Synchronization Primitives
- * These are papers are pertinent to the synchronization primitives used
- * in the threads layer of the storage manager.
- *
- * \subsection JPA1 [JPA1]
- * R. Johnson, I. Pandis, A. Ailamaki.  
- * "Critical Sections: Re-emerging Scalability Concerns for Database Storage Engines" 
- * in Proceedings of the 4th. DaMoN, Vancouver, Canada, June 2008
- * (May be found here: http://www.db.cs.cmu.edu/db-site/Pubs/#DBMS:General)
- *
- * \subsection  B1 [B1]
- * H-J Boehm.
- * "Reordering Constraints for Pthread-Style Locks"
- * HP Technical Report HPL-2005-217R1, September 2006
- * (http://www.hpl.hp.com/techreports/2005/HPL-2005-217R1.pdf)
- *
- * \subsection  MCS1 [MCS1]
- * J.M. Mellor-Crummey, M.L. Scott
- * "Algorithms for Scalable Synchronization on Shared-Memory Multiprocessors"
- * in
- * ACM Transactions on Computer Systems, Vol 9, No. 1, February, 1991, pp
- * 20-65
- * (http://www.cs.rice.edu/~johnmc/papers/tocs91.pdf)
- *
- * \subsection  SS1 [SS1]
- * M.L.Scott, W.N. Scherer III
- * "Scalable Queue-Based Spn Locks with Timeout"
- * in PPOPP '01, June 18-20, 2001, Snowbird, Utah, USA
- * (http://www.cs.rochester.edu/u/scott/papers/2001_PPoPP_Timeout.pdf)
- *
- * \subsection  HSS1 [HSS1]
- * B. He, M.L.Scott, W.N. Scherer III
- * "Preemption Adaptivity in Time-Published Queue-Based Spin Locks"
- * in Proceedings of HiPC 2005: 12th International Conference, Goa, India, December 18-21,
- * (http://www.springer.com/computer/swe/book/978-3-540-30936-9 and
- * http://www.cs.rice.edu/~wns1/papers/2005-HiPC-TPlocks.pdf)
- *
- *\section REFSMT Shore-MT 
- * These papers describe the Shore-MT release and related work.
- *
- * \subsection JPHA1 [JPHA1]
- * R. Johnson, I. Pandis, N. Hardavellas, A. Ailamaki.
- * "Shore-MT: A Quest for Scalablility in the Many-Core Era"
- * Carnegie Mellon University Technical Report CMU-CS-08-114,
- * April, 2008 (unpublished)
- *
- * \subsection JPHAF1 [JPHAF1]
- * R. Johnson, I. Pandis, N. Hardavellas, A. Ailamaki, B. Falsaff
- * "Shore-MT: A Scalable Storage Manager for the MultiCore Era"
- * in Proceedings of the 12th EDBT, St. Petersburg, Russia, 2009
- * (http://diaswww.epfl.ch/shore-mt/papers/edbt09johnson.pdf)
- *
- * \subsection KH1 [KH1]
- * E. Koskinen, M. Herlihy
- * "Dreadlocks: Efficient Deadlock Detection"
- * in SPAA '08, June 14-16, 2008, Munich, Germany
- * (http://www.cl.cam.ac.uk/~ejk39/papers/dreadlocks-spaa08.pdf)
- *
- *\section REFTREE Indexes
- *\subsection BKSS [BKSS]
- * N. Beckmenn, H.P. Kriegel, R. Schneider, B. Seeger, 
- * "The R*-Tree: An Efficient and Robust Access Method for Points and Rectangles"
- * in Proc. ACM SIGMOD Int. Conf. on Management of Data, 1990, pp. 322-331.
- */
 
 /**\brief A test-and-test-and-set spinlock. 
  *
@@ -384,14 +304,13 @@ struct tatas_lock {
     enum { NOBODY=0 };
     typedef union  {
         pthread_t         handle;
-// This handling of the holder type is BUG_PTHREAD_T_SIZE_FIX
 #undef CASFUNC 
 #if SIZEOF_PTHREAD_T==4
 #define CASFUNC atomic_cas_32
         unsigned int       bits;
 #elif SIZEOF_PTHREAD_T==8
-#define CASFUNC atomic_cas_64
-        unsigned long      bits;
+# define CASFUNC atomic_cas_64
+        uint64_t           bits;
 #elif SIZEOF_PTHREAD_T==0
 #error  Configuration could not determine size of pthread_t. Fix configure.ac.
 #else 
@@ -420,9 +339,6 @@ public:
             membar_enter();
             success = true;
         }
-        if(success) {
-            THA_NOTIFY_LOCK_ACQUIRED(this);
-        }
         
         return success;
     }
@@ -430,7 +346,6 @@ public:
     /// Acquire the lock, spinning as long as necessary. 
     void acquire() {
         w_assert1(!is_mine());
-        THA_NOTIFY_ACQUIRE_LOCK(this);
         holder_type_t tid = { pthread_self() };
         do {
             spin();
@@ -438,17 +353,13 @@ public:
         while(CASFUNC(&_holder.bits, NOBODY, tid.bits));
         membar_enter();
         w_assert1(is_mine());
-        THA_NOTIFY_LOCK_ACQUIRED(this);
     }
 
     /// Release the lock
     void release() {
-        THA_NOTIFY_RELEASE_LOCK(this);
         membar_exit();
         w_assert1(is_mine()); // moved after the membar_enter 
         _holder.bits= NOBODY;
-        THA_NOTIFY_LOCK_RELEASED(this);
-        THA_NOTIFY_RELEASE_LOCK(this);
         {
             membar_enter(); // needed for the assert?
             w_assert1(!is_mine());
@@ -586,6 +497,7 @@ public:
 /**\def USE_PTHREAD_MUTEX
  * \brief Determines that we use pthread-based mutex for queue_based_lock_t
  *
+ * \bug Must remove mcs_lock.h or make it build w/o USE_PTHREAD_MUTEX
  * \details
  * The Shore-MT release contained alternatives for scalable locks in
  * certain places in the storage manager; it was released with
@@ -596,24 +508,22 @@ public:
  * not compiled in.  
  */
 #define USE_PTHREAD_MUTEX
-#undef USE_TPMCS_LOCK
-// TODO: talk w/ Ryan, et al - since this doesn't compile. It needs
-// to be debugged and evaluated for performance, or removed.
-//
 
-/**\defgroup OPT Build (config/compile-time) options 
+/**\defgroup SYNCPRIM Synchronization Primitives
+ *\ingroup UNUSED 
  *
- * \section SYNCPRIM Syncronization primitives.
- * sthread/sthread.h: As distributed, a so-called queue-based lock 
+ * sthread/sthread.h: As distributed, a queue-based lock 
  * is a w_pthread_lock_t,
  * which is a wrapper around a pthread lock to give it a queue-based-lock API.
  * True queue-based locks are not used, nor are time-published
  * locks.
  * Code for these implementations is included for future 
- * experimentation, along with the following typedefs that should allow
+ * experimentation, along with typedefs that should allow
  * easy substitution, as they all should have the same API.
  *
  * We don't offer the spin implementations at the moment.
+ */
+/*
  * These typedefs are included to allow substitution at some  point.
  * Where there is a preference, the code should use the appropriate typedef.
  */
@@ -622,10 +532,6 @@ typedef w_pthread_lock_t queue_based_block_lock_t; // blocking impl always ok
 #ifdef USE_PTHREAD_MUTEX
 typedef w_pthread_lock_t queue_based_spin_lock_t; // spin impl preferred
 typedef w_pthread_lock_t queue_based_lock_t; // might want to use spin impl
-#elif defined(USE_TPMCS_LOCK)
-#include <tpmcs_lock.h>
-typedef tpmcs_lock queue_based_spin_lock_t; // spin impl preferred
-typedef tpmcs_lock queue_based_lock_t; // no preference 
 #else
 #include <mcs_lock.h>
 typedef mcs_lock queue_based_spin_lock_t; // spin preferred
@@ -640,10 +546,6 @@ typedef mcs_lock queue_based_lock_t;
  *  reads and where updates are very rare.
  * It is used in the storage manager by the histograms (histo.cpp), 
  * and in place of some mutexen, where strict exclusion isn't required.
- *
- *
- * \warning If there are multiple writers they must be excluded 
- * by some other means!
  *
  * This lock is used in the storage manager by the checkpoint thread
  * (the only acquire-writer) and other threads to be sure they don't
@@ -927,9 +829,8 @@ public:
     w_rc_t            fork();
 
     // give up the processor
-    static void        yield(bool doselect=false);
+    static void        yield();
     ostream            &print(ostream &) const;
-    unsigned           stack_size() const; // TODO: DEAD? NANCY
 
     // anyone can wait and delete a thread
     virtual            ~sthread_t();
@@ -967,7 +868,8 @@ private:
 
     volatile bool               _sleeping;
     volatile bool               _forked;
-    bool                        _terminated; // DEAD? set but not used anymore
+    bool                        _terminated; // protects against double calls
+                                // to sthread_core_exit
     volatile bool               _unblock_flag; // used internally by _block()
 
     fill4                       _dummy4valgrind;
@@ -1168,21 +1070,6 @@ SPECIALIZE_CS(occ_rwlock::occ_wlock, int _dummy, (_dummy=0),
     _mutex->acquire(), _mutex->release());
 
 
-#ifdef THA_RACE
-
-struct tha_fake_lock {
-    unsigned int _target;
-};
-
-SPECIALIZE_CS(tha_fake_lock, int _dummy, (_dummy=0),
-          THA_NOTIFY_ACQUIRE_LOCK(this); THA_NOTIFY_LOCK_ACQUIRED(this),
-          THA_NOTIFY_RELEASE_LOCK(this); THA_NOTIFY_LOCK_RELEASED(this));
-#else
-/*
-SPECIALIZE_CS(tha_fake_lock, int _dummy, 
-              int volatile dummy, int volatile dummy);
-*/
-#endif
 
 inline sthread_t::priority_t
 sthread_t::priority() const
@@ -1195,20 +1082,6 @@ sthread_t::status() const
 {
     return _status;
 }
-
-
-
-
-
-#ifdef THA_RACE
-
-/* THA (Sun's thread analyzer/race detector) is unable to detect
-   "recycling" of memory locations, like when a thread moves from one
-   list to another. Appease it by "acquiring" this lock that
-   "protects" all linked list nodes.
-*/
-extern tha_fake_lock global_list_lock;
-#endif
 
 #include <w_strstream.h>
 // Need string.h to get strerror_r 

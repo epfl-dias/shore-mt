@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='LID_T_H'>
 
- $Id: lid_t.h,v 1.35.2.6 2010/03/19 22:19:19 nhall Exp $
+ $Id: lid_t.h,v 1.37 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -47,8 +47,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  *
  ********************************************************************/
 
-/**\defgroup IDs Identifiers
- * \ingroup SSMAPI
+/**\addtogroup IDS 
  * The following persistent storage structures have identifiers, not
  * all of which(ids) are persistent:
  * - Indexes: stid_t (store id)
@@ -67,8 +66,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 typedef uint2_t VID_T;
 
 #define LVID_T
-/**\brief long volume ID.  See \ref IDs. 
- *\ingroup IDs
+/**\brief long volume ID.  See \ref IDS. 
+ *\ingroup IDS
  *
  * \details A long, almost-unique identifier for a volume, generated from
  * a clock and a network address. Written to a volume's header.

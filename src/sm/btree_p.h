@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='BTREE_P_H'>
 
- $Id: btree_p.h,v 1.32.2.5 2010/01/28 04:54:00 nhall Exp $
+ $Id: btree_p.h,v 1.33 2010/05/26 01:20:37 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -108,26 +108,25 @@ public:
     friend class btrec_t;
 
     enum flag_t{
-    t_none         = 0x0,
-    t_smo         = 0x01,
-    t_delete    = 0x02,
-    t_compressed    = 0x10
+        t_none         = 0x0,
+        t_smo         = 0x01,
+        t_delete    = 0x02,
+        t_compressed    = 0x10
     };
     struct btctrl_t {
         shpid_t    root;         // root page
         shpid_t    pid0;        // first ptr in non-leaf nodes
         int2_t    level;        // leaf if 1, non-leaf if > 1
         uint2_t    flags;        // a mask of flags
-
     };
 
     MAKEPAGE(btree_p, zkeyed_p, 1);
 
     
-    int             level() const;
-    shpid_t             pid0() const;
-    lpid_t             root() const;
-    shpid_t             root_shpid() const;
+    int              level() const;
+    shpid_t          pid0() const;
+    lpid_t           root() const;
+    shpid_t          root_shpid() const;
     bool             is_leaf() const;
     bool             is_leaf_parent() const;
     bool             is_node() const;
@@ -136,40 +135,39 @@ public:
     bool             is_smo() const;
     bool             is_delete() const;
     
-    rc_t            set_hdr(
+    rc_t             set_hdr(
     shpid_t                root, 
-    int                 level,
-    shpid_t             pid0,
-    uint2_t                 flags);
-    rc_t            set_pid0(shpid_t pid);
+    int                    level,
+    shpid_t                pid0,
+    uint2_t                flags);
+    rc_t             set_pid0(shpid_t pid);
 
     rc_t             set_delete();
     rc_t             set_smo(bool compensate=false) {
-                    return _set_flag(t_smo, compensate); 
-                }
+                        return _set_flag(t_smo, compensate); }
 
     rc_t             clr_smo(bool compensate=false) { 
-                    return _clr_flag(t_smo, compensate); }
+                        return _clr_flag(t_smo, compensate); }
     rc_t             clr_delete();
 
     rc_t             unlink_and_propagate(
-                    const cvec_t&     key,
-                    const cvec_t&     elem,
-                    btree_p&        rsib,
-                    lpid_t&        parent_pid,
-                    const lpid_t&    root_pid
-                );
+                        const cvec_t&     key,
+                        const cvec_t&     elem,
+                        btree_p&        rsib,
+                        lpid_t&        parent_pid,
+                        const lpid_t&    root_pid
+                    );
     rc_t             cut_page(lpid_t &child, slotid_t slot);
     
     rc_t            distribute(
-    btree_p&             rsib,
-    bool&                     left_heavy,
+    btree_p&              rsib,
+    bool&                 left_heavy,
     slotid_t&             snum,
-    smsize_t            addition, 
-    int                 factor);
+    smsize_t              addition, 
+    int                   factor);
 
     void             print(sortorder::keytype kt = sortorder::kt_b,
-                    bool print_elem=false);
+                            bool print_elem=false);
     
     rc_t            shift(
     slotid_t             snum,
@@ -180,18 +178,19 @@ public:
     int             nrecs() const;
 
     rc_t            search(
-    const cvec_t&             k,
-    const cvec_t&             e,
-    bool&                     found_key,
-    bool&                     found_key_elem,
-    slotid_t&             ret_slot) const;
+                        const cvec_t&             k,
+                        const cvec_t&             e,
+                        bool&                     found_key,
+                        bool&                     found_key_elem,
+                        slotid_t&             ret_slot
+                        ) const;
     rc_t            insert(
-    const cvec_t&             key,
-    const cvec_t&             el,
-    slotid_t            slot, 
-    shpid_t             child = 0,
-    bool                do_it = true
-    );
+                        const cvec_t&             key,
+                        const cvec_t&             el,
+                        slotid_t            slot, 
+                        shpid_t             child = 0,
+                        bool                do_it = true
+                        );
 
     // stats for leaf nodes
     rc_t             leaf_stats(btree_lf_stats_t& btree_lf);
@@ -200,13 +199,14 @@ public:
 
 
     static smsize_t         max_entry_size;
+    static smsize_t         overhead_requirement_per_entry;
 
 private:
     rc_t            _unlink(btree_p &);
-    rc_t             _clr_flag(flag_t, bool compensate=false);
-    rc_t             _set_flag(flag_t, bool compensate=false);
+    rc_t            _clr_flag(flag_t, bool compensate=false);
+    rc_t            _set_flag(flag_t, bool compensate=false);
     rc_t            _set_hdr(const btctrl_t& new_hdr);
-    const btctrl_t&         _hdr() const ;
+    const btctrl_t& _hdr() const ;
 
 };
 

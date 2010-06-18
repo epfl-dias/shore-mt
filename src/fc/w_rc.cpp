@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: w_rc.cpp,v 1.27.2.10 2009/12/21 18:39:53 nhall Exp $
+ $Id: w_rc.cpp,v 1.28 2010/05/26 01:20:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -159,9 +159,9 @@ w_error_t *w_rc_t::_clone() const
     w_rc_i it(*this);
     while(w_error_t const* e = it.next()) {
 #if W_DEBUG_LEVEL > 2
-    (void) e->get_more_info_msg(); // Just for assertion checking
+        (void) e->get_more_info_msg(); // Just for assertion checking
 #endif
-    trace.push_back(e);
+        trace.push_back(e);
     }
 
     w_error_t* head = 0;
@@ -170,6 +170,13 @@ w_error_t *w_rc_t::_clone() const
         trace.pop_back();
         // creates a new w_error_t that points to head, returns the new one
         head = w_error_t::make(e->file, e->line, e->err_num, e->sys_err_num, head);
+
+        for(unsigned int t=0; t<e->_trace_cnt; t++) {
+            head->_trace_file[t] = e->_trace_file[t];
+            head->_trace_line[t] = e->_trace_line[t];
+        }
+        head->_trace_cnt = e->_trace_cnt;
+
         head->clear_more_info_msg();
         const char *c=e->get_more_info_msg();
         if(c) head->append_more_info_msg(c);

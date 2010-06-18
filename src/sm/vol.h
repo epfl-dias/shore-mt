@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='VOL_H'>
 
- $Id: vol.h,v 1.94.2.16 2010/03/25 18:05:17 nhall Exp $
+ $Id: vol.h,v 1.98 2010/06/08 22:28:57 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -135,15 +135,9 @@ public:
 class vol_t : public smlevel_1 
 {
 public:
-    // VOL_LOCK_IS_RW is defined in shore.def 
     /*WARNING: THIS CODE MUST MATCH THAT IN sm_io.h!!! */
-#if VOL_LOCK_IS_RW
     typedef mcs_rwlock VolumeLock;
     typedef void *     lock_state;
-#else
-    typedef queue_based_lock_t VolumeLock;
-    typedef VolumeLock::ext_qnode    lock_state;
-#endif
     
     NORET               vol_t(const bool apply_fake_io_latency = false, 
                                       const int fake_disk_latency = 0);
@@ -199,9 +193,7 @@ public:
         page_s&             buf);
 
     rc_t            alloc_pages_in_ext(
-#if GNATS110_FIX
 		alloc_page_filter_t *filter,
-#endif
         bool                append_only,
         extnum_t            ext, 
         int                 eff,
@@ -403,17 +395,8 @@ public:
         struct              volume_hdr_stats_t&,
         bool                audit);
 
-#if VOL_LOCK_IS_RW
     void            assert_mutex_mine(lock_state *) {}
     void            assert_mutex_notmine(lock_state *) {}
-#else
-    void            assert_mutex_mine(lock_state* W_IFDEBUG1(me)) {
-                                w_assert1(_mutex.is_mine(me));
-                            }
-    void            assert_mutex_notmine(lock_state* W_IFDEBUG1(me)) {
-                                w_assert1(!_mutex.is_mine(me));
-                            }
-#endif
 
     // Sometimes the sm_io layer acquires this mutex:
     void            acquire_mutex(lock_state* me, bool for_write); // used by sm_io.cpp
@@ -624,7 +607,10 @@ inline extnum_t vol_t::pid2ext(shpid_t p)
 
 inline shpid_t vol_t::ext2pid(extnum_t ext) 
 {
-    return ext * ext_sz;
+	    // Make sure we convert from the extnum_t to the shpid_t before
+    // multiplying (for larger page sizes than we now support...):
+    shpid_t tmp = ext;
+    return tmp * ext_sz; 
 }
 
 inline extnum_t vol_t::pid2ext(const lpid_t& pid) const
@@ -672,38 +658,7 @@ inline bool vol_t::is_valid_store(snum_t f) const
 
     return (f < _num_exts );
 }
-
-#define GNATS_77_FIX_0 1
-    // part 0: move checks in free_page from io layer to volume layer
-    //
-#define GNATS_77_FIX_1 1
-    // Part 1: rip out FRJ's fix for the problem of tx 1 alloc, tx2 alloc on
-    // same page, tx 1 aborts.  This goes with part 2, in file.cpp
-    // If I don't put this in, I end up with missing xct in redo, unless
-    // I remove the fatal error, and do FRJ's chicken-out-and-do-nothing 
-    
-#define GNATS_77_FIX_2 1
-// NB:  you have to define this in file.cpp
-    // part 2: compensate around the page allocation so that
-    // the undo of this page allocation is logical in the sense that
-    // it checks for the page being empty and might not free the
-    // page.
-    
-#define GNATS_77_FIX_3 1
-    // Part 3 of the fix : this lets the lgrec.7 case (error
-    // in the middle of allocating many pages leaves internally
-    // inconsistent file) work when committing after running out
-    // of extents; that is, it doesn't leave the file in inconsistent
-    // condition.  Commit or abort works with this fix.
-
-#define GNATS_96_FIX 1
-    // Part 4:
-    // wasn't checking owner value against s
-    //
-#define GNATS_77_FIX_5 1
-   // Part 5: create_file: when 2nd store can't be created, we have
-   // to undo the creation of the first store.
-    // See smfile.cpp, where this is defined
+	
 /*<std-footer incl-file-exclusion='VOL_H'>  -- do not edit anything below this line -- */
 
 #endif          /*</std-footer>*/

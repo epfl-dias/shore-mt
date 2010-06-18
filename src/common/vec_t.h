@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='VEC_T_H'>
 
- $Id: vec_t.h,v 1.64.2.5 2010/03/19 22:19:19 nhall Exp $
+ $Id: vec_t.h,v 1.65 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -164,13 +164,10 @@ public:
 
     /// returns # bytes this vector references
     size_t size() const        {
-#if W_DEBUG_LEVEL > 2
-        /* BUGBUG:- removed when vec_t stabilized */
-        check_size();
-#endif 
         return _size;
     }
 
+    /// Write from vector to p, no more than \a limit bytes
     size_t copy_to(void* p, size_t limit = 0x7fffffff) const;
     
     int cmp(const cvec_t& v, size_t* common_size = 0) const;

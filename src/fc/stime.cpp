@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: stime.cpp,v 1.38.2.9 2010/03/19 22:17:16 nhall Exp $
+ $Id: stime.cpp,v 1.39 2010/05/26 01:20:22 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -385,6 +385,7 @@ ostream &stime_t::ctime(ostream &s) const
     const   int buflen(26); 
     char    buf[buflen];    /* XXX well known magic number */
 
+	/// See Makefile.generic for note about this
 #ifdef _POSIX_PTHREAD_SEMANTICS 
     char    *when = ctime_r(&kludge, buf);
 #elif defined(SOLARIS2)

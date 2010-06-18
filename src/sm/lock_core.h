@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='LOCK_CORE_H'>
 
- $Id: lock_core.h,v 1.41.2.12 2010/03/19 22:20:24 nhall Exp $
+ $Id: lock_core.h,v 1.43 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -73,7 +73,7 @@ class LockCoreFunc {
 
 class bucket_t; // defined in lock_core.cpp
 
-class lock_core_m : public lock_base_t {
+class lock_core_m : public lock_base_t{
     enum { BPB=CHAR_BIT };
 
 public:
@@ -104,7 +104,7 @@ private:
                 const lockid_t&            n);
 
 public:
-    w_rc_t::errcode_t  acquire(
+    w_rc_t::errcode_t  acquire_lock(
                 xct_t*            xd,
                 const lockid_t&   name,
                 lock_head_t*      lock,
@@ -115,7 +115,7 @@ public:
                 timeout_in_ms     timeout,
                 lmode_t&          ret);
 
-    rc_t        release(
+    rc_t        release_lock(
                 xct_lock_info_t*  theLockInfo,
                 const lockid_t&   name,
                 lock_head_t*      lock,
@@ -158,6 +158,8 @@ public:
                      lockid_t const &name,
                      lock_mode_t mode,
                      lock_request_t* req);
+    void        compact_cache(xct_lock_info_t* theLockInfo, 
+			                        lockid_t const &name );
     
 private:
     uint4_t        _table_hash(uint4_t) const; // mod it to fit table size
@@ -166,7 +168,7 @@ private:
     void    _update_cache(xct_lock_info_t *theLockInfo, const lockid_t& name, lmode_t m);
     
     // internal version that does the actual release
-    rc_t    _release(lock_request_t* request, bool force);
+    rc_t    _release_lock(lock_request_t* request, bool force);
 
 #define DEBUG_LOCK_HASH 0
 #if DEBUG_LOCK_HASH

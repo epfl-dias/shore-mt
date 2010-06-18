@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: crash.cpp,v 1.15.2.8 2010/03/25 18:05:08 nhall Exp $
+ $Id: crash.cpp,v 1.16 2010/05/26 01:20:38 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -243,7 +243,7 @@ ssmtest(
 {
 #undef LOCATING
 #ifdef LOCATING
-    smlevel_0::errlog->clog << info_prio << c << flushl;
+    smlevel_0::errlog->clog << emerg_prio << c << flushl;
 #endif
 
     w_assert3(strlen(c)>0);

@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: free.all,v 1.10 1999/06/07 19:05:30 kupsch Exp $
+#  $Id: free.all,v 1.12 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -27,6 +27,6 @@
 #
 #   -- do not edit anything above this line --   </std-header>
 
-set scripts [list free_ext free_page freepage.bug]
+set scripts [list free_ext free_page free_page.abort freepage.bug]
 
 runscripts $scripts

@@ -1,6 +1,6 @@
 # <STD-HEADER STYLE=TCL ORIG-SRC=SHORE>
 # 
-#   $Id: bt.tcl,v 1.1.2.1 2009/12/03 00:21:06 nhall Exp $
+#   $Id: bt.tcl,v 1.3 2010/06/08 22:28:28 nhall Exp $
 # 
 # 
 # 
@@ -38,21 +38,21 @@
 # use max_btree_entry_size variable, which is set by set_config_info
 set_config_info
 set maxnum $max_btree_entry_size
-verbose  max_btree_entry_size $maxnum
-# gnats 86: it seems to work if I deduct 6:
-# set maxnum [expr $maxnum - 6]
-# verbose  reduced max_btree_entry_size $maxnum
+# verbose  max_btree_entry_size $maxnum
 
 set unique uni_btree
 
 proc mkval { e } {
-    verbose2 make value from $e
+    verbose make value "000...0a" of length $e 
     set res [format "%0*s" $e a]
+	# verbose value is $res
     return $res
 }
 
 proc mkkey { k l } {
+    verbose make key from $k 
     set res [format "%s%0*s" $k $l ""]
+	verbose key is $res
     return $res
 }
 
@@ -88,7 +88,7 @@ proc doop { op nsame klen elen term } {
     set i 0
     set listlen [llength $keylist]
 
-    verbose sm begin_xct
+    verbose "{" sm begin_xct
     sm begin_xct
 
     while {$i < $listlen} {
@@ -107,7 +107,7 @@ proc doop { op nsame klen elen term } {
 	set key [mkkey [lindex $keylist $i] $kl]
 	# adjust kl to reflect actual length of key
 	set kl [string length $key]
-	verbose klen $klen kl $kl
+	verbose KEY: klen $klen kl $kl
 
 	switch $elen {
 	    s { set el 0 }
@@ -123,14 +123,14 @@ proc doop { op nsame klen elen term } {
 		assert {0}
 	    }
 	}
-	verbose elen $elen el $el
+	verbose ELEMENT elen $elen el $el maxnum: $maxnum
 	set value [mkval $el]
 	verbose $key length of value is [string length $value]
 
 	for {set k 0} {$k < $nsame} {incr k} {
 	    switch  $op  {
 		insert {
-		    verbose op $op sm create_assoc $ndx $key (elen= $elen)
+		    verbose OP $op sm create_assoc $ndx $key (el=$el elen=$elen)
 		    set caught [catch {sm create_assoc $ndx $key $value } catcherr]
 		    verbose $catcherr
 			if {$caught == 0} {
@@ -148,21 +148,21 @@ proc doop { op nsame klen elen term } {
 		}
 		
 		remove {
-		    verbose op $op sm destroy_assoc $ndx $key <value>
+		    verbose OP $op sm destroy_assoc $ndx $key <value>
 		    sm destroy_assoc $ndx $key $value
 		}
 		search {
-		    verbose op $op sm find_assoc $ndx $key 
+		    verbose OP $op sm find_assoc $ndx $key 
 		    sm find_assoc $ndx $key $value
 		}
 		combo {
-		    verbose op $op sm create_assoc $ndx $key (elen= $elen)
+		    verbose OP $op sm create_assoc $ndx $key (elen= $elen)
 		    catch {sm create_assoc $ndx $key $value } catcherr
 
-		    verbose sm find_assoc $ndx $key 
+		    verbose OP $op sm find_assoc $ndx $key 
 		    sm find_assoc $ndx $key $value
 
-		    verbose sm destroy_assoc $ndx $key 
+		    verbose OP $op sm destroy_assoc $ndx $key 
 		    sm destroy_assoc $ndx $key $value
 		}
 		default {
@@ -206,6 +206,7 @@ proc doop { op nsame klen elen term } {
 		
 	}
     }
+	verbose "}"
 }
 
 # repeat op until
@@ -217,9 +218,7 @@ proc doop { op nsame klen elen term } {
 #   u_long bt_shrinks		Btree shrunk a level
 
 proc do_until_stat { stat val op nsame klen elen term } {
-   verbose stat $stat
-   verbose val $val
-   verbose op $op
+   verbose do_until_stat op= $op until $stat == $val
    verbose nsame $nsame
    verbose klen $klen
    verbose elen $elen
@@ -236,7 +235,7 @@ proc do_until_stat { stat val op nsame klen elen term } {
        set wanted [select_stat $stats $stat]
        verbose wanted $wanted
        set total [lindex $wanted 1]
-       verbose total $total
+       verbose $stat is now $total.  Wanted $val
        if [expr $total >= $val] break;
    }
 }
@@ -246,14 +245,14 @@ proc test_scan {ndx nrec} {
     dstats $volid
     set scan [sm create_scan $ndx >= neg_inf <= pos_inf]
     set res {}
-    for {set i 1} {$i <= $nrec} {incr i} {
-	set r [sm scan_next $scan]
-	if {$r == "eof"} then { break }
-	set key [string trimleft [lindex $r 0] 0]
-	set el [lindex $r 1]
-	set ellength [string length $el]
-	verbose "scanned ($key, <$ellength chars>)"
-	lappend res $key
+    for {set i 0} {$i < $nrec} {incr i} {
+		set r [sm scan_next $scan]
+		if {$r == "eof"} then { break }
+		set key [string trimleft [lindex $r 0] 0]
+		set el [lindex $r 1]
+		set ellength [string length $el]
+		verbose "$i: scanned ($key, <$ellength chars>)"
+		lappend res $key
     }
     verbose done with scan of $ndx,  $i items, expected $nrec
     assert {expr [string compare [sm scan_next $scan] eof]==0}

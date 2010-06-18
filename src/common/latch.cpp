@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: latch.cpp,v 1.41.2.15 2010/03/19 22:19:19 nhall Exp $
+ $Id: latch.cpp,v 1.43 2010/06/08 22:27:42 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -226,7 +226,7 @@ private:
         holder_list::iterator it=holders.begin();
         for(; it!=holders.end() && it->_latch;  ++it) 
         {
-            it->print(cout);
+            it->print(cerr);
         }
     }
 public:
@@ -331,7 +331,8 @@ static queue_based_block_lock_t    holder_list_list_lock;
 void latch_t::on_thread_init(sthread_t *who) 
 {
     CRITICAL_SECTION(cs, holder_list_list_lock);
-    holder_list_list.insert(std::make_pair(who, &latch_holder_t::thread_local_holders));
+    holder_list_list.insert(std::make_pair(who, 
+				&latch_holder_t::thread_local_holders));
 }
 
 void latch_t::on_thread_destroy(sthread_t *who) 
@@ -445,12 +446,6 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
     }
 
     // have to acquire for real
-#ifdef THA_RACE
-    if(me->_mode != LATCH_NL) 
-    THA_NOTIFY_LOCK_RELEASED(this);
-    
-    THA_NOTIFY_ACQUIRE_LOCK(this);
-#endif
     
 #if !LATCH_CAN_BLOCK_LONG
     if(is_upgrade) {
@@ -569,12 +564,6 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
     
     DBGTHRD(<< "acquired " << *this );
 
-#ifdef THA_RACE
-    if(new_mode == LATCH_SH) 
-        THA_NOTIFY_READLOCK_ACQUIRED(this);    
-    else
-        THA_NOTIFY_WRITELOCK_ACQUIRED(this);
-#endif
 
     return RCOK;  
 };
@@ -596,10 +585,6 @@ latch_t::_release(latch_holder_t* me)
         return;
     }
     
-#ifdef THA_RACE
-    THA_NOTIFY_RELEASE_LOCK(this);
-#endif
-
     if(me->_mode == LATCH_SH) {
         w_assert2(_lock.has_reader());
         _lock.release_read();
@@ -647,10 +632,6 @@ latch_t::_release(latch_holder_t* me)
             }
         }
     }
-#endif
-
-#ifdef THA_RACE
-    THA_NOTIFY_LOCK_RELEASED(this);
 #endif
 
 }
@@ -744,34 +725,52 @@ ostream& operator<<(ostream& out, const latch_t& l)
 // For use in debugger:
 void print_latch(const latch_t *l)
 {
-    if(l != NULL) l->print(cout);
+    if(l != NULL) l->print(cerr);
 }
 
 // For use in debugger:
 void print_my_latches()
 {
+    FUNC(print_my_latches);
     holders_print all(latch_holder_t::thread_local_holders);
 }
 
 void print_all_latches()
 {
+    FUNC(print_all_latches);
 // Don't protect: this is for use in a debugger.
 // It's absolutely dangerous to use in a running
 // storage manager, since these lists will be
 // munged frequently. 
+	int count=0;
+	{
+		holder_list_list_t::iterator  iter;
+		for(iter= holder_list_list.begin(); 
+			 iter != holder_list_list.end(); 
+			 iter ++) count++;
+	}
     holder_list_list_t::iterator  iter;
-    cout << "ALL LATCHES {" << endl;
+    cerr << "ALL " << count << " LATCHES {" << endl;
     for(iter= holder_list_list.begin(); 
          iter != holder_list_list.end(); iter ++)
     {
+		DBG(<<"");
         sthread_t* who = iter->first;
+		DBG(<<" who " << (void *)(who));
         latch_holder_t **whoslist = iter->second;
-        cout << "{ Thread id:" << ::dec << who->id 
+		DBG(<<" whoslist " << (void *)(whoslist));
+		if(who) {
+        cerr << "{ Thread id:" << ::dec << who->id 
          << " @ sthread/" << ::hex << w_base_t::uint8_t(who)
          << " @ pthread/" << ::hex << w_base_t::uint8_t(who->myself())
          << endl << "\t";
+		} else {
+        cerr << "{ empty }"
+         << endl << "\t";
+		}
+		DBG(<<"");
         holders_print whose(*whoslist); 
-        cout <<  "} " << endl << flush;
+        cerr <<  "} " << endl << flush;
     }
-    cout <<  "}" << endl << flush ;
+    cerr <<  "}" << endl << flush ;
 }

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_STRSTREAM_H'>
 
- $Id: w_strstream.h,v 1.17.2.6 2010/03/19 22:17:21 nhall Exp $
+ $Id: w_strstream.h,v 1.18 2010/05/26 01:20:26 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -86,76 +86,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  * 
  */
 
-/*\todo TODO: W_USE_SSTREAM : unfinished code. It should be finished or removed */
-#ifdef W_USE_SSTREAM 
-#undef W_USE_SSTREAM 
-#endif
-#if defined(W_USE_SSTREAM)
-
-/* For a fixed write buffer, use the character array constructor,
-   but add a "no expansion" allocator so the string words don't
-   try to expand the fixed buffer any. */
-
-#include <sstream>
-#include <cstring>
-
-/**\brief Input string stream based on istringstream
- */
-class w_istrstream : public istringstream {
-public:
-    /// Construct using strlen(s)
-    w_istrstream(const char *s)
-    : istringstream(string(s, strlen(s)))
-    {
-    }
-
-    /// Construct using a given length
-    w_istrstream(const char *s, size_t l)
-    : istringstream(string(s, l))
-    {
-    }
-};
-
-/**\brief Output string stream based on ostringstream
- */
-class w_ostrstream : public ostringstream {
-public:
-    /* add a 'max length' constructor? */
-
-    w_ostrstream()
-    : ostringstream()
-    {
-    }
-
-
-    /// Return the output string.  Const, cannot
-    /// be deleted.
-    const char *c_str()
-    {
-        return ostringstream::str().c_str();
-    }
-
-    /// Return a copy of the output string. Delegates
-    /// responsibility for deletion to the caller.
-    const char *new_c_str()
-    {
-        const char *s = c_str();
-        char *t = new char[strlen(s) + 1];
-        if (t) strcpy(t, s);
-        return t;
-    }
-
-
-    /// Length of string.
-    size_t    pcount() const
-    {
-      return str().size();
-    }
-
-};
-
-#else
-
 #ifdef W_USE_COMPAT_STRSTREAM
 #include "w_compat_strstream.h"
 #else
@@ -166,9 +96,9 @@ public:
 #if defined(W_USE_COMPAT_STRSTREAM)
 /* #define instead of typedef so everything is hidden, and not available
    or conflicting with other users. */
-#define    istrstream    shore_compat::istrstream
-#define    ostrstream    shore_compat::ostrstream
-#define    strstreambuf    shore_compat::strstreambuf
+#define    istrstream       shore_compat::istrstream
+#define    ostrstream       shore_compat::ostrstream
+#define    strstreambuf     shore_compat::strstreambuf
 #endif
 
 /**\brief Input string stream based on shore_compat::istrstream
@@ -327,7 +257,6 @@ public:
 #undef strstreambuf
 #endif
 
-#endif /* !W_USE_SSTREAM */
 
 
 /*<std-footer incl-file-exclusion='W_STRSTREAM_H'>  -- do not edit anything below this line -- */

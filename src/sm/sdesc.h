@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SDESC_H'>
 
- $Id: sdesc.h,v 1.46.2.7 2010/03/19 22:20:26 nhall Exp $
+ $Id: sdesc.h,v 1.51 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -59,8 +59,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*
  * This file describes Store Descriptors (sdesc_t).  Store
- * descriptors consist of a persistent portion (sinfo_s) and a
- * transient portion (sinfo_transient_t).
+ * descriptors consist of a persistent portion (sinfo_s) 
+ * and the rest, which is transient.
  *
  * Also defined is a store descriptor cache (sdesc_cache_t) that
  * is located in each transaction. 
@@ -179,8 +179,8 @@ public:
     inline
     const stid_t&       stid() const {return _stid;}
 
-    shpid_t             hog_last_pid() const;
-    void                free_last_pid() const;
+    shpid_t volatile    hog_last_pid() const { return *&_last_pid; }
+    void                free_last_pid() const {} // DEAD
     void                set_last_pid(shpid_t p);
 
     inline
@@ -223,7 +223,7 @@ private:
     //
     histoid_t*             _histoid;
     shpid_t                _last_pid; // absolute, not approx
-    stid_t                 _stid;   // identifies stores and 1 page stores
+    stid_t                 _stid;   // identifies stores 
 };
 
 /**\brief Cache of store descriptors used by an smthread/transaction.

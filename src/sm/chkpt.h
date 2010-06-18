@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='CHKPT_H'>
 
- $Id: chkpt.h,v 1.21.2.4 2010/01/28 04:54:01 nhall Exp $
+ $Id: chkpt.h,v 1.23 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -83,13 +83,13 @@ public:
 
 public:
     void             wakeup_and_take();
-    void            spawn_chkpt_thread();
-    void            retire_chkpt_thread();
+    void             spawn_chkpt_thread();
+    void             retire_chkpt_thread();
     void             take();
 
 private:
-    chkpt_thread_t*        _chkpt_thread;
-    long		   _chkpt_count;
+    chkpt_thread_t*  _chkpt_thread;
+    long             _chkpt_count;
 
 
 public:

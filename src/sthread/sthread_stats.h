@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='STHREAD_STATS_H'>
 
- $Id: sthread_stats.h,v 1.18.2.3 2010/03/19 22:20:01 nhall Exp $
+ $Id: sthread_stats.h,v 1.20 2010/06/15 17:26:00 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -60,7 +60,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <w_stat.h>
 
 /**\file sthread_stats.h
- * \ingroup Macros
+ * \ingroup MACROS
  */
 
 /**\brief A class to hold all the Perl-generated statistics for sthread_t
@@ -95,7 +95,7 @@ extern ostream &operator<<(ostream &, const sthread_stats &stats);
 extern class sthread_stats SthreadStats;
 
 #    define STH_STATS(x)      SthreadStats.x
-#    define INC_STH_STATS(x) atomic_add(SthreadStats.x, 1);
+#    define INC_STH_STATS(x) atomic_inc(SthreadStats.x);
 #    define SET_STH_STATS(x) SthreadStats.x = (y);
 
 

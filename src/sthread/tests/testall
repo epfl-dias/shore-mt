@@ -2,7 +2,7 @@
 
 # <std-header style='shell' orig-src='shore'>
 #
-#  $Id: testall,v 1.1.2.5 2010/03/19 22:20:03 nhall Exp $
+#  $Id: testall,v 1.5 2010/06/15 22:22:14 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -41,7 +41,18 @@ function execute  {
     print -n "$1\t--> running --> "
     print "running $1" >> $2
 
-    if [[ -a $3 ]]; then
+	if [[ -z $3 ]]; then
+		# no comparison file
+		echo >> /dev/null
+	elif [[ -a $3 ]]; then
+		echo >> /dev/null
+	else
+		# given argument doesn't exist
+		print "comparison file $3 doesn't exist" 
+		exit -1
+	fi
+
+    if [[ -n $3 ]]; then
 	of=/tmp/$$
 	if $1 > $of 2>&1; then
 	    if diff $of $3 >> $2; then
@@ -77,7 +88,7 @@ rm -f /tmp/all*.out
 execute thread1 $outf
 execute thread2 $outf
 execute "thread2 -h" $outf 
-execute run_thread3 $outf thread3.out
+execute run_thread3 $outf thread3-out
 execute thread4 $outf
 execute pthread_test $outf
 execute mmap $outf

@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='LATCH_H'>
 
- $Id: latch.h,v 1.31.2.13 2010/03/19 22:19:19 nhall Exp $
+ $Id: latch.h,v 1.33 2010/06/15 17:28:29 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -72,6 +72,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  */
 enum latch_mode_t { LATCH_NL = 0, LATCH_SH = 1, LATCH_EX = 2 };
 
+
+
 class latch_t;
 extern ostream &operator<<(ostream &, const latch_t &);
 
@@ -91,6 +93,23 @@ extern ostream &operator<<(ostream &, const latch_t &);
 class latch_holder_t 
 {
 public:
+
+#define LATCH_CAN_BLOCK_LONG 0
+/*
+ FRJ says that it's not worth blocking the thread because
+ latches aren't held long enough.  Possible exceptions: tree-
+ crabbing, OS preemptions when not enough threads.  
+ I also notice that we hold latches for possibly-long times, while
+ acquiring page_write_mutexes.
+
+ I thought about keeping this code in place, due to OS preemptions and
+ b/c I didn't want to make any assumptions about #threads vs #cpu-equivalents,
+ but the code doesn't even compile (what they sent us doesn't compile).  
+ So I'm leaving it macro-d out for now; we need to resurrect and fix this.
+*/
+/**\bug GNATS 66 LATCH_CAN_BLOCK_LONG we haven't tested with this in place,
+ and we need to decide which policy should be the default.
+*/
     static __thread latch_holder_t* thread_local_holders;
     static __thread latch_holder_t* thread_local_freelist;
 
@@ -188,7 +207,7 @@ public:
     bool                    is_latched() const;
 
     /*
-     * BUG_LATCH_SEMANTICS_FIX changes lock_cnt name to latch_cnt,
+     * GNATS 30 fix: changes lock_cnt name to latch_cnt,
      * and adds _total_cnt to the latch structure itself so it can
      * keep track of the total #holders
      * This is an additional cost, but it is a great debugging aid.
@@ -226,21 +245,6 @@ private:
  * Consequently, we use w_pthread_rwlock for our lock.
  */
     mutable srwlock_t     _lock;
-
-#define LATCH_CAN_BLOCK_LONG 0
-/*
- FRJ says that it's not worth blocking the thread because
- latches aren't held long enough.  Possible exceptions: tree-
- crabbing, OS preemptions when not enough threads.  
- I also notice that we hold latches for possibly-long times, while
- acquiring page_write_mutexes.
-
- I thought about keeping this code in place, due to OS preemptions and
- b/c I didn't want to make any assumptions about #threads vs #cpu-equivalents,
- but the code doesn't even compile (what they sent us doesn't compile).  
- So I'm leaving it macro-d out for now; we need to resurrect and fix this.
- \todo LATCH_CAN_BLOCK_LONG TODO : fix
-*/
 #if LATCH_CAN_BLOCK_LONG
     bool                        _blocking;   // true-> on _blocked_list
     pthread_mutex_t             _block_lock; // paired w/ _blocked_list

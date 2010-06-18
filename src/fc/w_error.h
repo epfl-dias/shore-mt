@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_ERROR_H'>
 
- $Id: w_error.h,v 1.57.2.12 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_error.h,v 1.58 2010/05/26 01:20:24 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -62,10 +62,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
-#include "fc_error_enum_gen.h"
-
 #include "w_base.h"
-
+#include "fc_error_enum_gen.h"
 #include "tls.h"
 
 #define USE_BLOCK_ALLOC_FOR_W_ERROR_T 0
@@ -73,14 +71,14 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 DECLARE_TLS_SWATCHZ(w_error_alloc);
 #endif
 
-/**\cond skip */
-/**\brief Used by w_error_t
+/**\brief Error code and associated string.
+ *
+ * used by w_error_t.
  */
 struct w_error_info_t {
-        w_base_t::uint4_t        err_num;
-        const char                *errstr;
+	w_base_t::uint4_t        err_num;
+	const char                *errstr;
 };
-/**\endcond skip */
 
 
 /**\brief These are pushed onto a stack(list) hanging off a w_rc_t, q.v.

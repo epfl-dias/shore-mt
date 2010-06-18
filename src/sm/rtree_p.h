@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='RTREE_P_H'>
 
- $Id: rtree_p.h,v 1.19.2.4 2010/01/28 04:54:12 nhall Exp $
+ $Id: rtree_p.h,v 1.20 2010/05/26 01:20:41 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -100,8 +100,8 @@ public:
     const cvec_t&             el, 
     int                 slot, 
     shpid_t             child = 0);
-    rc_t            remove(int2_t slot);
-    rc_t             remove(int slot);
+    rc_t             remove(slotid_t slot);
+    rc_t             remove(int slot) { return remove(slotid_t(slot)); }
 
     rc_t            shift(int snum, rtree_base_p* rsib);
     const rtrec_t&         rec(int idx) const;
@@ -161,7 +161,7 @@ public:
 
     void             print();
     void             draw(ostream &, nbox_t &);
-    uint2_t            ovp();        
+    uint2_t          ovp();        
 
 };
 
@@ -333,14 +333,6 @@ rtree_base_p::insert(
     return keyed_p::insert(key, el, slot, child);
 }
 
-/*
- * BUGBUG: difference between this and remove(int2_t) ?? 
- */
-inline rc_t
-rtree_base_p::remove(int slot)
-{
-    return keyed_p::remove(slot);
-}
 
 inline rc_t
 rtree_base_p::shift(int snum, rtree_base_p* rsib)

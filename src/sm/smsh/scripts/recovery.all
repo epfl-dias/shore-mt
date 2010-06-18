@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: recovery.all,v 1.1.2.2 2010/01/12 02:02:03 nhall Exp $
+#  $Id: recovery.all,v 1.3 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -37,7 +37,8 @@ if { [is_set do_long_scripts] } {
 }
 
 # old recovery.5 moved to recovery.long.all
-foreach i {5 1 2 3 4} {
+# recovery.3 removed b/c its intent is to crash
+foreach i {5 1 2 4} {
     lappend recovery_scripts recovery.$i
 }
 

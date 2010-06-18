@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: smfile.cpp,v 1.57.2.7 2010/03/19 22:20:27 nhall Exp $
+ $Id: smfile.cpp,v 1.62 2010/06/08 22:28:56 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -67,7 +67,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm.h"
 
 
-#if W_DEBUG_LEVEL > 3
+#if W_DEBUG_LEVEL > 0
 #define  FILE_LOG_COMMENT_ON 1
 #else
 #define  FILE_LOG_COMMENT_ON 0
@@ -83,7 +83,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 rc_t
 ss_m::set_store_property(stid_t stid, store_property_t property)
 {
-    SM_PROLOGUE_RC(ss_m::set_store_property, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::set_store_property, in_xct, read_write, 0);
     W_DO( _set_store_property( stid, property) );
     return RCOK;
 }
@@ -94,7 +94,7 @@ ss_m::set_store_property(stid_t stid, store_property_t property)
 rc_t
 ss_m::get_store_property(stid_t stid, store_property_t& property)
 {
-    SM_PROLOGUE_RC(ss_m::get_store_property, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::get_store_property, in_xct,read_only, 0);
     W_DO( _get_store_property( stid, property) );
     return RCOK;
 }
@@ -104,16 +104,16 @@ ss_m::get_store_property(stid_t stid, store_property_t& property)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_file(
-    vid_t                         vid, 
-    stid_t&                         fid, 
-    store_property_t                 property,
+    vid_t                          vid, 
+    stid_t&                        fid, 
+    store_property_t               property,
     shpid_t                        cluster_hint // = 0
 )
 {
 #if FILE_LOG_COMMENT_ON
     W_DO(log_comment("create_file"));
 #endif
-    SM_PROLOGUE_RC(ss_m::create_file, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_file, in_xct, read_write, 0);
     DBGTHRD(<<"create_file " <<vid << " " << property );
     W_DO(_create_file(vid, fid, property, cluster_hint));
     DBGTHRD(<<"create_file returns " << fid);
@@ -126,7 +126,7 @@ ss_m::create_file(
 rc_t
 ss_m::destroy_file(const stid_t& fid)
 {
-    SM_PROLOGUE_RC(ss_m::destroy_file, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_file, in_xct,read_write, 0);
     DBGTHRD(<<"destroy_file " <<fid);
     W_DO(_destroy_file(fid));
     return RCOK;
@@ -150,7 +150,7 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    SM_PROLOGUE_RC(ss_m::create_rec, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_rec, in_xct,read_write, 0);
 
     W_DO(_create_rec(fid, hdr, len_hint, data, new_rid
 #ifdef SM_DORA
@@ -171,7 +171,7 @@ ss_m::destroy_rec(const rid_t& rid
 #endif
                   )
 {
-    SM_PROLOGUE_RC(ss_m::destroy_rec, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_rec, in_xct,read_write, 0);
     DBG(<<"destroy_rec " <<rid);
 
     W_DO(_destroy_rec(rid
@@ -196,7 +196,7 @@ ss_m::update_rec(const rid_t& rid, smsize_t start, const vec_t& data)
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    SM_PROLOGUE_RC(ss_m::update_rec, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::update_rec, in_xct,read_write, 0);
     W_DO(_update_rec(rid, start, data));
     return RCOK;
 }
@@ -207,7 +207,7 @@ ss_m::update_rec(const rid_t& rid, smsize_t start, const vec_t& data)
 rc_t
 ss_m::update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr)
 {
-    SM_PROLOGUE_RC(ss_m::update_rec_hdr, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::update_rec_hdr, in_xct,read_write, 0);
     W_DO(_update_rec_hdr(rid, start, hdr));
     return RCOK;
 }
@@ -225,7 +225,7 @@ ss_m::append_rec(const rid_t& rid, const vec_t& data)
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    SM_PROLOGUE_RC(ss_m::append_rec, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::append_rec, in_xct,read_write, 0);
     W_DO(_append_rec(rid, data));
     return RCOK;
 }
@@ -243,7 +243,7 @@ ss_m::truncate_rec(const rid_t& rid, smsize_t amount, bool &should_forward)
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    SM_PROLOGUE_RC(ss_m::truncate_rec, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::truncate_rec, in_xct,read_write, 0);
     W_DO(_truncate_rec(rid, amount, should_forward));
     if (should_forward) {
         // The record is still implemented as large, even though
@@ -274,7 +274,7 @@ ss_m::truncate_rec(const rid_t& rid, smsize_t amount)
 rc_t
 ss_m::lvid_to_vid(const lvid_t& lvid, vid_t& vid)
 {
-    SM_PROLOGUE_RC(ss_m::lvid_to_vid, can_be_in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::lvid_to_vid, can_be_in_xct,read_only, 0);
     vid = io->get_vid(lvid);
     if (vid == vid_t::null) return RC(eBADVOL);
     return RCOK;
@@ -283,7 +283,7 @@ ss_m::lvid_to_vid(const lvid_t& lvid, vid_t& vid)
 rc_t
 ss_m::vid_to_lvid(vid_t vid, lvid_t& lvid)
 {
-    SM_PROLOGUE_RC(ss_m::lvid_to_vid, can_be_in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::lvid_to_vid, can_be_in_xct,read_only, 0);
     lvid = io->get_lvid(vid);
     if (lvid == lvid_t::null) return RC(eBADVOL);
     return RCOK;
@@ -300,7 +300,8 @@ ss_m::_set_store_property(
 {
 
     /*
-     * can't change to a load file
+     * Can't change to a load file. (You can create it as
+     * a load file.)
      */
     if (property & st_load_file)  {
         return RC(eBADSTOREFLAGS);
@@ -308,7 +309,9 @@ ss_m::_set_store_property(
 
     /*
      * can't change to a t_temporary file. You can change
-     * to an insert file, which combines with st_tmp.
+     * to an insert file, which combines with st_tmp (in that
+     * page fix for a page of st_insert_file get the st_tmp
+     * OR-ed in to the page's store flags).
      */
     store_flag_t newflags = _make_store_flag(property);
     if (newflags == st_tmp)  {
@@ -373,17 +376,41 @@ ss_m::_set_store_property(
 rc_t
 ss_m::_get_store_property(
     stid_t              stid,
-    store_property_t&        property)
+    store_property_t&   property)
 {
     store_flag_t flags = st_bad;
     W_DO( io->get_store_flags(stid, flags) );
 
+    if (flags & st_regular) {
+        w_assert2((flags & (st_tmp|st_load_file|st_insert_file)) == 0);
+        property = t_regular;
+        return RCOK;
+    }
+    if (flags & st_load_file) {
+        // io_m::create_store stuffs the st_tmp flags in with
+        // the st_load_file flags when the store is created.
+        // It gets converted on commit to st_regular.
+        w_assert2((flags & (st_insert_file|st_regular)) == 0);
+        w_assert2((flags & st_tmp) == st_tmp);
+        property = t_load_file;
+        return RCOK;
+    }
+    
+    if (flags & st_insert_file) {
+        // Files can't be created as st_insert_file, but they
+        // can get changed to this. 
+        // They get converted on commit to st_regular.
+        // The page fix causes the st_tmp flag to be OR-ed in
+        // for the page's store flags.
+        // Why these are handled differently, I don't know.
+        w_assert2((flags & (st_load_file|st_regular)) == 0);
+        w_assert2((flags & st_tmp) == 0);
+        property = t_insert_file;
+        return RCOK;
+    }
+
     if (flags & st_tmp)  {
         property = t_temporary;
-    } else if (flags & st_regular) {
-        property = t_regular;
-    } else if (flags & st_insert_file) {
-        property = t_insert_file;
     } else {
         W_FATAL(eINTERNAL);
     }
@@ -423,13 +450,10 @@ ss_m::_create_file(vid_t vid, stid_t& fid,
     w_rc_t rc= io->create_store(vid, 100/*unused*/, 
                 st_flag, lg_stid, first_extent, 1);
     if(rc.is_error()) {
-#define GNATS_77_FIX_5 1
-#if GNATS_77_FIX_5
         // it would be a problem if this didn't work, but
         // if all else fails, abort should work.
         DBGTHRD(<<"2nd create failed; destroying first= " << fid);
         W_DO( io->destroy_store(fid) );
-#endif
         return rc;
     }
 

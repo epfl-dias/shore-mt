@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: sort_funcs3.cpp,v 1.16.2.10 2010/03/19 22:20:31 nhall Exp $
+ $Id: sort_funcs3.cpp,v 1.19 2010/05/26 01:20:52 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -31,7 +31,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#define SM_SOURCE
 
 /*
  * A set of applications functions -- to be moved into the
@@ -61,11 +60,7 @@ nbox_t universe(2); // in sort_funcs3.cpp
 
 w_rc_t 
 get_key_info(
-    const rid_t&        
-#ifdef W_TRACE
-        rid
-#endif
-    ,  // record id
+    const rid_t&   W_IFDEBUG3(W_IFTRACE(rid)),  // record id
     const object_t&        obj_in,
     key_cookie_t            cookie,  // type info
     factory_t&                ,
@@ -83,9 +78,11 @@ get_key_info(
             << meta[k].offset << " length=" << meta[k].length );
 
     new(key) skey_t(obj_in, meta[k].offset, meta[k].length, false);
-#ifdef W_TRACE
-    // if(1) 
+#if W_DEBUG_LEVEL > 2
+    if(1) 
     {
+#undef DBG
+#define DBG(x) cout x << endl;
         DBG(
         << "KEY " << k << " METADATA ARE: " 
         << " offset=" << meta[k].offset
@@ -180,6 +177,8 @@ get_key_info(
                 break;
         }
         }
+#undef DBG
+#define DBG(x) DBG1(x)
     }
 #endif
     return RCOK;
@@ -194,57 +193,57 @@ hilbert(
     skey_t*                key
 ) 
 {
-        metadata*                meta = (metadata *)(cookie.c);
-        smsize_t                 length = meta->length;
-        smsize_t                  off = meta->offset;
+    metadata*                meta = (metadata *)(cookie.make_ptr());
+    smsize_t                 length = meta->length;
+    smsize_t                 off = meta->offset;
 
-        if(obj_in.body_size() != obj_in.contig_body_size()) {
-                /* large-object special case for derive function of rtree test */
-                length = obj_in.body_size() - off - sizeof(rid_t);
-        }
-        smsize_t resultlen = 0;
+    if(obj_in.body_size() != obj_in.contig_body_size()) {
+            /* large-object special case for derive function of rtree test */
+            length = obj_in.body_size() - off - sizeof(rid_t);
+    }
+    smsize_t resultlen = 0;
 
-        int hvalue=0;
+    int hvalue=0;
 
-        if(length) {
-                nbox_t box(2);
-                if(length < smsize_t(box.klen()) ) {
-                        return RC(ss_m::eBADLENGTH);
-                }
-                length = smsize_t(box.klen());
+    if(length) {
+            nbox_t box(2);
+            if(length < smsize_t(box.klen()) ) {
+                    return RC(ss_m::eBADLENGTH);
+            }
+            length = smsize_t(box.klen());
 
-                // The data form a box. Materialize it.
-                DBG(<<"get box at offset " << off << " with length " << length);
+            // The data form a box. Materialize it.
+            DBG(<<"get box at offset " << off << " with length " << length);
 
-                char *tmp = new char[length];
-                if(!tmp) return RC(ss_m::eOUTOFMEMORY);
-                vec_t bx(tmp,length);
-                rc_t rc = obj_in.copy_out(false/* not in hdr */, off, length, bx);
-                if(rc.is_error()) {
-                        delete[] tmp;
-                        DBG(<<"got error " << rc);
-                        return rc;
-                }
+            char *tmp = new char[length];
+            if(!tmp) return RC(ss_m::eOUTOFMEMORY);
+            vec_t bx(tmp,length);
+            rc_t rc = obj_in.copy_out(false/* not in hdr */, off, length, bx);
+            if(rc.is_error()) {
+                    delete[] tmp;
+                    DBG(<<"got error " << rc);
+                    return rc;
+            }
 
-                box.bytes2box(tmp, length);
-                delete[] tmp;
+            box.bytes2box(tmp, length);
+            delete[] tmp;
 
-                hvalue = box.hvalue(universe);
-                DBG(<<"hilbert: hvalue for rid " << rid << " == " << hvalue
-                                << " based on box " << box
-                                << " and universe " << universe
-                   );
+            hvalue = box.hvalue(universe);
+            DBG(<<"hilbert: hvalue for rid " << rid << " == " << hvalue
+                            << " based on box " << box
+                            << " and universe " << universe
+               );
 
-                /* allocate space for the result */
-                void *c = internal.allocfunc(resultlen);
-                memcpy(c, &hvalue, sizeof(hvalue));
+            /* allocate space for the result */
+            void *c = internal.allocfunc(resultlen);
+            memcpy(c, &hvalue, sizeof(hvalue));
 
-                new(key) skey_t(c, 0, sizeof(hvalue), internal);
-        } else {
-                new(key) skey_t(0, 0, 0, *factory_t::none);
-        }
+            new(key) skey_t(c, 0, sizeof(hvalue), internal);
+    } else {
+            new(key) skey_t(0, 0, 0, *factory_t::none);
+    }
 
-        return RCOK;
+    return RCOK;
 }
 
 /*
@@ -355,10 +354,11 @@ make_random_alpha(char *object, w_base_t::uint4_t length)
     }
     // overwrite last char with 0 for printing purposes, unless
     // length = 1
-    if(object > o+1) {
-        *(object-1) = '\0';         
+    if(length > 1) {
+        object = const_cast<char *>(o);
+        *(object+length-1) = '\0';         
     }
-#ifdef W_DEBUG
+#if W_DEBUG_LEVEL > 2
     if(length == 1) {
         DBG(<<"make_random_alpha " << length << " produces " << *o );
         w_assert3(*o <= upper_alpha && *o >= lower_alpha);
@@ -371,7 +371,7 @@ make_random_alpha(char *object, w_base_t::uint4_t length)
             }
         }
     }
-#endif /* W_DEBUG */
+#endif 
 }
 
 /*
@@ -407,7 +407,7 @@ check_file_is_sorted( stid_t  fid, sort_keys_t&kl, bool do_compare)
          */
         bool bad = false;
         int non_fixed =0;
-        if((kl.lexify()!=sort_keys_t::noCSKF)  && !kl.is_for_index())   {
+        if((kl.lexify_index_key()!=sort_keys_t::noCSKF)  && !kl.is_for_index())   {
             bad = true;
         } else if(!kl.is_for_index()) for(k=0; k<nkeys; k++) {
 
@@ -799,7 +799,7 @@ originalboxCSKF(
     skey_t*                out
 )
 {
-    generic_CSKF_cookie&        K = *(generic_CSKF_cookie*)(cookie.c);
+    generic_CSKF_cookie&        K = *(generic_CSKF_cookie*)(cookie.make_ptr());
 
     smsize_t length = K.length; // 
                         // K.length is sizeof(int) as returned by getcmpfunc,
@@ -835,7 +835,7 @@ originalboxCSKF(
         }
         DBG(<<" original box for record " << rid << " is " << *box);
         // NB: bulk-load for rtrees doesn't want the whole
-        // box, but just the byte string.
+        // box structure, but just the byte string.
         // old:
         // out = new(out) skey_t(c, 0, box_factory.sz(), box_factory);
         // new:
@@ -859,7 +859,7 @@ vblstringCSKF(
     skey_t*             out
 )
 {
-    generic_CSKF_cookie&        K = *(generic_CSKF_cookie*)(cookie.c);
+    generic_CSKF_cookie&        K = *(generic_CSKF_cookie*)(cookie.make_ptr());
 
     smsize_t length = 0; // K.length is irrelevant.
                         // We figure length is 
@@ -876,7 +876,7 @@ getcmpfunc(typed_btree_test t,
         key_cookie_t lfunc_cookie
 ) 
 {
-    generic_CSKF_cookie *g = (generic_CSKF_cookie *) (lfunc_cookie.c);
+    generic_CSKF_cookie *g = (generic_CSKF_cookie *) (lfunc_cookie.make_ptr());
     get_sort_key_func  = sort_keys_t::generic_CSKF;
     // g->func is set here
     // g->length is set here
@@ -889,59 +889,81 @@ getcmpfunc(typed_btree_test t,
         g->length= int(MAXBV); // max
         get_sort_key_func  = vblstringCSKF;
         return sort_keys_t::string_cmp;
+
     case test_b23:
         g->func = sort_keys_t::noLEXFUNC; // not needed
         g->length= 23;
         return sort_keys_t::string_cmp;
+
     case test_b1:
         g->func = sort_keys_t::noLEXFUNC; // not needed
         g->length = sizeof(w_base_t::uint1_t);
         return sort_keys_t::string_cmp;
+
     case test_u1:
         g->func = sort_keys_t::u1_lex;
         g->length = sizeof(w_base_t::uint1_t);
         return  sort_keys_t::uint1_cmp;
+
     case test_i1: 
         g->func = sort_keys_t::i1_lex;
         g->length = sizeof(w_base_t::int1_t);
         return sort_keys_t::int1_cmp;
+
     case test_u2:
         g->func = sort_keys_t::u2_lex;
         g->length = sizeof(w_base_t::uint2_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::uint2_t)) == g->offset);
         return sort_keys_t::uint2_cmp;
+
     case test_i2: 
         g->func = sort_keys_t::i2_lex;
         g->length = sizeof(w_base_t::int2_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::int2_t)) == g->offset);
         return sort_keys_t::int2_cmp;
+
     case test_u4:
         g->func = sort_keys_t::u4_lex;
         g->length = sizeof(w_base_t::uint4_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::uint4_t)) == g->offset);
         return sort_keys_t::uint4_cmp; 
+
     case test_spatial: 
         get_sort_key_func  = originalboxCSKF;
         g->func = sort_keys_t::i4_lex;
         g->length = sizeof(w_base_t::int4_t);
         return sort_keys_t::int4_cmp;
+
     case test_i4: 
         g->func = sort_keys_t::i4_lex;
         g->length = sizeof(w_base_t::int4_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::int4_t)) == g->offset);
         return sort_keys_t::int4_cmp;
+
     case test_u8:
         g->func = sort_keys_t::u8_lex;
         g->length = sizeof(w_base_t::uint8_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::uint8_t)) == g->offset);
         return sort_keys_t::uint8_cmp;
+
     case test_i8: 
         g->func = sort_keys_t::i8_lex;
         g->length = sizeof(w_base_t::int8_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::int8_t)) == g->offset);
         return sort_keys_t::int8_cmp;
+
     case test_f4:
         g->func = sort_keys_t::f4_lex;
         g->length = sizeof(w_base_t::f4_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::f4_t)) == g->offset);
         return sort_keys_t::f4_cmp;
+
     case test_f8:
         g->func = sort_keys_t::f8_lex;
         g->length = sizeof(w_base_t::f8_t);
+        w_assert1(alignon(g->offset,sizeof(w_base_t::f8_t)) == g->offset);
         return sort_keys_t::f8_cmp;
+
     default:
         cerr << "switch -- test type not supported : " << (unsigned) t <<endl;
         w_assert3(0);
@@ -959,6 +981,7 @@ getcmpfunc(typed_btree_test t,
 void 
 convert_to(int kk, typed_value &k, typed_btree_test t, char *stringbuffer ) 
 {
+	DBG(<<"convert_to("<<kk<<") t " << t);
     switch(t) {
     case test_bv:
     case test_blarge:
@@ -1002,6 +1025,7 @@ convert_to(int kk, typed_value &k, typed_btree_test t, char *stringbuffer )
     case test_spatial: 
     case test_i4: 
         k._u.i4_num = w_base_t::int4_t(kk);
+		DBG(<<"convert_to("<<kk<<") yields " << k._u.i4_num);
         break;
     case test_u8:
         k._u.u8_num = w_base_t::uint8_t(kk);

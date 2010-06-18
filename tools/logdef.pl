@@ -2,7 +2,7 @@
 
 # <std-header style='perl' orig-src='shore'>
 #
-#  $Id: logdef.pl,v 1.13.2.3 2010/03/19 22:15:50 nhall Exp $
+#  $Id: logdef.pl,v 1.15 2010/06/08 22:29:23 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #

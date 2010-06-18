@@ -14,31 +14,17 @@
 
 
 /*
- * Undefine this if you want to restore the non-r-w mutex for
- * the volume (vol_t) structure.
- * I replaced it with a r/w lock because statistics showed
- * that the vast majority of the times we grab the mutex, it
- * is for read-operations. 
- * Having changed this to a read-write lock, we now see that
- * <10% of the time does the read-lock request have to wait,
- * and roughly 40% of the time the write-lock request has to wait.  
- */
-#define VOL_LOCK_IS_RW 1
-
-/* 
  * Define these if you do not like the default lengths (in tid_t.h)
  */
 #undef COMMON_GTID_LENGTH
 #undef COMMON_SERVER_HANDLE_LENGTH
 
-/* WARNING: Due to a bug in Sun's preprocessor (can't handle #if
-   inside text passed to macros), this flag is tested by defined-ness
-   rather than truthiness. #define 0 and #define 1 both enable the
-   fix.
-*/
+/* 
+ * Define this if you want to override the default number of
+ * log partitions that can be open at any one time.
+ */
+#undef SM_LOG_PARTITIONS
 
-//#undef GNATS110_FIX
-#define GNATS110_FIX 1
 
 
 /* Undefine this to fall back to protecting volume operations with a
@@ -49,7 +35,7 @@
 #define VOLUME_OPS_USE_OCC 1
 
 
-/* Undefine or zero this to remove log space accounting. This is
+/* FRJ: Undefine or zero this to remove log space accounting. This is
    probably undesirable because it allows the log to become wedged and
    the system unrecoverable. However, log space accounting does not
    yet handle recovery of prepared transactions and therefore must be

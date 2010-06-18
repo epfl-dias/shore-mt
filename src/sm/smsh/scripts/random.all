@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: random.all,v 1.12.2.4 2010/01/12 02:02:03 nhall Exp $
+#  $Id: random.all,v 1.15 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -93,7 +93,6 @@ set myscripts [list \
  multi.3\
  deadlock.1\
  deadlock.2\
- deadlock.3\
  deadlock.4\
  deadlock.5\
  deadlock.6\

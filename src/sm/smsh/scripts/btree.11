@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: btree.11,v 1.7.4.1 2010/02/05 20:39:32 nhall Exp $
+#  $Id: btree.11,v 1.9 2010/06/08 22:28:28 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -47,6 +47,7 @@ if {$logging==0} {
 	    sm begin_xct
 	    verbose sm test_bulkload_int_btree $volid $nrec $experiment $nulls
 	    sm test_bulkload_int_btree $volid $nrec $experiment $nulls
+	    verbose DONE: w/ sm test_bulkload_int_btree $volid $nrec $experiment $nulls
 	    set n [sm gather_xct_stats reset]
 	    sm commit_xct
 	    verbose $n

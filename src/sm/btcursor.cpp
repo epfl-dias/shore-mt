@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: btcursor.cpp,v 1.14.2.5 2010/01/28 04:53:57 nhall Exp $
+ $Id: btcursor.cpp,v 1.16 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -185,15 +185,15 @@ bt_cursor_t::inbounds(
 
     // because we start by traversing for the lower(upper) bound,
     // this should be true:
-#if defined(W_TRACE)
+	DBG(<<"v <= bound2() == " << (bool)(v <= bound2()) );
+	DBG(<<"v >= bound1() == " << (bool)(v <= bound1()) );
+	W_IFDEBUG3(
     if(is_backward()) {
-        DBG(<<"v <= bound2() == " << (bool)(v <= bound2()) );
-        if(!v.is_null()) w_assert3(v <= bound2());
+        if(!v.is_null()) { w_assert3(v <= bound2()); }
     } else {
-        DBG(<<"v >= bound1() == " << (bool)(v <= bound1()) );
-        if(!v.is_null()) w_assert3(v >= bound1());
-    }
-#endif
+        if(!v.is_null()) { w_assert3(v >= bound1()); }
+	}
+    )
 
     ok1 = inbound(v, cond1(), bound1(), more);
 

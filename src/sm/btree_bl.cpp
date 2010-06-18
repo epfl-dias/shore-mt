@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: btree_bl.cpp,v 1.27.2.8 2010/03/19 22:20:23 nhall Exp $
+ $Id: btree_bl.cpp,v 1.29 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -67,7 +67,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_du_stats.h"
 #include <crash.h>
 #include "umemcmp.h"
-
 
 #ifdef EXPLICIT_TEMPLATE
 template class w_auto_delete_array_t<record_t *>; 
@@ -159,8 +158,8 @@ btree_impl::_handle_dup_keys(
     int&                count,          // O-  number of duplicated keys
     record_t*&          r,              // O-  last record
     lpid_t&             pid,            // IO- last pid
-    int                        nkc,
-    const key_type_s*        kc,
+    int                 nkc,
+    const key_type_s*   kc,
     bool                lexify_keys
     )
 {
@@ -348,7 +347,7 @@ btree_m::purge(
         }
         if (rc.is_error())  {
             if (rc.err_num() != eEOF)  {
-                xd->release_anchor();
+                xd->release_anchor(true LOG_COMMENT_USE("btbl1"));
                 return RC_AUGMENT(rc);
             }
             break;
@@ -362,7 +361,7 @@ btree_m::purge(
         ), anchor );
 
     SSMTEST("btree.bulk.3");
-    xd->compensate(anchor);
+    xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.bl.3"));
     
     // W_COERCE( log_btree_purge(page) );
     // GNATS 100: you cannot use multiple threads to bulk-load
@@ -387,8 +386,10 @@ btree_m::purge(
  *  btree_m::bulk_load(root, ...)
  *
  *  Bulk load a btree at root using records from store src.
+ *
  *  The key and element of each entry is stored in the header and
  *  body part, respectively, of records from src store. 
+ *
  *  NOTE: src records must be sorted in ascending key order.
  *  and keys must already have been converted to lexicographic
  *  order (internal format).
@@ -399,15 +400,15 @@ btree_m::purge(
 rc_t
 btree_m::bulk_load(
     const lpid_t&        root,                // I-  root of btree
-    int                            nsrcs,                // I- # stores in array above
+    int                  nsrcs,                // I- # stores in array above
     const stid_t*        src,                // I-  stores containing new records
-    int                            nkc,
-    const key_type_s*        kc,
-    bool                    unique,                // I-  true if btree is unique
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,                // I-  true if btree is unique
     concurrency_t        cc_unused,        // I-  concurrency control mechanism
-    btree_stats_t&        _stats,                 // O-  index stats
-    bool                    sort_duplicates, // I - default is true
-    bool                    lexify_keys   // I - default is true
+    btree_stats_t&       _stats,                 // O-  index stats
+    bool                 sort_duplicates, // I - default is true
+    bool                 lexify_keys   // I - default is true
     )                
 {
 
@@ -444,14 +445,14 @@ btree_m::bulk_load(
      *  Go thru the src file page by page
      */
     int i = 0;                // toggle
-    file_p page[2];                // page[i] is current page
+    file_p page[2];           // page[i] is current page
 
     const record_t*         pr = 0;        // previous record
-    int                        src_index = 0;
-    bool                 skip_last = false;
+    int                     src_index = 0;
+    bool                    skip_last = false;
 
     for(src_index = 0; src_index < nsrcs; src_index++) {
-        lpid_t                 pid;
+        lpid_t               pid;
         bool                 eof = false;
         skip_last = false;
 
@@ -487,6 +488,8 @@ btree_m::bulk_load(
                     bool insert_one = false;
                     cvec_t key(pr->hdr(), pr->hdr_size());
                     cvec_t el(pr->body(), (int)pr->body_size());
+					DBG(<<"pr->hdr_size " << pr->hdr_size());
+					DBG(<<"pr->body_size " << pr->body_size());
 
                     /*
                      *  check uniqueness and sort order
@@ -535,12 +538,13 @@ btree_m::bulk_load(
                     if(insert_one) {
                         ++cnt;
                         if(lexify_keys) {
-                            DBG(<<"");
+                            DBG(<<"lexify, before sink.put(key, el) key = " 
+									<< key);
                             cvec_t* real_key = 0;
                             W_DO(_scramble_key(real_key, key, nkc, kc));
                             W_DO( sink.put(*real_key, el) );
                         } else {
-                            DBG(<<"");
+                            DBG(<<"no lexify, sink.put(key, el) key = " << key);
                             W_DO( sink.put(key, el) );
                         }
                         skip_last = false;
@@ -580,7 +584,7 @@ btree_m::bulk_load(
     }
 
     if (pr) {
-            W_DO( sink.map_to_root() );
+        W_DO( sink.map_to_root() );
     }
 
     _stats.level_cnt = sink.height();
@@ -606,12 +610,12 @@ btree_m::bulk_load(
 rc_t
 btree_m::bulk_load(
     const lpid_t&        root,                // I-  root of btree
-    sort_stream_i&        sorted_stream,        // IO - sorted stream        
-    int                        nkc,
-    const key_type_s*        kc,
-    bool                unique,                // I-  true if btree is unique
+    sort_stream_i&       sorted_stream,        // IO - sorted stream        
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,                // I-  true if btree is unique
     concurrency_t        cc_unused,        // I-  concurrency control
-    btree_stats_t&        _stats)                // O-  index stats
+    btree_stats_t&       _stats)                // O-  index stats
 {
     w_assert1(kc && nkc > 0);
     DBG(<<"bulk_load from sorted stream, index=" << root);
@@ -677,7 +681,7 @@ btree_m::bulk_load(
                     DBG(<<"");
                     return RC(eDUPLICATE);
                 }
-                // BUGBUG: need to sort elems for duplicate keys
+                // GNATS 116 BUGBUG: need to sort elems for duplicate keys
                 DBG(<<"not unique uni_cnt " << uni_cnt
                         << " pr=" << pr 
                         <<  " matches prev key "
@@ -777,7 +781,7 @@ btsink_t::map_to_root()
             /*
              *  No need to remap.
              */
-            xd->release_anchor();
+            xd->release_anchor(true LOG_COMMENT_USE("btbl1"));
             return RCOK;
         }
 
@@ -795,7 +799,7 @@ btsink_t::map_to_root()
 
     if (xd)  {
         SSMTEST("btree.bulk.2");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.bl.2"));
     }
 
     /*
@@ -879,7 +883,7 @@ btsink_t::_add_page(const int i, shpid_t pid0)
 
     if (xd)  {
         SSMTEST("btree.bulk.1");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.bl.1"));
     }
 
     /*

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='W_BASE_H'>
 
- $Id: w_base.h,v 1.77.2.13 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_base.h,v 1.80 2010/06/15 17:24:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -59,7 +59,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /**\file w_base.h
  *
- *\ingroup Macros
+ *\ingroup MACROS
  * Basic types.
  */
 
@@ -281,19 +281,19 @@ public:
     /*
      *  basic types
      */
-    typedef char        int1_t;
-    typedef u_char        uint1_t;
+    typedef char         int1_t;
+    typedef u_char       uint1_t;
     typedef short        int2_t;
-    typedef u_short        uint2_t;
-    typedef int            int4_t;
+    typedef u_short      uint2_t;
+    typedef int          int4_t;
     typedef u_int        uint4_t;
 
 #if defined(ARCH_LP64)
-    typedef    long            int8_t;
+    typedef    long              int8_t;
     typedef unsigned long        uint8_t;
 #elif defined(__GNUG__)
-        typedef long long               int8_t;
-        typedef unsigned long long      uint8_t;
+    typedef long long            int8_t;
+    typedef unsigned long long   uint8_t;
 #else
 #error int8_t Not supported for this compiler.
 #endif
@@ -416,7 +416,63 @@ public:
 
     /// dump core
     static    void        abort();
+
+    /**\brief Comparison Operators 
+     * \enum CompareOp
+     * */ 
+    enum CompareOp {
+    badOp=0x0, eqOp=0x1, gtOp=0x2, geOp=0x3, ltOp=0x4, leOp=0x5,
+    /* for internal use only: */
+    NegInf=0x100, eqNegInf, gtNegInf, geNegInf, ltNegInf, leNegInf,
+    PosInf=0x400, eqPosInf, gtPosInf, gePosInf, ltPosInf, lePosInf
+    };
+
+    /**\enum lock_mode_t 
+     * \brief Lock modes for the Storage Manager.
+     * Note: Capital letters are used to match common usage in DB literature
+     * Note: Values MUST NOT CHANGE since order is significant.
+     * \ref SSMLOCK
+     */
+    enum lock_mode_t {
+        NL = 0,         /* no lock                */
+        IS,         /* intention share (read)        */
+        IX,            /* intention exclusive (write)        */
+        SH,            /* share (read)             */
+        SIX,        /* share with intention exclusive    */
+        UD,            /* update (allow no more readers)    */
+        EX            /* exclusive (write)            */
+    };
+
+    /**\enum lock_duration_t
+     * \brief Duration for locks
+     * \ref SSMLOCK
+     */
+    enum lock_duration_t {
+        t_instant     = 0,    /* released as soon as the lock is acquired */
+        t_short     = 1,    /* held until end of some operation         */
+        t_medium     = 2,    /* held until explicitly released           */
+        t_long     = 3,    /* held until xct commits                   */
+        t_very_long = 4,    /* held across xct boundaries               */
+        t_num_durations = 5 /* not a duration -- used for typed comparisons */
+    };
+
+    /**\enum vote_t
+     * \brief Votes for two-phase commit.
+     * - vote_readonly : storage manager will return this from 
+     *   ss_m::prepare_xct when transaction has not logged anything.
+     *   See also ss_m::force_vote_readonly.
+     * - vote_abort : Might be returned if error occurs.
+     * - vote_commit : Usual result of prepare.
+     * \ref SSM2PC
+     */
+    enum vote_t {
+        vote_bad,    /* illegit value                */
+        vote_readonly,  /* no ex locks acquired for this tx         */
+        vote_abort,     /* cannot commit                            */
+        vote_commit     /* can commit if so told                    */
+    };
 };
+
 
 /* XXX compilers+environment that need this operator defined */
 
@@ -531,11 +587,13 @@ struct fill4 {
 
 template<bool B> struct CompileTimeAssertion;
 /** \brief Compile-time assertion trick. 
+ * \details
  * See compile_time_assert.
  */
 template<> struct CompileTimeAssertion<true> { void reference() {} };
 
 /** \brief Compile-time assertion trick. 
+ * \details
  * If the assertion fails 
  * you will get a compile error.
  * The problem is that you will also get an unused variable
@@ -547,6 +605,9 @@ template<> struct CompileTimeAssertion<true> { void reference() {} };
  * - ASSERT_FITS_IN_POINTER 
  *   which are enabled only if built with some
  *   debug level 1 or above (e.g., configure --with-debug-level1)
+ *   This enables us to continue to build a --disable-lp64 system even
+ *   though it's known yet fully supported (not safe).
+ *
  */
 template<typename T> struct compile_time_assert 
 {
@@ -556,7 +617,7 @@ template<typename T> struct compile_time_assert
     }
 };
 
-#if W_DEBUG_LEVEL > 0
+#if W_DEBUG_LEVEL > 4
 #define ASSERT_FITS_IN_LONGLONG(T) {                \
     CompileTimeAssertion<sizeof(long long) >= sizeof(T)> assert__##T##__fits_in_longlong; \
     assert__##T##__fits_in_longlong.reference(); \

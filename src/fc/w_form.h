@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='W_FORM_H'>
 
- $Id: w_form.h,v 1.2.2.4 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_form.h,v 1.3 2010/05/26 01:20:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -47,8 +47,7 @@ public:
 };
 /** \endcond skip */
 
-/** \todo 
- * TODO NANCY remove or document W_FORM() W_FORM2 
+/** \todo w_form.h TODO NANCY remove or document W_FORM() W_FORM2 
  */
 
 /*<std-footer incl-file-exclusion='W_FORM_H'>  -- do not edit anything below this line -- */

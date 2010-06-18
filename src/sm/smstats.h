@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SMSTATS_H'>
 
- $Id: smstats.h,v 1.33.2.8 2010/03/25 18:05:16 nhall Exp $
+ $Id: smstats.h,v 1.34 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -38,18 +38,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 // declaration.  Member functions are defined in sm.cpp
 
 
-class sm_stats_t {
-public:
-    void    compute();
-#include "sm_stats_t_struct_gen.h"
-};
-
-class bf_htab_stats_t {
-public:
-    void    compute();
-#include "bf_htab_stats_t_struct_gen.h"
-};
-
 /**\addtogroup SSMSTATS
  *
  * The storage manager API allows a server to gather statistics on
@@ -64,7 +52,8 @@ public:
  * associated with that transaction.  If the write is performed by a
  * page writer (background thread), it will show up in the global statistics
  * but not in any per-transaction statistics. On the other hand, if a write
- * is performed by ss_m::set_store_property, it will be attributed to the
+ * is performed by ss_m::set_store_property (which flushes to disk
+ * all pages for the store thus changed) it will be attributed to the
  * transaction.
  *
  * All statistics are collected on a per-smthread_t basis 
@@ -94,9 +83,10 @@ public:
  * statistics and diff the current statistics from the prior statistics.
  * The sm_stats_info_t has a difference operator to make this easy.
  * \attention Gathering the per-thread statistics from running threads is
- * not thread-safe; in other words, if threads are updating their counters
+ * not atomic; in other words, if threads are updating their counters
  * while the gathering of their counters is going on, some counts may
- * be missed.
+ * be missed (become stale). (In any case, they will be stale soon
+ * after the statistics are gathered.)
  *
  * A transaction must be instrumented to collect its statistics.
  *
@@ -120,11 +110,37 @@ public:
  * These counters aren't lost to the world, since their values were 
  * added to the global statistics before they were gathered in the first place. 
  *
- * \attention This is not protected against other attached threads, so
- * it is best called when the server know no other threads in the same
- * transaction are making the same call. (The gathering of statistics
- * is safe but the the resetting is not.)
+ * \attention The per-transaction statistics structure is not 
+ * protected against concurrently-attached threads, so
+ * its values are best collected and reset when the server 
+ * knows that only one thread is attached to the 
+ * transaction when making the call. 
  */
+
+ /**\brief Statistics (counters) for most of the storage manager.
+  * \details
+  * This structure holds most of the storage manager's statictics, 
+  * those not specific to the buffer-manager's hash table.
+  * Those counters are in bf_htab_stats_t.
+  */
+class sm_stats_t {
+public:
+    void    compute();
+#include "sm_stats_t_struct_gen.h"
+};
+
+ /**\brief Statistics (counters) for the buffer-manager hash table.
+  * \details
+  * This structure holds counters
+  * specific to the buffer-manager's hash table.
+  * Although it is not necessary,
+  * they are separated from the rest for ease of unit-testing.
+  */
+class bf_htab_stats_t {
+public:
+    void    compute();
+#include "bf_htab_stats_t_struct_gen.h"
+};
 
 /**\brief Storage Manager Statistics 
  *

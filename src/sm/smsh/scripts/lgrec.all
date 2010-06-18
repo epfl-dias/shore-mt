@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: lgrec.all,v 1.14.4.1 2010/01/12 02:02:02 nhall Exp $
+#  $Id: lgrec.all,v 1.16 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -27,11 +27,14 @@
 #
 #   -- do not edit anything above this line --   </std-header>
 
+# NB: lgrec.[356] moved to lgrec.long.all
+#
+# set do_long_scripts 1
+
 set scripts [list \
 	lgrec.1 lgrec.2 lgrec.4 \
 	]
 
-# NB: lgrec.[356] moved to lgrec.long.all
 if { [is_set do_long_scripts] } {
     lappend scripts lgrec.long.all
 }

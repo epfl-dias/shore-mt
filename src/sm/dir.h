@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='DIR_H'>
 
- $Id: dir.h,v 1.41.2.6 2010/03/19 22:20:23 nhall Exp $
+ $Id: dir.h,v 1.42 2010/05/26 01:20:39 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -66,7 +66,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  * store (a collection of pages) information on a volume.
  *
  * Class sinfo_s contains the persistent information about a store.
- * Class sinfo_transient_t constains the transient info.
  * See sdesc.h for further information
  *
  * Class dir_vol_m manages the index of sinfo_s on volumes and 

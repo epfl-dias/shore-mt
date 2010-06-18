@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='PAGE_H'>
 
- $Id: page.h,v 1.112.2.14 2010/03/25 18:05:14 nhall Exp $
+ $Id: page.h,v 1.115 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -153,7 +153,8 @@ public:
     
     const lsn_t&                lsn() const;
     void                        set_lsns(const lsn_t& lsn);
-    void                        repair_rec_lsn(bool was_dirty, lsn_t const &new_rlsn);
+    void                        repair_rec_lsn(bool was_dirty, 
+                                        lsn_t const &new_rlsn);
     
     shpid_t                     next() const;
     shpid_t                     prev() const;
@@ -166,20 +167,14 @@ public:
     smsize_t                    nfree() const;
     const tid_t &               tid() const; 
     smsize_t                    nrsvd() const; 
-#ifndef BUG_SPACE_FIX
-#define BUG_SPACE_FIX
-#endif
-
-    smsize_t                     xct_rsvd() const; 
+    smsize_t                    xct_rsvd() const; 
     // Total usable space on page
     smsize_t                     usable_space();
-#ifdef BUG_SPACE_FIX
     // Usable space on page that's usable for expanding the
     // slot table -- makes sense only on rsvd_mode() pages,
     // where the transaction cannot use its reserved space to
     // expand the slot table.
     smsize_t                     usable_space_for_slots() const;
-#endif
     smsize_t                     contig_space();
     
     rc_t                         check();
@@ -215,11 +210,6 @@ public:
     virtual NORET                ~page_p();
     void                         destructor();
     page_p&                      operator=(const page_p& p);
-    /* NOTE: these 3 are in file.cpp */
-    bool                         is_deadbeef() const; // page freed?
-    void                         set_deadbeef(); // page is freed
-    void                         clr_deadbeef(); // page allocated
-    /* END NOTE */
     rc_t                         conditional_fix(
         const lpid_t&                   pid, 
         tag_t                           tag,
@@ -264,10 +254,8 @@ public:
     void                         clear_page_p() {_pp = 0;}
     latch_mode_t                 latch_mode() const;
     bool                         check_lsn_invariant() const;
-    void                         ntoh()                {};
 
     enum { _hdr_size = (page_sz - data_sz - 2 * sizeof (slot_t )) };
-    // const smsize_t  _hdr_size = (page_sz - data_sz - 2 * sizeof (slot_t ));
 
     static smsize_t                hdr_size() {
         return _hdr_size;
@@ -420,7 +408,6 @@ private:
 };
 
 #define MAKEPAGE(x, base,_refbit_)                                              \
-void ntoh();                                                                      \
 x()  {};                                                                           \
 x(page_s* s, w_base_t::uint4_t store_flags) : base(s, store_flags)                      \
 {                                                                              \
@@ -553,13 +540,11 @@ page_p::usable_space()
     return _pp->space.usable(xct()); 
 }
 
-#ifdef BUG_SPACE_FIX
 inline smsize_t
 page_p::usable_space_for_slots() const
 {
     return _pp->space.usable_for_new_slots(); 
 }
-#endif
 
 inline smsize_t
 page_p::tuple_size(slotid_t idx) const
@@ -813,7 +798,9 @@ page_p::destructor()
 }
 
 
-/**\brief Class for GNATS110 fix
+/**\brief This class allows the caller of 
+ * alloc_pages_in_extent to vote yea or nay on a page that
+ * the volume layer might find.
   */ 
 class alloc_page_filter_t : public smlevel_0 {
 public:
@@ -821,16 +808,18 @@ public:
     virtual  NORET ~alloc_page_filter_t() {}
 
     virtual bool  accept(const lpid_t&) = 0;
-    virtual void  check() const {} 
+    virtual void  check() const = 0 ;
     virtual bool  accepted() const  = 0;
-    virtual void  reject()  {};
+    virtual void  reject()  = 0;
 };
 
-class alloc_page_filter_yes: public alloc_page_filter_t {
+class alloc_page_filter_yes_t: public alloc_page_filter_t {
 public:
     bool  accept(const lpid_t&) { return true; }
+    void  check() const {}
     bool  accepted() const  { return true; }
-	NORET ~alloc_page_filter_yes() {}
+    void  reject() {}
+    NORET ~alloc_page_filter_yes_t() {}
 };
 
 /*<std-footer incl-file-exclusion='PAGE_H'>  -- do not edit anything below this line -- */

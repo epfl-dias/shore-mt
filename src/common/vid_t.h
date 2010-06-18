@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='VID_T_H'>
 
- $Id: vid_t.h,v 1.25.2.4 2010/03/19 22:19:19 nhall Exp $
+ $Id: vid_t.h,v 1.27 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -39,8 +39,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
-/**\brief Volume ID. See \ref IDs.
- *\ingroup IDs
+/**\brief Volume ID. See \ref IDS.
+ *\ingroup IDS
  * \details
  * This class represents a volume identifier, the id that is persistent
  * in the database. It is usually a short integer. 
@@ -49,7 +49,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  * A volume id is part of record identifiers and store identifiers,
  * as well as part of "long" page identifiers.
  *
- * See \ref IDs.
+ * See \ref IDS.
  */
 struct vid_t {
 

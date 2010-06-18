@@ -24,6 +24,7 @@
 #ifndef BLOCK_ALLOC_H
 #define BLOCK_ALLOC_H
 
+/**\cond skip */
 #include "dynarray.h"
 #include "mem_block.h"
 
@@ -350,4 +351,5 @@ NORET object_cache<T,TF,M>::cache_pool::~cache_pool() {
     }
 }
 
+/**\endcond skip */
 #endif

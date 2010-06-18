@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: smthread.cpp,v 1.76.2.19 2010/03/25 18:05:16 nhall Exp $
+ $Id: smthread.cpp,v 1.78 2010/06/08 22:28:56 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -277,7 +277,7 @@ smthread_t::smthread_t(
 : sthread_t(priority, name, stack_size),
   _proc(f),
   _arg(arg),
-  _generate_log_warnings(true)
+  _gen_log_warnings(true)
 {
     // For now, user pointing to this object
     // indicates that the sthread is an smthread. Grot.
@@ -299,7 +299,7 @@ smthread_t::smthread_t(
 : sthread_t(priority, name, stack_size),
   _proc(0),
   _arg(0),
-  _generate_log_warnings(true)
+  _gen_log_warnings(true)
 {
     // For now, user pointing to this object
     // indicates that the sthread is an smthread. Grot.
@@ -310,6 +310,7 @@ smthread_t::smthread_t(
 
 void smthread_t::_initialize_fingerprint()
 {
+#if DEBUG_FINGERPRINTS
     int tries=0;
     const int trylimit = 50;
     bool bad=true;
@@ -330,6 +331,9 @@ void smthread_t::_initialize_fingerprint()
             W_FATAL(smlevel_0::eTHREADMAPFULL);
         }
     }
+#else
+    (void) _try_initialize_fingerprint();
+#endif
 }
 
 
@@ -356,19 +360,20 @@ bool smthread_t::_try_initialize_fingerprint()
         _fingerprint_map.set_bit(_fingerprint[i]);
     }
     
-#warning Bypassing broken fingerprint uniqueness checks
-    /* FRJ: the code below is doubly flawed and is disabled pending a
-       real fix
-
-       Conceptually, if every thread has a unique fingerprint we
-       should simply be using the bitmap as a bitmap (ie each thread
-       gets one bit). Anything more just wastes bits.
-
-       Correctness-wise, the global map is unable to recycle
-       fingerprints, putting a hard limit on the number of threads the
-       system can ever spawn (even if only one exists at a time!).
-     */
+#ifndef PROHIBIT_FALSE_POSITIVES
     return false;
+#else
+	// This uniqueness check is left in for possible turning on
+	// when debugging deadlocks; it is so that we can tell if
+	// we are getting duplicated bits and thus possibly false-positives.  
+	// As long as we are running tests
+	// that pass this check, we know that we don't have false-positives.
+	// To turn it on, define PROHIBIT_FALSE_POSITIVES above.
+	
+	/* Note also that the global map is unable to recycle
+       fingerprints, putting a hard limit on the number of threads the
+       system can ever spawn when using this restrictive check.
+     */
     
     all_fingerprints.lock_for_write();
     atomic_thread_map_t _tmp;
@@ -429,6 +434,7 @@ bool smthread_t::_try_initialize_fingerprint()
 #endif
 
     return failure;
+#endif
 }
 
 // called from constructor

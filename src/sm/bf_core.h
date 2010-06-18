@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='BF_CORE_H'>
 
- $Id: bf_core.h,v 1.26.2.14 2010/03/25 18:05:03 nhall Exp $
+ $Id: bf_core.h,v 1.28 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -138,17 +138,18 @@ public:
         w_base_t::int4_t              ref_bit = 0
         );
 
-    void                         publish_partial(bfcb_t* p, bool discard);
+    void                         publish_partial(bfcb_t* p);
     bool                         latched_by_me(bfcb_t* p) const;
 
     // true == no longer hold any old dirty pages
     // false == unable to flush all old dirty pages we hold
-    bool 			force_my_dirty_old_pages(lpid_t const* wal_page=0) const;
+    bool                         force_my_dirty_old_pages(lpid_t const* 
+                                                       wal_page=0) const;
     
     void                         publish(
         bfcb_t*                       p,
         latch_mode_t                  mode,
-        bool                          error_occured = false);
+        bool                          error_occured);
     
     bool                         is_mine(const bfcb_t* p) const;
     const latch_t*               my_latch(const bfcb_t* p) const;
@@ -198,8 +199,8 @@ private:
     static queue_based_lock_t   _bfc_mutex; // never needs long lock 
 
     static int                  _num_bufs;
-    static page_s*              _bufpool;
-    static bfcb_t*              _buftab;
+    static page_s*              _bufpool; // array of size _num_bufs
+    static bfcb_t*              _buftab; // array of size _num_bufs
 
     static htab*                _htab;
     static void* volatile*      _htab_markers;

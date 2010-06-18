@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: multi.1,v 1.15.2.5 2010/03/19 22:20:36 nhall Exp $
+#  $Id: multi.1,v 1.17 2010/06/08 22:28:29 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -32,7 +32,8 @@
 #  thread 1: EX lock o1,o2,o3
 #  thread 2-a: SH lock o1 blocks in lock manager
 #  thread 2-b: SH lock o1 blocks on cond variable
-#  thread 2-c: SH lock o2 blocks on cond variable
+#  thread 2-c: SH lock o2 blocks on cond variable (how can this be?
+#  Shouldn't it block on the mutex first?)
 #  thread 1: commits, other 3 threads wake up
 #
 set_config_info

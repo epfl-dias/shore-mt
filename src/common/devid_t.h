@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='DEVID_T_H'>
 
- $Id: devid_t.h,v 1.20.2.4 2010/03/19 22:19:19 nhall Exp $
+ $Id: devid_t.h,v 1.21 2010/05/26 01:20:11 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -40,7 +40,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /**\brief Internal Device ID
  *
- * \ingroup IDs
+ * \ingroup IDS
  *
  * \details
  * This identifier is not persistent; it is assigned when

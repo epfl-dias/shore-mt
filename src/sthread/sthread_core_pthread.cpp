@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: sthread_core_pthread.cpp,v 1.6.2.7 2010/03/19 22:20:01 nhall Exp $
+ $Id: sthread_core_pthread.cpp,v 1.8 2010/06/08 22:28:00 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -79,12 +79,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define    USER_STACK_SIZE        (sthread_t::default_stack)
 #define    DEFAULT_STACK_SIZE    (USER_STACK_SIZE)
 
-
-unsigned    sthread_t::stack_size() const
-{
-    /* XXX give the main thread a !=0 stack size for now */
-    return _core->stack_size ? _core->stack_size : default_stack;
-}
 
 #ifndef HAVE_SEMAPHORE_H
 // TODO: move this to another file or get rid of it altogether
@@ -164,6 +158,11 @@ int sthread_core_init(sthread_core_t *core,
         n = pthread_create(&core->pthread, NULL, pthread_core_start, core);
         if (n == -1) {
             w_rc_t e= RC(fcOS);
+            // EAGAIN: insufficient resources
+            // Really, there's no way to tell when the system will
+            // say it's hit the maximum # threads because that depends
+            // on a variety of resources, and in any case, we don't
+            // know how much memory will be required for another thread.
             cerr << "pthread_create():" << endl << e << endl;
             return -1;
         }

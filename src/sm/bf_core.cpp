@@ -56,10 +56,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 /*  -- do not edit anything above this line --   </std-header>*/
 
 
-#define TRYTHIS
-#define TRYTHIS6 0x1
-
-
 #ifndef BF_CORE_C
 #define BF_CORE_C
 
@@ -149,7 +145,7 @@ void bfcb_t::check() const
 #endif
 
 void bfcb_t::pin_frame() { 
-    atomic_add(_pin_cnt, 1); 
+    atomic_inc(_pin_cnt);
     w_assert1(_pin_cnt > 0); // should never go below 0
 }
 
@@ -157,7 +153,7 @@ void bfcb_t::unpin_frame() {
 #if W_DEBUG_LEVEL > 1
     w_assert2(_pin_cnt > 0); // should NEVER go below 0
 #endif
-    atomic_add(_pin_cnt, -1); 
+    atomic_dec(_pin_cnt); 
     w_assert1(_pin_cnt >= 0); // should NEVER go below 0
 }
 
@@ -205,7 +201,7 @@ void bf_stop(bfcb_t *p)
     static int j(0);
     static int k(0);
 
-    j = atomic_add_nv(i,1);
+    j = atomic_inc_nv(i);
     if(p->pid().page ==pg || j == k) {
         bf_stop_here();
         cerr << "page " << pg << endl;
@@ -410,9 +406,9 @@ struct bf_core_m::init_thread_t : public smthread_t
     }
     
     virtual void run() {
-        const char *n = name();
+        const char *nayme = name();
         for(long i=_begin; i < _end; i++) {
-            _bfc->_buftab[i].initialize(n, _bfc->_bufpool+i,
+            _bfc->_buftab[i].initialize(nayme, _bfc->_bufpool+i,
                                    htab::HASH_COUNT
                                    );
             _bfc->_unused.release(_bfc->_buftab+i);
@@ -569,7 +565,7 @@ bfcb_t* bfcb_unused_list::take() {
     union {void* v; bfcb_t* b; } u = { pop() };
     if(u.b) {
         u.b->zero_pin_cnt();
-        atomic_add(_count, -1);
+        atomic_dec(_count);
     }
     return u.b;
 }
@@ -580,19 +576,20 @@ void bfcb_unused_list::release(bfcb_t* frame)
     w_assert9(!frame->latch.is_latched());
 
     push(frame);
-    atomic_add(_count, 1);
+    atomic_inc(_count);
 }
 
 
 /*********************************************************************
  *
  *  bf_core_m::grab(ret, pid, found, is_new, mode, timeout)
+ *
  *  Assumptions: "ret" refers to a free frame, that is, it's not
  *  in the hash table, as it came off the free list or is in the
  *  in-transit-out table.
  *
- *  Obtain and latch (EX) a frame for the page "pid" to be read in, using
- *  the control block "ret".
+ * The frame is already EX-latched by the caller.
+ *
  *  Check that the given pid isn't elsewhere in the buffer pool. 
  *  If so,
  *     release the latch on "ret" frame, 
@@ -608,9 +605,11 @@ void bfcb_unused_list::release(bfcb_t* frame)
  *
  * FRJ: If find() fails the caller is
  * expected to obtain a replacement frame by calling replacement(), which
- * it then passes to grab(). Regardless of whether grab() needs the
- * replacement, the old page becomes in-transit-out (this is done by the
- * caller). 
+ * it then passes to grab(). 
+ *
+ * Regardless of whether grab() needs the replacement, 
+ * the old page, if dirty, became in-transit-out (this was already
+ * by the  caller). 
  *
  *********************************************************************/
 // only caller is bf_m::_fix
@@ -630,17 +629,10 @@ bf_core_m::grab(
 
     INC_TSTAT(bf_look_cnt);
 
-    // grab the latch now to prevent races later
-    // This is the frame that the caller got by calling replacement().
-    // This EX-latch corresponds to some of the changes described
-    // in the Shore-MT paper  6.2.3 (page 9), where in-transit-in
-    // lists were replaced with grabbing an EX latch to cover the read.
-    // publish downgrades or releases the latch as needed to get
-    // it back to the desired mode (LATCH_NL in event of error).
-    //
-    // FRJ: we had to push the latch acquire even earlier, so now we
-    // just make sure we still hold it here
-    w_assert2(ret->latch.is_mine()); 
+    // We already have the EX-latch. It was acquired in replacement(),
+    // and no longer freed in publish_partial.
+    w_assert1(ret->latch.is_latched()); 
+    w_assert1(ret->latch.is_mine());  // EX mode
     w_assert2(!ret->pin_cnt()); 
     ret->pin_frame(); 
     ret->check();  // EX mode so strong check
@@ -784,7 +776,6 @@ bf_core_m::grab(
 }
 
 
-static __thread bfcb_t* find_tls_p(NULL);
 /*********************************************************************
  *
  *  bf_core_m::find(ret, pid, mode, timeout, ref_bit)
@@ -844,7 +835,7 @@ bf_core_m::find(
     w_assert3(ref_bit >= 0);
     
     w_assert1(mode != LATCH_NL); // NEH: changed to assert2
-    bfcb_t* &p = find_tls_p;
+    bfcb_t* p = NULL;
     ret = 0;
     INC_TSTAT(bf_look_cnt);
 
@@ -920,17 +911,10 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
     w_assert2(p - _buftab >= 0 && p - _buftab < _num_bufs);
     w_assert2(p->pin_cnt() > 0);
 
-    // TODO :NANCY: remove this comment if it's not legit to pin w/o latching
-    // which is what I think is true.
-    // The next assertion is not valid if pages can be pinned w/o being
-    // latched, i.e. in the case of record-level locking
-    // NB: not possible to pin w/o latching.  There is a LATCH_NL
-    // but that amounts to no latch.
-    w_assert9(cc_alg == t_cc_record || p->latch.is_mine());
 
     // mode is LATCH_NL in error case
-    w_assert2( (mode != LATCH_NL) || error_occurred); // NEH: Added
-    w_assert2(p->latch.is_mine()); // NEH: Added. Means we have it in EX mode.
+    w_assert2( (mode != LATCH_NL) || error_occurred); 
+    w_assert2(p->latch.is_mine()); 
 
     w_assert9(!p->old_pid_valid());
 
@@ -938,7 +922,6 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
      *  If error, cancel request (i.e. release the latch).
      *  If there exist other requestors, leave the frame in the transit
      *  list, otherwise move it to the free list.
-     *  If no error, put the frame into the hash table.
      */
     if (error_occurred)  {
         /* FRJ: the page is already in the htab, and there could
@@ -953,9 +936,7 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
         
         // FRJ: yes, there is!
         //    cs.exit(); // no need to hold _mutex for this...
-        //
-        // p->unpin_frame(); // NEH: temp moved back to see if it changes
-        // kits behavior - could we be exercising this?
+        
         w_assert2(p->latch.is_mine());
         p->latch.latch_release(); // PROTOCOL
         p->unpin_frame(); // NEH: moved unpin here after latch release,
@@ -974,7 +955,9 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
         }
         else if(mode == LATCH_NL)  {
             // is this really allowed?
-            w_assert1(false);
+            // Do we need to unpin the frame here?
+            // The assertion will tell us if this ever happens.
+            w_assert0(false);
             p->latch.latch_release(); // PROTOCOL
         }
     }
@@ -985,21 +968,30 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
  *
  *  bf_core_m::publish_partial(p)
  *
- *  Partially publish the frame "p" that was previously grab() 
- *  with a cache-miss. All threads waiting on the frame are awakened.
+ *  Partially publish the frame "p" that was acquired as a replacement
+ *  frame after a cache miss.
+ *
+ *  This is called after bf_m::_fix had a cache miss, called replacement()
+ *  to get the frame, found that the frame was in-use, and either
+ *  explicitly sent it to disk or waited for a cleaner to finish
+ *  sending it to disk.  
+ *  This takes the frame off the in_transit_out list and invalidates
+ *  the old_pid, so now this frame is indistinguishable from
+ *  an unused frame returned by replacement().
  *
  * If discard==true, the frame goes back on the freelist as well
+ * NOTE: discard is no longer used.
  *
  *********************************************************************/
 void 
-bf_core_m::publish_partial(bfcb_t* p, bool discard)
+bf_core_m::publish_partial(bfcb_t* p)
 {
     w_assert9(p - _buftab >= 0 && p - _buftab < _num_bufs);
 
     // The next assertion is not valid if pages can be pinned w/o being
     // latched. For now, it is ok in the case of page-level locking only.
     // FRJ: to cover a couple of races we need to latch now...
-    //w_assert2(!p->latch.is_latched());
+    w_assert2(p->latch.is_latched());
     w_assert2(p->latch.is_mine());
     w_assert2(p->old_pid_valid());
 
@@ -1013,10 +1005,6 @@ bf_core_m::publish_partial(bfcb_t* p, bool discard)
     CRITICAL_SECTION(cs, tb._tb_mutex); // PROTOCOL
 
     tb.make_not_in_transit_out(pid);
-    if(discard) {
-        _unused.release(p); // put on free list
-	p->latch.latch_release();
-    }
 
     // keep the latch... caller still needs it
 }
@@ -1099,7 +1087,6 @@ bf_core_m::snapshot_me( u_int& nsh, u_int& nex, u_int& ndiff)
  *  Pin resource "p" in latch "mode".
  *
  *********************************************************************/
-static __thread bfcb_t* pin_tls_p(NULL);
 w_rc_t 
 bf_core_m::pin(bfcb_t* p, latch_mode_t mode)
 {
@@ -1110,7 +1097,6 @@ bf_core_m::pin(bfcb_t* p, latch_mode_t mode)
        Update - bf_m::_scan also calls us, and the page is *not*
        pinned first!
      */
-    pin_tls_p = p;
     w_assert9(p - _buftab >= 0 && p - _buftab < _num_bufs);
     w_assert9(_in_htab(p)); // it should already be pinned!
 
@@ -1166,11 +1152,9 @@ bf_core_m::upgrade_latch_if_not_block(bfcb_t* p, bool& would_block)
  *  Unlatch the frame "p". 
  *
  *********************************************************************/
-static __thread bfcb_t* unpin_tls_p(NULL);
 void
 bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
 {
-    unpin_tls_p = p;
 
     w_assert3(ref_bit >= 0);
     w_assert9(p - _buftab >= 0 && p - _buftab < _num_bufs);
@@ -1215,7 +1199,7 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
             // unpinning it;  the control block says it's  dirty.
             // This can happen if after redo_pass  we are doing an undo
             // and pin a still-dirty-but-unlogged page.  So in order to
-            // prevent this, I have inserted flush_all in restart.cpp between
+            // prevent this, I have inserted force_all in restart.cpp between
             // the redo_pass and the undo_pass. It should make this case
             // never happen, leaving the assert below valid again.
 	    // 
@@ -1240,7 +1224,8 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
                 cerr 
                     << " frame " << (void *)(p->frame()) << endl
                     << " pid " << p->pid() << endl
-                    << " rec_lsn " << p->safe_rec_lsn() << endl
+                    << " curr_rec_lsn " << p->curr_rec_lsn() << endl
+                    << " old_rec_lsn " << p->old_rec_lsn() << endl
                     << " frame lsn " << p->frame()->lsn1 << endl
                     << " (p->rec_lsn <= p->frame->lsn1) "
                            << int(p->safe_rec_lsn() <= p->frame()->lsn1) << endl
@@ -1250,17 +1235,17 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
                         int(smlevel_0::in_recovery_redo()) << endl
                     << endl;
             }
-            w_assert2 ( 
-                (p->curr_rec_lsn() <= p->frame()->lsn1) ||
+            w_assert0 ( 
+                (p->safe_rec_lsn() <= p->frame()->lsn1) ||
                 ((p->get_storeflags() & smlevel_0::st_tmp) 
                      == smlevel_0::st_tmp) ||
                 smlevel_0::in_recovery_redo()
                 );
         }
         else {
-            /* Clean pages should not have a rec_lsn
-             * See notes in bf.cpp with keyword
-             * CLEAN_REC_LSN_RACE.  It's possible that we missed
+            /* Clean pages should not have a rec_lsn.
+             * GNATS 64. See also "GNATS 64 in bf.cpp"
+             * It's possible that we missed
              * the pin count turning to 1 and so here we'll get a
              * 2nd chance. There's still a race, though, isn't there?
              * Pin count might not be 1 yet and we don't have a chance
@@ -1269,24 +1254,13 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
              * a double-latch by the same thread, and the other thread
              * is about to make an update, this would create problems.
              */
-            // NANCY TODO: I restored this assert for now, while I
-            // look at the possiblility of changing the protocol to
-            // latch, then pin and unpin, then unlatch.
-            // b->rec_lsn = lsn_t::null; 
-            // NANCY TODO: document this : inserted this 2nd chance to 
-            // fix it but there's still a race...
-	    //
-	    // FRJ: fixed the race by ensuring that page latches are
-	    // released only after unpinning, and also by having
-	    // bf_m::unfix use latch information rather than pin
-	    // counts to decide whether to clear the rec_lsn.
-#if 0
-            if(p->pin_cnt() <= 1) {
-                p->mark_clean();
-                INC_TSTAT(bf_core_unpin_cleaned);
-            }
-#endif
-            w_assert1(! p->curr_rec_lsn().valid() );
+             
+             // FRJ: fixed a race here by ensuring that page latches are
+             // released only after unpinning, and also by having
+             // bf_m::unfix use latch information rather than pin
+             // counts to decide whether to clear the rec_lsn.
+             
+             w_assert1(! p->curr_rec_lsn().valid() );
         }
     }
           
@@ -1294,9 +1268,10 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
     p->check();
 
     /* FRJ: CLEAN_REC_LSN_RACE arises (at least partly) because we
-       unlatch pages before unpinning. However, we can avoid this
-       unpinning and then unlatching the page -- nobody else will
-       touch the page until they can both pin and latch it.
+       would unlatch pages before unpinning. 
+       However, we can avoid this by unpinning and then unlatching the page -- 
+       nobody else will touch the page until they can both pin and latch it.
+       See also comments in bf.cpp; search for CLEAN_REC_LSN_RACE
      */
     p->unpin_frame(); // atomic decrement
     p->latch.latch_release(); // PROTOCOL
@@ -1314,11 +1289,9 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
  *  Called from ::remove while _bfc_mutex is held.
  *
  *********************************************************************/
-static __thread bfcb_t* _remove_tls_p(NULL);
 rc_t 
 bf_core_m::_remove(bfcb_t*& p)
 {
-    _remove_tls_p = p;
     w_assert9(p - _buftab >= 0 && p - _buftab < _num_bufs);
     w_assert9(_in_htab(p));
 
@@ -1428,32 +1401,32 @@ bool bf_core_m::can_replace(bfcb_t* p, int rounds)
      */
     bool found =false;
     if(!p->pin_cnt() && !p->old_rec_lsn().valid()) {
-    switch(rounds) {
-        case 2:
-            // Like 1 but will accept dirty pages
-            if(!p->refbit() && !p->hotbit()) {
-                found=true; 
-            }
-            break;
+        switch(rounds) {
+            case 2:
+                // Like 1 but will accept dirty pages
+                if(!p->refbit() && !p->hotbit()) {
+                    found=true; 
+                }
+                break;
 
-        case 1:
-            // Unpinned, not hot, not dirty, no refbit 
-            if( !p->dirty() && !p->refbit() && !p->hotbit() ) {
-                found=true; 
-            }
-            break;
+            case 1:
+                // Unpinned, not hot, not dirty, no refbit 
+                if( !p->dirty() && !p->refbit() && !p->hotbit() ) {
+                    found=true; 
+                }
+                break;
 
-        case 0: 
-            // nothing is satisfactory. Not used at the moment.
-            w_assert0(0); 
-            found = false; 
-            break;
+            case 0: 
+                // nothing is satisfactory. Not used at the moment.
+                w_assert0(0); 
+                found = false; 
+                break;
 
-        default:
-            // Anything unpinned is ok. 
-                found=true; 
-        break;
-    }
+            default:
+                // Anything unpinned is ok. 
+                    found=true; 
+            break;
+        }
     }
 
     // make sure there is a free in-transit-out slot
@@ -1507,13 +1480,18 @@ bf_core_m::replacement()
 
     if(p) {
         w_assert2(p->frame() != 0);
-	
-	// *nobody* should know about this frame!	
-	w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE);
-	w_assert0(!rc.is_error());
-	
         p->clr_old_pid();
         p->mark_clean();
+        w_assert1 (! _in_htab(p)); // Not in hash table
+        
+        // Get the latch just so that we are consistently
+        // returning with the EX latch; this allows all the
+        // threads --namely those in write_out(from clean_segment, 
+        // _scan, and update_rec_lsn) or replace_out (us) --
+        // to use the same protocol: latch then acquire 
+        // page_writer_mutex.
+        w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE); 
+        w_assert0(!rc.is_error());
         return p;
     }
     
@@ -1641,8 +1619,11 @@ bf_core_m::replacement()
         {
             CRITICAL_SECTION(bcs, b._lock); // PROTOCOL
             w_assert2(b._lock.is_mine());
-	    w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE); // otherwise who knows what other threads are doing...
-            if(!rc.is_error()) {
+
+            w_rc_t rc = p->latch.latch_acquire(LATCH_EX, WAIT_IMMEDIATE); 
+            // otherwise who knows what other threads are doing...
+            if(!rc.is_error()) 
+            {
                 // I don't like this - other threads hold onto the
                 // page mutex for a long time (_write_out, _replace_out).
                 //
@@ -1676,16 +1657,23 @@ bf_core_m::replacement()
                         // Note : we have both the transit-bucket lock and
                         // the htab bucket lock here.
                         p->set_old_pid(); // now old_pid_valid() is true.
-                        tb->make_in_transit_out(p);
+                        if(p->dirty())  {
+                            tb->make_in_transit_out(p->pid());
+                        }
                         w_assert1(p->frame() != 0);
+                        // In this case, the frame is latched
+                        w_assert1(p->latch.is_mine() == true);
                         return p;
                     }
                 }
-		p->latch.latch_release();
-            } // release page mutex if we have it.
-        }
+                p->latch.latch_release();
+            } 
+            // We didn't acquire the latch if rc.is_error
+            // so let's assert here
+            w_assert1(p->latch.is_mine() == false);
+        } // end critical section
         
-        }
+        } // end critical section
         // drat! try again
     }
 }

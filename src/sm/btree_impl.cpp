@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: btree_impl.cpp,v 1.37.2.14 2010/03/19 22:20:23 nhall Exp $
+ $Id: btree_impl.cpp,v 1.40 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -57,7 +57,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SM_SOURCE
 #define BTREE_C
 
-#if W_DEBUG_LEVEL > 1
+#if W_DEBUG_LEVEL > 0
 #define BTREE_LOG_COMMENT_ON 1
 #endif
 
@@ -174,27 +174,27 @@ btree_impl::mk_kvl(concurrency_t cc, lockid_t& kvl,
 {
     if(cc > t_cc_none) {
     // shouldn't get here if cc == t_cc_none;
-    if(cc == t_cc_im) {
-        rid_t r;
-        el.copy_to(&r, sizeof(r));
-        kvl = r;
+        if(cc == t_cc_im) {
+            rid_t r;
+            el.copy_to(&r, sizeof(r));
+            kvl = r;
 #if W_DEBUG_LEVEL > 4
-        if(el.size() != sizeof(r)) {
-            // This happens when we lock kvl_t::eof
-            ;
-        }
+            if(el.size() != sizeof(r)) {
+                // This happens when we lock kvl_t::eof
+                ;
+            }
 #endif 
-    } else {
-        w_assert9(cc == t_cc_kvl || cc == t_cc_modkvl);
-        kvl_t k;
-        if (unique) {
-            k.set(stid, key);
         } else {
-            w_assert9(&el != &cvec_t::neg_inf);
-            k.set(stid, key, el);
+            w_assert9(cc == t_cc_kvl || cc == t_cc_modkvl);
+            kvl_t k;
+            if (unique) {
+                k.set(stid, key);
+            } else {
+                w_assert9(&el != &cvec_t::neg_inf);
+                k.set(stid, key, el);
+            }
+            kvl = k;
         }
-        kvl = k;
-    }
     }
 
 }
@@ -341,14 +341,6 @@ tree_latch::get_for_smo(
      * anyway, but... !???
      */
     if(is_fixed()) {
-        // TODO: NANCY what about this?  It seems that we should never
-        // come in here with the latch held; if we did, we'd never pass
-        // the checks for the number of latches held.
-        // The Mohan papers imply that we should never have the 
-        // tree latch already, best I can tell.
-        // ALAS, but we do, consistently with bt.insert.1 
-        // w_assert1(0); // GNATS 70 filed to remind me to
-        // analyze this.
 
         // Already latched.  Is it the mode we want?
         if(latch_mode() != mode) {
@@ -777,16 +769,18 @@ again:
 
                         if(cousin_pid.page) {
                             rc = cousin.conditional_fix(cousin_pid, LATCH_EX);
-                            if(!rc.is_error()) {
-                                w_assert1(cousin.prev() == leaf.pid().page);
-                            }
+                            W_IFDEBUG1(
+                            if(!rc.is_error())
+                                w_assert1(cousin.prev() == leaf.pid().page);)
                         } else {
                             rc = RCOK;
                         }
                         
                         if(!rc.is_error()) {
-                            unsigned int required_space 
-                                = 2*(key.size() + el.size());
+                            unsigned int required_space  =
+                                2 *(key.size() + el.size() +
+                                btree_p::overhead_requirement_per_entry);
+
                             rc = parent.conditional_fix(parent_pid, LATCH_EX);
                             if(!rc.is_error()) {
                                 /* check if parent has space for the new
@@ -817,13 +811,18 @@ again:
                                     slotid_t slot = 1;
                                     int addition = key.size() + el.size() + 2;
                                     if(xd) anchor = xd->anchor();
+                DBG(<<" splitting page " << leaf.pid() 
+                        << " parent.usabel_space()= " << parent.usable_space()
+                        << " required_space = " << required_space
+                        << " addition = " << addition
+                   );
                                     rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor);
 
                                     // stolen from xct.h
                                     if(rc.is_error()) {
                                         if(xd) {
                                             W_COERCE(xd->rollback(anchor));
-                                            xd->release_anchor(true);
+                                            xd->release_anchor(true LOG_COMMENT_USE("btimpl1"));
                                         }
                                     }
                                     else {
@@ -836,7 +835,8 @@ again:
                                         if(rc.is_error()) {
                                             if(xd) {
                                                 W_COERCE(xd->rollback(anchor));
-                                                xd->release_anchor(true);
+                                                xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl2"));
                                             }
                                         }
                                         else {
@@ -846,13 +846,15 @@ again:
                                             if(rc.is_error()) {
                                                 if(xd) {
                                                     W_COERCE(xd->rollback(anchor));
-                                                    xd->release_anchor(true);
+                                                    xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl3"));
                                                 }
                                             }
                                             else {
                                                 w_assert1(!was_split);
                                                 split_with_smo = false;
-                                                if(xd) xd->compensate(anchor);
+                                                if(xd) xd->compensate(anchor,false/*not undoable*/
+                                                        LOG_COMMENT_USE("btree1"));
 
                                             }
                                         }
@@ -866,7 +868,8 @@ again:
                     }
                     /*******************************************************/
 
-                    if(split_with_smo) {
+                    if(split_with_smo) 
+                    {
                         /*
                          * Split the page  - get the tree latch and
                          * hang onto it until we're done with the split.
@@ -1919,15 +1922,15 @@ again:
 
 rc_t
 btree_impl::_lookup(
-    const lpid_t&         root,        // I-  root of btree
+    const lpid_t&       root,        // I-  root of btree
     bool                unique, // I-  true if btree is unique
-    concurrency_t        cc,        // I-  concurrency control
-    const cvec_t&         key,        // I-  key we want to find
-    const cvec_t&         elem,        // I-  elem we want to find (may be null)
-    bool&                 found,  // O-  true if key is found
+    concurrency_t       cc,        // I-  concurrency control
+    const cvec_t&       key,        // I-  key we want to find
+    const cvec_t&       elem,        // I-  elem we want to find (may be null)
+    bool&               found,  // O-  true if key is found
     bt_cursor_t*        cursor, // I/o - put result here OR
-    void*                 el,        // I/o-  buffer to put el if !cursor
-    smsize_t&                 elen        // IO- size of el if !cursor
+    void*               el,        // I/o-  buffer to put el if !cursor
+    smsize_t&           elen        // IO- size of el if !cursor
     )        
 {
     FUNC(btree_impl::_lookup);
@@ -1949,320 +1952,320 @@ btree_impl::_lookup(
 
         {   // open scope here so that every restart
             // causes pages to be unpinned.
-            bool                 total_match = false;
+        bool                  total_match = false;
 
-            btree_p                leaf; // first-leaf
-            btree_p                p2; // possibly needed for 2nd leaf
-            btree_p*               child = &leaf;        // child points to leaf or p2
-            btree_p                parent; // parent of leaves
+        btree_p                leaf; // first-leaf
+        btree_p                p2; // possibly needed for 2nd leaf
+        btree_p*               child = &leaf;        // child points to leaf or p2
+        btree_p                parent; // parent of leaves
 
-            lsn_t                  leaf_lsn, parent_lsn;
-            slotid_t               slot;
-            lockid_t               kvl;
+        lsn_t                  leaf_lsn, parent_lsn;
+        slotid_t               slot;
+        lockid_t               kvl;
 
-            found = false;
+        found = false;
 
-            /*
-             *  Walk down the tree.  Traverse doesn't
-             *  search the leaf page; it's our responsibility
-             *  to check that we're at the correct leaf.
-             */
-            W_DO( _traverse(root, 
-                    search_start_pid, 
-                    search_start_lsn,
-                    key, elem, found, 
-                    LATCH_SH, leaf, parent,
-                    leaf_lsn, parent_lsn) );
+        /*
+         *  Walk down the tree.  Traverse doesn't
+         *  search the leaf page; it's our responsibility
+         *  to check that we're at the correct leaf.
+         */
+        W_DO( _traverse(root, 
+                search_start_pid, 
+                search_start_lsn,
+                key, elem, found, 
+                LATCH_SH, leaf, parent,
+                leaf_lsn, parent_lsn) );
 
-            check_latches(___s+2,___e, ___s+___e+2); 
+        check_latches(___s+2,___e, ___s+___e+2); 
 
-            w_assert9(leaf.is_fixed());
-            w_assert9(leaf.is_leaf());
-            
-            w_assert9(parent.is_fixed());
-            w_assert9(parent.is_node() || (parent.is_leaf() &&
-                    leaf.pid() == root  ));
-            w_assert9( parent.is_leaf_parent() || parent.is_leaf());
+        w_assert9(leaf.is_fixed());
+        w_assert9(leaf.is_leaf());
+        
+        w_assert9(parent.is_fixed());
+        w_assert9(parent.is_node() || (parent.is_leaf() &&
+                leaf.pid() == root  ));
+        w_assert9( parent.is_leaf_parent() || parent.is_leaf());
 
 
-            /* 
-             * if we re-start a traversal, we'll start with the parent
-             * in most or all cases:
-             */
-            search_start_pid = parent.pid();
-            search_start_lsn = parent.lsn();
+        /* 
+         * if we re-start a traversal, we'll start with the parent
+         * in most or all cases:
+         */
+        search_start_pid = parent.pid();
+        search_start_lsn = parent.lsn();
 
-            /*
-             * verify that we're at correct page: search for smallest
-             * satisfying key, or if not found, the next key.
-             * In this case, we don't have an elem; we use null.
-             * NB: <key,null> *could be in the tree* 
-             * TODO(correctness) cope with null * in the tree. (Write a test for it).
-             */
-            uint whatcase;
-            W_DO(_satisfy(leaf, key, elem, found, 
-                        total_match, slot, whatcase));
+        /*
+         * verify that we're at correct page: search for smallest
+         * satisfying key, or if not found, the next key.
+         * In this case, we don't have an elem; we use null.
+         * NB: <key,null> *could be in the tree* 
+         * TODO(correctness) cope with null 
+         * * in the tree. (Write a test for it).
+         */
+        uint whatcase;
+        W_DO(_satisfy(leaf, key, elem, found, 
+                    total_match, slot, whatcase));
 
-            if(cursor && cursor->is_backward() && !total_match) {
-                // we're pointing at the slot after the greatest element, which
-                // is where the key would be inserted (shoving this element up) 
-                if(slot>0) {
-                    // ?? what to do if this is slot 0 and
-                    // there's a previous page?
-                    slot --;
-                    DBG(<<" moving slot back one: slot=" << slot);
-                }
-                if(slot < leaf.nrecs()) {
-                    whatcase = m_satisfying_key_found_same_page;
-                } 
+        if(cursor && cursor->is_backward() && !total_match) {
+            // we're pointing at the slot after the greatest element, which
+            // is where the key would be inserted (shoving this element up) 
+            if(slot>0) {
+                // ?? what to do if this is slot 0 and
+                // there's a previous page?
+                slot --;
+                DBG(<<" moving slot back one: slot=" << slot);
             }
+            if(slot < leaf.nrecs()) {
+                whatcase = m_satisfying_key_found_same_page;
+            } 
+        }
+        DBGTHRD(<<"found = " << found 
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid() 
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+        /* 
+         * Deal with SMOs -- these cases are treated in Mohan 3.1
+         */
+        switch (whatcase) {
+        case m_satisfying_key_found_same_page:{
+            // case 1:
+            // found means we found the key we're seeking
+            // !found means the satisfying key is the next key
+            // w_assert9(found);
+            parent.unfix();
+            }break;
+
+        case m_not_found_end_of_non_empty_page: {
+
+            // case 2: possible smo in progress
+            // but leaf is not empty, and it has
+            // a next page -- that much is assured by
+            // _satisfy
+
+            w_assert9(leaf.nrecs());
+            w_assert9(leaf.next());
+
+            /*
+             * Mohan: unlatch the parent and latch the successor.
+             * If the successor is empty or does not have a
+             * satisfying key, unlatch both pages and request
+             * the tree latch in S mode, then restart the search
+             * from the parent.
+             */
+            parent.unfix();
+
+            lpid_t pid = root; // get volume, store part
+            pid.page = leaf.next();
+
+            INC_TSTAT(bt_links);
+            W_DO( p2.fix(pid, LATCH_SH) );
+            /* 
+             * does successor have a satisfying key?
+             */
+            slot = -1;
+            W_DO( _satisfy(p2, key, elem, found, total_match, 
+                slot, whatcase));
+
             DBGTHRD(<<"found = " << found 
-                    << " total_match=" << total_match
-                    << " leaf=" << leaf.pid() 
-                    << " case=" << whatcase
-                    << " slot=" << slot);
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid() 
+                << " case=" << whatcase
+                << " slot=" << slot);
 
-            /* 
-             * Deal with SMOs -- these cases are treated in Mohan 3.1
-             */
-            switch (whatcase) {
-            case m_satisfying_key_found_same_page:{
-                // case 1:
-                // found means we found the key we're seeking
-                // !found means the satisfying key is the next key
-                // w_assert9(found);
-                parent.unfix();
-                }break;
-
-            case m_not_found_end_of_non_empty_page: {
-
-                // case 2: possible smo in progress
-                // but leaf is not empty, and it has
-                // a next page -- that much is assured by
-                // _satisfy
-
-                w_assert9(leaf.nrecs());
-                w_assert9(leaf.next());
-
-                /*
-                 * Mohan: unlatch the parent and latch the successor.
-                 * If the successor is empty or does not have a
-                 * satisfying key, unlatch both pages and request
-                 * the tree latch in S mode, then restart the search
-                 * from the parent.
-                 */
-                parent.unfix();
-
-                lpid_t pid = root; // get volume, store part
-                pid.page = leaf.next();
-
-                INC_TSTAT(bt_links);
-                W_DO( p2.fix(pid, LATCH_SH) );
+            w_assert9(whatcase != m_not_found_end_of_file);
+            if(whatcase == m_satisfying_key_found_same_page) {
                 /* 
-                 * does successor have a satisfying key?
+                 * Mohan: If a satisfying key is found on the 
+                 * 2nd leaf, (SM bit may be 1), unlatch the first leaf
+                 * immediately, provided the found key is not the very
+                 * first key in the 2nd leaf.
                  */
-                slot = -1;
-                W_DO( _satisfy(p2, key, elem, found, total_match, 
-                    slot, whatcase));
-
-                DBGTHRD(<<"found = " << found 
-                    << " total_match=" << total_match
-                    << " leaf=" << leaf.pid() 
-                    << " case=" << whatcase
-                    << " slot=" << slot);
-
-                w_assert9(whatcase != m_not_found_end_of_file);
-                if(whatcase == m_satisfying_key_found_same_page) {
-                    /* 
-                     * Mohan: If a satisfying key is found on the 
-                     * 2nd leaf, (SM bit may be 1), unlatch the first leaf
-                     * immediately, provided the found key is not the very
-                     * first key in the 2nd leaf.
-                     */
-                    if(slot > 0) {
-                        leaf.unfix();
-                    }
-                    child =  &p2;
-                } else {
-                    /* no satisfying key; page could be empty */
-
-                    w_error_t::err_num_t rce;
-                    // unconditional
-                    rce = tree_root.get_for_smo(false, LATCH_SH,
-                            leaf, LATCH_SH, false, &p2, LATCH_NL);
-                    //eRETRY means we need to restart the search
-                    //but we're going to restart it ANYWAY.
-                    //TODO NANCY: look this case up in the paper and document it
-                    //here
-                    W_IGNORE(rc);
-
-                    tree_root.unfix(); // instant latch
-
-                    DBGTHRD(<<"-->again TREE LATCH MODE "
-                                << int(tree_root.latch_mode())
-                                );
-                    /* 
-                     * restart the search from the parent
-                     */
-                    DBG(<<"-->again NO TREE LATCH");
-                    goto again;
-                }
-                }break;
-
-            case m_not_found_end_of_file:{
-                // case 0: end of file
-                // Lock the special EOF value
-                slot = -1;
-                if(cursor) {
-                    cursor->keep_going = false;
-                    cursor->free_rec();
-                }
-
-                w_assert9( !total_match ); // but found (key) could be true
-
-               } break;
-
-            case m_not_found_page_is_empty: {
-                // case 3: empty page: smo going on
-                // or it's an empty index.
-                w_assert9(whatcase == m_not_found_page_is_empty);
-                w_assert9(leaf.nrecs() == 0);
-
-                // Must be empty index or a deleted leaf page
-                w_assert1(leaf.is_smo() || root == leaf.pid());
-
-                if(leaf.is_smo()) {
-                    // unconditional
-                    w_error_t::err_num_t rce;
-                    rce = tree_root.get_for_smo(false, LATCH_SH,
-                            leaf, LATCH_SH, false, &parent, LATCH_NL);
-                    tree_root.unfix();
-                    if(rce && (rce != eRETRY)) {
-                        return RC(rce);
-                    }
-                    
-                    DBGTHRD(<<"-->again TREE LATCH MODE "
-                                << int(tree_root.latch_mode())
-                                );
-                    goto again;
-
-                } else {
-                    slot = -1;
-                    whatcase = m_not_found_end_of_file;
-                }
-                }break;
-
-            default:
-                W_FATAL_MSG(fcINTERNAL, << "bad switch value for case :" << whatcase );
-                break;
-            } // switch
-
-            if(cursor) {
-                // starting condition
-                cursor->update_lsn(*child);
-            }
-
-            /*
-             *  Get a handle on the record to 
-             *  grab the key-value locks, as well as to
-             *  return the element the caller seeks.
-             *
-             *  At this point, we don't know if the entry
-             *  we're looking at is precisely the one
-             *  we looked up, or if it's the next one.
-             */
-
-            btrec_t rec;
-
-            if(slot < 0) {
-                w_assert9(whatcase == m_not_found_end_of_file);
-                if(cc > t_cc_none) mk_kvl_eof(cc, kvl, stid);
-            } else {
-                w_assert9(slot < child->nrecs());
-                if(cursor) {
-                    // does the unscramble
-                    W_DO(cursor->make_rec(*child, slot));
-                }
-                // does not unscramble (need it for mk_kvl even when 
-                // cursor != 0)
-                // TODO : NANCY: is this a change I made to shore-mt? gnats#?
-                // TODO: NANCY explain this comment
-                rec.set(*child, slot);
-                if(cc > t_cc_none) mk_kvl(cc, kvl, stid, unique, rec);
-            }
-
-            if( (!found && !total_match) &&
-                (cc == t_cc_modkvl) ) {
-                ; /* we don't want to lock next */
-            } else if (cc != t_cc_none)  {
-                /*
-                 *  Conditionally lock current/next entry.
-                 */
-                lock_mode_t mode = cursor? cursor->mode() : SH;
-                rc = lm->lock(kvl, mode, t_long, WAIT_IMMEDIATE);
-                if (rc.is_error()) {
-                    DBG(<<"rc=" << rc);
-                    w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
-
-                    /*
-                     *  Failed to get lock immediately. Unfix pages
-                     *  wait for the lock.
-                     */
-                    lsn_t lsn = child->lsn();
-                    lpid_t pid = child->pid();
+                if(slot > 0) {
                     leaf.unfix();
-                    child->unfix();
-                    parent.unfix(); // NEH: added (shore-mt gnats #69). 
-                    // Note, unfix checks for fix before unfixing.
-
-                    W_DO( lm->lock(kvl, mode, t_long) );
-
-                    /*
-                     *  Got the lock. Fix child. If child has
-                     *  changed (lsn does not match) then start the 
-                     *  search over.  This is a gross simplification
-                     *  of Mohan's treatment.
-                     *  Re-starting  from the root is safe only because
-                     *  before we got into btree_m, we'll have grabbed
-                     *  an IS lock on the whole index, at a minimum,
-                     *  meaning there's no chance of the whole index being
-                     *  destroyed in the meantime.
-                     */
-                    W_DO( child->fix(pid, LATCH_SH) );
-                    if (lsn == child->lsn() && child == &leaf)  {
-                        /* do nothing */;
-                    } else {
-                        /* BUGBUG:
-                         * A concurrency performance bug, actually:
-                         * Mohan says if the subsequent re-search
-                         * finds a different key (next-key), we should
-                         * unlock the old kvl and lock the new kvl.
-                         * We're not doing that.
-                         */
-                        DBGTHRD(<<"->again");
-                        goto again;        // retry
-                    }
-                } // acquiring locks
-            } // if any locking needed
-
-            if (found) {
-                // rec is the key that we're looking up
-                if(!cursor) {
-                    // Copy the element 
-                    // assume caller provided space
-                    if (el) {
-                        if (elen < rec.elen())  {
-                            DBG(<<"RECWONTFIT");
-                            return RC(eRECWONTFIT);
-                        }
-                        elen = rec.elen();
-                        rec.elem().copy_to(el, elen);
-                    }
                 }
+                child =  &p2;
             } else {
-                // rec will be the next record if !found
-                // w_assert9(!rec);
+                /* no satisfying key; page could be empty */
+
+                w_error_t::err_num_t rce;
+                // unconditional
+                rce = tree_root.get_for_smo(false, LATCH_SH,
+                        leaf, LATCH_SH, false, &p2, LATCH_NL);
+                //eRETRY means we need to restart the search
+                //but we're going to restart it ANYWAY.
+                //TODO NANCY: look this case up in the paper and document it
+                //here
+                W_IGNORE(rc);
+
+                tree_root.unfix(); // instant latch
+
+                DBGTHRD(<<"-->again TREE LATCH MODE "
+                            << int(tree_root.latch_mode())
+                            );
+                /* 
+                 * restart the search from the parent
+                 */
+                DBG(<<"-->again NO TREE LATCH");
+                goto again;
             }
+            }break;
+
+        case m_not_found_end_of_file:{
+            // case 0: end of file
+            // Lock the special EOF value
+            slot = -1;
+            if(cursor) {
+                cursor->keep_going = false;
+                cursor->free_rec();
+            }
+
+            w_assert9( !total_match ); // but found (key) could be true
+
+           } break;
+
+        case m_not_found_page_is_empty: {
+            // case 3: empty page: smo going on
+            // or it's an empty index.
+            w_assert9(whatcase == m_not_found_page_is_empty);
+            w_assert9(leaf.nrecs() == 0);
+
+            // Must be empty index or a deleted leaf page
+            w_assert1(leaf.is_smo() || root == leaf.pid());
+
+            if(leaf.is_smo()) {
+                // unconditional
+                w_error_t::err_num_t rce;
+                rce = tree_root.get_for_smo(false, LATCH_SH,
+                        leaf, LATCH_SH, false, &parent, LATCH_NL);
+                tree_root.unfix();
+                if(rce && (rce != eRETRY)) {
+                    return RC(rce);
+                }
+                
+                DBGTHRD(<<"-->again TREE LATCH MODE "
+                            << int(tree_root.latch_mode())
+                            );
+                goto again;
+
+            } else {
+                slot = -1;
+                whatcase = m_not_found_end_of_file;
+            }
+            }break;
+
+        default:
+            W_FATAL_MSG(fcINTERNAL, << "bad switch value for case :" << whatcase );
+            break;
+        } // switch
+
+        if(cursor) {
+            // starting condition
+            cursor->update_lsn(*child);
+        }
+
+        /*
+         *  Get a handle on the record to 
+         *  grab the key-value locks, as well as to
+         *  return the element the caller seeks.
+         *
+         *  At this point, we don't know if the entry
+         *  we're looking at is precisely the one
+         *  we looked up, or if it's the next one.
+         */
+
+        btrec_t rec;
+
+        if(slot < 0) {
+            w_assert9(whatcase == m_not_found_end_of_file);
+            if(cc > t_cc_none) mk_kvl_eof(cc, kvl, stid);
+        } else {
+            w_assert9(slot < child->nrecs());
+            if(cursor) {
+                // does the unscramble
+                W_DO(cursor->make_rec(*child, slot));
+            }
+            // else does not unscramble 
+            
+            // Prepare rec for mk_kvl:
+            rec.set(*child, slot);
+            if(cc > t_cc_none) mk_kvl(cc, kvl, stid, unique, rec);
+        }
+
+        if( (!found && !total_match) &&
+            (cc == t_cc_modkvl) ) {
+            ; /* we don't want to lock next */
+        } else if (cc != t_cc_none)  {
+            /*
+             *  Conditionally lock current/next entry.
+             */
+            lock_mode_t mode = cursor? cursor->mode() : SH;
+            rc = lm->lock(kvl, mode, t_long, WAIT_IMMEDIATE);
+            if (rc.is_error()) {
+                DBG(<<"rc=" << rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                /*
+                 *  Failed to get lock immediately. Unfix pages
+                 *  wait for the lock.
+                 */
+                lsn_t lsn = child->lsn();
+                lpid_t pid = child->pid();
+                leaf.unfix();
+                child->unfix();
+                parent.unfix(); // NEH: added (shore-mt gnats #69). 
+                // Note, unfix checks for fix before unfixing.
+
+                W_DO( lm->lock(kvl, mode, t_long) );
+
+                /*
+                 *  Got the lock. Fix child. If child has
+                 *  changed (lsn does not match) then start the 
+                 *  search over.  This is a gross simplification
+                 *  of Mohan's treatment.
+                 *  Re-starting  from the root is safe only because
+                 *  before we got into btree_m, we'll have grabbed
+                 *  an IS lock on the whole index, at a minimum,
+                 *  meaning there's no chance of the whole index being
+                 *  destroyed in the meantime.
+                 */
+                W_DO( child->fix(pid, LATCH_SH) );
+                if (lsn == child->lsn() && child == &leaf)  {
+                    /* do nothing */;
+                } else {
+                    /* filed as GNATS 134 */
+                    /* BUGBUG: A concurrency performance bug, actually:
+                     * Mohan says if the subsequent re-search
+                     * finds a different key (next-key), we should
+                     * unlock the old kvl and lock the new kvl.
+                     * We're not doing that.
+                     */
+                    DBGTHRD(<<"->again");
+                    goto again;        // retry
+                }
+            } // acquiring locks
+        } // if any locking needed
+
+        if (found) {
+            // rec is the key that we're looking up
+            if(!cursor) {
+                // Copy the element 
+                // assume caller provided space
+                if (el) {
+                    if (elen < rec.elen())  {
+                        DBG(<<"RECWONTFIT");
+                        return RC(eRECWONTFIT);
+                    }
+                    elen = rec.elen();
+                    rec.elem().copy_to(el, elen);
+                }
+            }
+        } else {
+            // rec will be the next record if !found
+            // w_assert9(!rec);
+        }
 
         }
         // Destructors did or will unfix all pages.
@@ -3045,7 +3048,7 @@ btree_impl::_split_leaf(
 #endif 
     if (xd)  {
         SSMTEST("btree.propagate.s.1");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
     }
 
     return RCOK;
@@ -3654,13 +3657,13 @@ btree_impl::_search(
 
 rc_t
 btree_impl::_satisfy(
-    const btree_p&        page,
+    const btree_p&       page,
     const cvec_t&        key,
     const cvec_t&        elem,
     bool&                found_key,
     bool&                total_match,
-    slotid_t&                slot,
-    uint&                 wcase
+    slotid_t&            slot,
+    uint&                wcase
 )
 {
     m_page_search_cases whatcase;

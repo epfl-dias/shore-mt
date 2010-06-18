@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='FILE_H'>
 
- $Id: file.h,v 1.98.2.10 2010/03/19 22:20:23 nhall Exp $
+ $Id: file.h,v 1.102 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -110,9 +110,6 @@ public:
 #endif
         );
 
-    bool                         is_deadbeef() const; // page freed?
-    void                         set_deadbeef(); // page is freed
-    void                         clr_deadbeef(); // page allocated
 #define DUMMY_CLUSTER_ID 0
 
 private:

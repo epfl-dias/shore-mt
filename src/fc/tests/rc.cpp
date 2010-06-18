@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: rc.cpp,v 1.24.2.6 2009/12/21 18:39:55 nhall Exp $
+ $Id: rc.cpp,v 1.26 2010/06/08 22:27:15 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -144,12 +144,16 @@ int main()
 	{
 		w_rc_t rc = testing1();
 		w_assert1(rc.is_error());
-		cout << "NANCY " << __LINE__ << " " << rc << endl;
+		cout << " ORIG:" << rc << endl;
+		w_rc_i it(rc);
 
-		// NANCY TODO BUG BUG Loses its augmentation in copy operator
-        w_rc_t rc2 = rc;
+        w_rc_t rc2(rc);
+		cout << " COPY CONSTRUCTOR: " << rc2 << endl;
+
+        rc2 = rc;
 		w_assert1(rc2.is_error());
-		cout << "NANCY " << __LINE__ << " " << rc2 << endl;
+		cout << " COPY OPERATOR: " << rc2 << endl;
+
 	}
     return 0;
 }

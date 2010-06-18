@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='LOCK_S_inline_H'>
 
- $Id: lock_s_inline.h,v 1.9.2.8 2010/03/19 22:20:24 nhall Exp $
+ $Id: lock_s_inline.h,v 1.13 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -105,61 +105,70 @@ inline
 uint2_t             
 lockid_t::slot_bits() const 
 {
-    return  s[6];
+    return  s[slotSindex];
 }
 
 inline
 uint4_t             
 lockid_t::slot_kvl_bits() const 
 {
-    return  w[3];
+    return  w[slotWindex];
 }
 
 inline
 const slotid_t&         
 lockid_t::slot() const 
 {
-    w_assert9((s[0]&0xff) == 0);
-    return  *(slotid_t *) &s[6];
+    w_assert3((s[0]&0xff) == 0);
+    return  *(slotid_t *) &s[slotSindex];
 }
 
 inline
 void             
 lockid_t::set_slot(const slotid_t & e) 
 {
-    w_assert9((s[0]&0xff) == 0);
-    w_assert9(sizeof(slotid_t) == sizeof(s[6]));
-    w[3] = 0; // clear lower part
-    s[6] = e;
+    w_assert3((s[0]&0xff) == 0);
+    w_assert3(sizeof(slotid_t) == sizeof(s[slotSindex]));
+    w[slotWindex] = 0; // clear lower part
+    s[slotSindex] = e;
+}
+
+inline
+lockid_t::page_bits_t
+lockid_t::page_bits() const 
+{
+    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    w_assert3(sizeof(uint4_t) == sizeof(w[pageWindex]));
+    return w[pageWindex];
+}
+
+inline
+void
+lockid_t::set_page_bits(lockid_t::page_bits_t bits) 
+{
+    DBG(<<"lockid_t::set_page_bits() " << "bits= "  << bits);
+    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    w_assert3(sizeof(page_bits_t) == sizeof(w[pageWindex]));
+    w[pageWindex] = bits;
 }
 
 inline
 const shpid_t&         
 lockid_t::page() const 
 {
-    w_assert9(sizeof(shpid_t) == sizeof(w[2]));
-    w_assert9((s[0]&0xff) == 0);
-    return *(shpid_t *) (&w[2]);
+    w_assert3((s[0]&0xff) == 0);
+    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    return *(shpid_t *) (&w[pageWindex]);
+
 }
 
 inline
 void             
 lockid_t::set_page(const shpid_t & p) 
 {
-    w_assert9((s[0]&0xff) == 0);
-    w_assert9(sizeof(shpid_t) == sizeof(w[2]));
-    w[2] = (uint4_t) p;
+    w_assert3((s[0]&0xff) == 0);
+    set_page_bits((page_bits_t)p);
 }
-
-inline
-uint4_t             
-lockid_t::page_bits() const 
-{
-    w_assert9(sizeof(shpid_t) <= sizeof(w[2]));
-    w_assert9(sizeof(uint4_t) <= sizeof(w[2]));
-    return w[2];
-}
-
 
 inline
 vid_t             
@@ -332,8 +341,8 @@ lockid_t::extract_kvl(kvl_t &k) const
     w_assert9((s[0]&0xff) == 0);
     w_assert9(lspace() == t_kvl);
     extract_stid(k.stid);
-    k.h = w[2];
-    k.g = w[3];
+    k.h = w[pageWindex];
+    k.g = w[slotWindex];
 }
 
 inline
@@ -369,7 +378,7 @@ lockid_t::extract_user3(user3_t &u) const
     lspace() == t_user3 ||
     lspace() == t_user4);
     extract_user2(u);
-    u.u3 = w[2];
+    u.u3 = w[pageWindex];
 }
 
 inline
@@ -378,7 +387,7 @@ lockid_t::extract_user4(user4_t &u) const
 {
     w_assert9(lspace() == t_user4);
     extract_user3(u);
-    u.u4 = w[3];
+    u.u4 = w[user4Windex];
 }
 
 inline
@@ -420,28 +429,28 @@ inline
 uint4_t
 lockid_t::u3() const
 {
-    return w[2];
+    return w[pageWindex];
 }
 
 inline
 void
 lockid_t::set_u3(uint4_t u)
 {
-    w[2] = u;
+    w[pageWindex] = u;
 }
 
 inline
 uint4_t
 lockid_t::u4() const
 {
-    return w[3];
+    return w[user4Windex];
 }
 
 inline
 void
 lockid_t::set_u4(uint4_t u)
 {
-    w[3] = u;
+    w[user4Windex] = u;
 }
 
 
@@ -458,7 +467,7 @@ lockid_t::zero()
     set_snum(0);
     set_page(0);
     // set_slot(0);
-    w[3] = 0; // have to get entire thing
+    w[user4Windex] = 0; // have to get entire thing
 }
 
 
@@ -528,8 +537,10 @@ lockid_t::lockid_t(const kvl_t& kvl)
     set_lspace(t_kvl);
     w_assert9(sizeof(kvl_t) == sizeof(w[1])*2 + sizeof(stid_t));
     set_store(kvl.stid);
-    w[2] = kvl.h;
-    w[3] = kvl.g;
+
+    page_bits_t bits = kvl.h;
+    set_page_bits(bits);
+    w[slotWindex] = kvl.g;
 }
 
 inline NORET
@@ -556,7 +567,7 @@ lockid_t::lockid_t(const user3_t& u)
     set_lspace(t_user3);
     s[1] = u.u1;
     w[1] = u.u2;
-    w[2] = u.u3;
+    w[pageWindex] = u.u3;
 }
 
 inline NORET
@@ -566,8 +577,11 @@ lockid_t::lockid_t(const user4_t& u)
     set_lspace(t_user4);
     s[1] = u.u1;
     w[1] = u.u2;
-    w[2] = u.u3;
-    w[3] = u.u4;
+
+    page_bits_t tmp = u.u3;
+    set_page_bits(tmp);
+
+    w[slotWindex] = u.u4;
 }
 
 
@@ -581,8 +595,8 @@ lockid_t::operator=(const lockid_t& i)
     */
     w[0] = i.w[0]; 
     w[1] = i.w[1]; 
-    w[2] = i.w[2]; 
-    w[3] = i.w[3]; 
+    set_page_bits(i.page_bits());
+    w[slotWindex] = i.w[slotWindex]; 
     return *this;
 }
 
@@ -651,7 +665,10 @@ lockid_t::hash() const
     // return uint4_t(lockhashfunc(l[0]) + lockhashfunc(l[1]));
     // we cannot include s[0] in its entirety, because it contains
     // the page-alloc bit (or not).
-    return uint4_t(lockhashfunc(lspace_bits()) + lockhashfunc(w[1]) + lockhashfunc(l[1]));
+    return uint4_t(
+            lockhashfunc(lspace_bits()) + 
+            lockhashfunc(w[1]) + 
+            lockhashfunc(l[1]));
     
 }
 

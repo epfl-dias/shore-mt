@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: smsh.tcl,v 1.1.2.13 2010/03/25 18:05:27 nhall Exp $
+#  $Id: smsh.tcl,v 1.5 2010/06/08 22:28:26 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -527,7 +527,7 @@ proc runscripts { scr } {
 
 proc formatlong { prefix mplier fmt x } {
     set res [format $fmt $x]
-    for {set i 0} { $i <= $mplier } {incr i} {
+    for {set i 0} { $i < $mplier } {incr i} {
          set res $prefix$res
     }
 	st checkstack

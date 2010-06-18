@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='BF_S_H'>
 
- $Id: bf_s.h,v 1.42.2.8 2010/03/19 22:20:23 nhall Exp $
+ $Id: bf_s.h,v 1.44 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -109,7 +109,7 @@ private:
 
     bool        _dirty;          // true if page is dirty
     lsn_t       _rec_lsn;        // recovery lsn
-    lsn_t	_old_rec_lsn;	 // valid if the page is currently being written out
+    lsn_t	    _old_rec_lsn;	 // valid if the page is being cleaned
 
     bfcb_t*     _next_free;    // used by the (singly-linked) freelist
 
@@ -152,22 +152,22 @@ public:
     void  set_dirty_bit() { _dirty = true;  }
 
     lsn_t const &safe_rec_lsn() const {
-	/* Work with a copy of _old_rec_lsn in case the original gets
-	   cleared while we're deciding whether to return it.
+		/* Work with a copy of _old_rec_lsn in case the original gets
+		   cleared while we're deciding whether to return it.
 
-	   We don't care if we get a stale rec_lsn (recovery would
-	   just take slightly longer that way), but we can't afford to
-	   return lsn_t::null if _rec_lsn is valid.
-	 */
-	lsn_t old = _old_rec_lsn;
-	return old.valid()? old : _rec_lsn;
+		   We don't care if we get a stale rec_lsn (recovery would
+		   just take slightly longer that way), but we can't afford to
+		   return lsn_t::null if _rec_lsn is valid.
+		 */
+		lsn_t old = _old_rec_lsn;
+		return old.valid()? old : _rec_lsn;
     }
     
     const lsn_t&  curr_rec_lsn() const  { return _rec_lsn;  }
     const lsn_t&  old_rec_lsn() const { return _old_rec_lsn; }
     void  set_rec_lsn(const lsn_t &what);
     void  save_rec_lsn() { _old_rec_lsn = _rec_lsn; }
-    void clr_old_rec_lsn() { _old_rec_lsn = lsn_t::null; }
+    void  clr_old_rec_lsn() { _old_rec_lsn = lsn_t::null; }
 
     // clears the dirty bit and the rec_lsn
     // NOTE: it must happen in that order to avoid races!
@@ -190,7 +190,7 @@ public:
                         );
     int4_t       hash_func() const { return _hash_func; }
     void         set_hash_func(int4_t h) { _hash_func=h; }
-    int4_t       volatile    hash() const { return _hash;}
+    int4_t       volatile hash() const { return _hash;}
     void         set_hash(int4_t h) { _hash=h;}
 
 
@@ -208,7 +208,7 @@ public:
     // I'm making _pin_cnt private just so I can be sure all updates
     // are through the right methods.
     void                zero_pin_cnt() { _pin_cnt=0; }
-    int4_t  volatile    pin_cnt() const { return _pin_cnt; }
+    int4_t              volatile pin_cnt() const { return _pin_cnt; }
 
     // is_hot: is someone waiting for the latch?
     // NOTE: this is somewhat racy, in that it returns false negatives

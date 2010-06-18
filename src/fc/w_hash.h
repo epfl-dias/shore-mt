@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='W_HASH_H'>
 
- $Id: w_hash.h,v 1.34.2.8 2010/03/19 22:17:19 nhall Exp $
+ $Id: w_hash.h,v 1.36 2010/06/15 17:24:25 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -114,8 +114,8 @@ BIND_FRIEND_OPERATOR_PART_1B(T,LOCK,K,w_hash_t<T,LOCK,K>)
  * should be aware of the likely bit distribution
  * of the result of w_hash(key).
  *
- * \todo TODO CODE: replace this hash table's use of these functions with better
- * hash functions. This is used in: histograms, dirty page table for restart.
+ * \bug (GNATS 114, non-critical performance issue) improve these hash funcs. 
+ * This is used in: histograms, dirty page table for restart.
  *
  */
 template <class T, class LOCK, class K>

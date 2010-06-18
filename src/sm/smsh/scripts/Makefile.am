@@ -3,6 +3,7 @@ include $(top_srcdir)/Makefile.generic
 check_PROGRAMS     =
 EXTRA_DIST =  \
 	README \
+	sync_commands.tcl \
 	all all.individually all.perf all_nortree \
 	alloc.1 alloc.2 alloc.3 alloc.4 alloc.5 alloc.6 \
 	alloc.7 alloc.8 alloc.9 alloc.10 alloc.11 alloc.all \
@@ -25,15 +26,15 @@ EXTRA_DIST =  \
 	cleanup.all \
 	confidence \
 	create.perf createsmall.1 \
-	deadlock.1 deadlock.2 deadlock.3 deadlock.4 deadlock.5 deadlock.6 \
+	deadlock.1 deadlock.2 pin_deadlock.1 deadlock.4 deadlock.5 deadlock.6 \
 	destroy.perf \
 	empty \
 	file.1 file.2 file.3 file.4 file.5 file.5a file.6 \
-	file.7 file.8 file.activity file.activity2 \
+	file.7 file.8 file.9 file.activity file.activity2 \
 	file.all file.long.all file.many file.many.perf  \
 	file.perf file.perf2 file.perf3 \
 	file.undo.1 file.undo.2 file_destroy.1 \
-	free.all free_ext free_page freepage.bug \
+	free.all free_ext free_page free_page.abort freepage.bug \
 	lgrec.1 lgrec.2 lgrec.3 lgrec.4 lgrec.5 lgrec.6 \
 	lgrec.all lgrec.long.all \
 	lgrec.very.0 lgrec.very.1 lgrec.very.2 lgrec.very.3 \

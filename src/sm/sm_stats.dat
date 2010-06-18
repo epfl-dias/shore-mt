@@ -1,6 +1,6 @@
 # <std-header style='data' orig-src='shore'>
 #
-#  $Id: sm_stats.dat,v 1.1.2.10 2010/03/25 18:05:16 nhall Exp $
+#  $Id: sm_stats.dat,v 1.4 2010/06/15 17:30:07 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -58,24 +58,18 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bf_cleaner_sweeps    Number of sweeps of the bf_cleaner thread
     u_long bf_cleaner_signalled Number of sweeps initiated by a kick
 
+	// bf cleaner percieves hot page
+    u_long bf_already_evicted   Could not find page to copy for flushing (evicted)
+
 	// Events on attempt to relatch page after writing copy :
 	// These are in _clean_segment and _clean_buf so they can happen due to
 	// a (foreground) _scan or due to a (background) bf cleaner
-    u_long bf_dirty_page_evicted    Could not find page to mark clean
-    u_long bf_dirty_page_latched  	Could not latch page to mark clean
-    u_long bf_dirty_page_changed  	Could not mark page clean (hot)
-    u_long bf_dirty_page_cleaned  	Found page already cleaned
-    u_long bf_cleaned_tmp_page  	Marked t_tmp page clean
-    u_long bf_cleaned_reg_page  	Marked t_regular page clean
-    u_long bf_cleaned_other_page  	Marked other page clean (not store-member pages)
+    u_long bf_dirty_page_cleaned  	Found page already cleaned (hot)
     u_long bf_flushed_OHD_page		Non-cleaner thread had to flush an old-hot-dirty page synchronously
-    u_long bf_diffed_pages  	Had to compare t_tmp pages 
-    u_long bf_fixed_rec_lsn  	Updated the rec_lsn from the copy
-    u_long bf_backoff  	Used backoff trying to EX-latch a page
 
     u_long bf_kick_full 	Kicks because pool is full of dirty pages
     u_long bf_kick_replacement 	Kicks because doing page replacement
-    u_long bf_kick_threshhold 	Kicks because dirty page threshold met
+    u_long bf_kick_threshold 	Kicks because dirty page threshold met
     u_long bf_sweep_page_hot_skipped 	Page swept was not flushed because it was hot 
     u_long bf_discarded_hot 	Discarded a page from the bp when someone was waiting to latch it
     u_long bf_log_flush_all    	Number of whole-log flushes by bf_cleaner
@@ -108,7 +102,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
 
     u_long bf_upgrade_latch_race  	Dropped and reqacquired latch to upgrade
     u_long bf_upgrade_latch_changed	A page changed during a latch upgrade race
-    u_long bf_repair_rec_lsn		Cleared rec_lsn on a page dirtied by unlogged changes
+    u_long restart_repair_rec_lsn		Cleared rec_lsn on a page dirtied by unlogged changes
 
     // Operations on local data volumes
     u_long vol_reads		Data volume read requests (from disk)
@@ -141,6 +135,8 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long vol_resv_cache_hit	Pages allocated from extents via cache
     u_long vol_resv_cache_fail	Failed to allocate from an extent found in cache
 
+    u_long vol_lock_noalloc	Failed to allocate from an extent due to lock contention
+
     // Log operations -- per-server only
     u_long log_dup_sync_cnt	Times the log was flushed superfluously
     u_long log_sync_cnt		Times the log was flushed (and was needed)
@@ -155,6 +151,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long log_full_wait	A log full was resolved by waiting for space
     u_long log_full_force	A log full was resolved by forcing the buffer pool
     u_long log_full_giveup	A transaction aborted because neither waiting nor forcing helped
+    u_long log_file_wrap    Log file numbers wrapped around
 
     u_long log_bytes_generated	Bytes written to the log
 
@@ -265,6 +262,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long begin_xct_cnt	Transactions started
     u_long commit_xct_cnt	Transactions committed
     u_long abort_xct_cnt	Transactions aborted
+    u_long log_warn_abort_cnt	Transactions aborted due to log space warning
     u_long prepare_xct_cnt	Transactions prepared
     u_long rollback_savept_cnt	Rollbacks to savepoints (not incl aborts)
 
@@ -322,5 +320,19 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long lk_user2_acq		User2 locks acquired
     u_long lk_user3_acq		User3 locks acquired
     u_long lk_user4_acq		User4 locks acquired
+
+	// Lock types that had to wait
+    u_long lock_wait_cnt	Lock acquires that waited in smthread_block
+    u_long lock_block_cnt	Times lock acquire called smthread_block
+    u_long lk_vol_wait		Volume locks waited
+    u_long lk_store_wait		Store locks waited
+    u_long lk_page_wait		Page locks waited
+    u_long lk_kvl_wait		Key-value locks waited
+    u_long lk_rec_wait		Record locks waited
+    u_long lk_ext_wait		Extent locks waited
+    u_long lk_user1_wait		User1 locks waited
+    u_long lk_user2_wait		User2 locks waited
+    u_long lk_user3_wait		User3 locks waited
+    u_long lk_user4_wait		User4 locks waited
 };
 

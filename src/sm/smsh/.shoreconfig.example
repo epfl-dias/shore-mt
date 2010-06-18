@@ -1,6 +1,6 @@
 # <std-header style='shell' orig-src='shore'>
 #
-#  $Id: .shoreconfig.example,v 1.16.2.6 2010/03/19 22:20:30 nhall Exp $
+#  $Id: .shoreconfig.example,v 1.18 2010/06/08 22:28:24 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -63,6 +63,8 @@
 #
 # For the large record scripts in smsh, with volume size 150000(KB)
 # and with 45%-full log warn we need about 9 GB log.
+# This is too big for a 32-bit build and we have to decrease the
+# log size and the volume size for that platform.
 *.server.*.sm_logsize: 9000000
 
 # Specify the sm buffer pool size for any program

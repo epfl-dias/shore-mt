@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore'>
 
- $Id: bf_htab.cpp,v 1.1.2.12 2010/03/19 22:20:23 nhall Exp $
+ $Id: bf_htab.cpp,v 1.3 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -332,8 +332,6 @@ bool bf_core_m::htab::_insert(bfcb_t* t, bfcb_t* &moved)
                 t->set_hash(h);
                 t->set_hash_func(i);
                 w_assert2(bb->_lock.is_mine());
-                // BUG_CS_EARLY_RELEASE_FIX
-                // bb->_lock.release(); NO-NO! MUST RELEASE THROUGH cs!
                 cs.exit();
                 w_assert2(bb->_lock.is_mine()==false);
                 CHECK_ENTRY(i, false);
@@ -380,10 +378,6 @@ bool bf_core_m::htab::_insert(bfcb_t* t, bfcb_t* &moved)
                 t->set_hash(hashes[i]);
                 t->set_hash_func(i);
                 w_assert2(balt->_lock.is_mine());
-                // NEW_CUCKOO_HTAB - bug FIX -- inherited from old htab
-                // but not fixed there.
-                // BUG_CS_EARLY_RELEASE_FIX
-                // balt->_lock.release(); NO-NO! MUST RELEASE THROUGH cs!
                 cs.exit();
                 w_assert2(balt->_lock.is_mine()==false);
                 CHECK_TABLE();
@@ -419,7 +413,7 @@ bool bf_core_m::htab::_insert(bfcb_t* t, bfcb_t* &moved)
 }
 
 
-// BUG_BF_HTAB_RACE: item could be moved from bucket while we
+// GNATS 35: item could be moved from bucket while we
 // are searching, but not from 1 slot to another. 
 bfcb_t *bf_core_m::htab::lookup(bfpid_t const &pid) const
 {

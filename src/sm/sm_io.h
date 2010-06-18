@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SM_IO_H'>
 
- $Id: sm_io.h,v 1.20.2.14 2010/03/25 18:05:16 nhall Exp $
+ $Id: sm_io.h,v 1.23 2010/06/08 22:28:56 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -65,6 +65,7 @@ class SmFileMetaStats;
 class SmStoreMetaStats;
 class store_histo_t; // page_h.h
 class pginfo_t; // page_h.h
+class xct_t; // forward
 
 #ifdef __GNUG__
 #pragma interface
@@ -201,8 +202,17 @@ private:
 };
 
 
-extern
-rc_t io_lock_force( const lockid_t&         n, 
+// This is not within the namescope of io_m because it's
+// used by the volume manager, which doesn't get the
+// definition of io_m.
+/* Why lock_force(), as opposed to simple lock()?
+ * Lock_force forces the lock to be acquired in the core
+ * lock table, even if the lock cache contains a parent
+ * lock that subsumes the requested lock.
+ */
+class vol_io_shared : public w_base_t {
+    public:
+    static rc_t io_lock_force( const lockid_t&         n, 
                     lock_mode_t             m, 
                     lock_duration_t         d, 
                     timeout_in_ms           timeout,  
@@ -210,11 +220,21 @@ rc_t io_lock_force( const lockid_t&         n,
                     lock_mode_t*            prev_pgmode = 0, 
                     lockid_t**              nameInLockHead = 0 
                     );
+};
+
 /*
  * IO Manager.
  */
 class io_m : public smlevel_0 
 {
+    friend rc_t vol_io_shared::io_lock_force( const lockid_t&         n, 
+                    lock_mode_t             m, 
+                    lock_duration_t         d, 
+                    timeout_in_ms           timeout,  
+                    lock_mode_t*            prev_mode = 0, 
+                    lock_mode_t*            prev_pgmode = 0, 
+                    lockid_t**              nameInLockHead = 0 
+                    );
 public:
     NORET                       io_m();
     NORET                       ~io_m();
@@ -297,9 +317,7 @@ public:
     
     // Allocate a file_p page
     static rc_t                 alloc_a_file_page(
-#if GNATS110_FIX
-		alloc_page_filter_t            *filter,
-#endif
+        alloc_page_filter_t            *filter,
         const stid_t&                   stid,
         const lpid_t&                   near,
         lpid_t&                         pids,
@@ -340,6 +358,9 @@ private:
         lock_mode_t                     desired_lock_mode,
         bool                            search_file
         );
+
+    static rc_t                 _free_page(const lpid_t& pid, 
+                                        vol_t *v, bool chk_st_mmb);
 public:
 
 
@@ -475,14 +496,24 @@ public:
         extnum_t*                       list);
 
 private:
-    static void                 enter();
-    static void                 leave();
 
-    struct auto_leave {
-	auto_leave() { enter(); }
-	~auto_leave() { leave(); }
+    // This is used to enter and leave the io monitor under normal
+    // circumstances.
+
+    class auto_leave_t {
+    private:
+        xct_t *_x;
+        void on_entering();
+        void on_leaving() const;
+    public:
+        auto_leave_t(): _x(xct()) { if(_x) on_entering(); }
+        ~auto_leave_t()               { if(_x) on_leaving(); }
     };
-    struct auto_leave_and_trx_release; // forward decl
+    // This is used to enter and leave while grabbing the
+    // checkpoint-serialization mutex, used on mount
+    // and dismount, since a checkpoint records the mounted
+    // volumes, it can't be fuzzy wrt mounts and dismounts.
+    class auto_leave_and_trx_release_t; // forward decl - in sm_io.cpp
     
     // Prime the volume's caches if not already primed
     static rc_t                 _prime_cache(vol_t *v, snum_t s);
@@ -506,15 +537,6 @@ protected:
         lock_mode_t*                   prev_mode = 0,
         lock_mode_t*                   prev_pgmode = 0,
         lockid_t**                     nameInLockHead = 0
-    );
-
-    friend rc_t io_lock_force( const lockid_t&            , 
-        lock_mode_t                    , 
-        lock_duration_t         , 
-        timeout_in_ms            ,  
-        lock_mode_t*            , 
-        lock_mode_t*            , 
-        lockid_t**                    
     );
 
 public:
@@ -562,13 +584,8 @@ private:
     // The compiler requires this definition just for _find_and_grab.
     // We could have vol.cpp #include sm_io.h but we really don't want that
     // either.
-#if VOL_LOCK_IS_RW
     typedef mcs_rwlock VolumeLock;
     typedef void *     lock_state;
-#else
-    typedef queue_based_lock_t VolumeLock;
-    typedef VolumeLock::ext_qnode    lock_state;
-#endif
 
     static vol_t*               _find_and_grab(
         vid_t                          vid, 
@@ -588,9 +605,7 @@ private:
     static rc_t                 _dismount(vid_t vid, bool flush);
     static rc_t                 _dismount_all(bool flush);
     static rc_t                 _alloc_pages_with_vol_mutex(
-#if GNATS110_FIX
-		alloc_page_filter_t               *filter,
-#endif
+        alloc_page_filter_t               *filter,
         vol_t*                            v,
         const stid_t&                     stid, 
         const lpid_t&                     near,
@@ -624,8 +639,11 @@ private:
         const stid_t&                   stid,
         pginfo_t*                       pages,
         int&                            numpages);
+public:
 
 };
+
+
 
 
 inline int
@@ -637,7 +655,7 @@ io_m::num_vols()
 inline const char* 
 io_m::dev_name(vid_t vid) 
 {
-    auto_leave enter;
+    auto_leave_t enter;
     return _dev_name(vid);
 }
 
@@ -663,7 +681,7 @@ io_m::get_volume_quota(
         w_base_t::uint4_t&                ext_used
         )
 {
-    auto_leave enter;
+    auto_leave_t enter;
     return _get_volume_quota(vid, quota_KB, quota_used_KB, ext_used);
 }
 
@@ -671,7 +689,7 @@ io_m::get_volume_quota(
 inline rc_t 
 io_m::dismount_all(bool flush)
 {
-    auto_leave enter;
+    auto_leave_t enter;
     return _dismount_all(flush);
 }
 
@@ -680,21 +698,11 @@ io_m::set_store_flags(const stid_t& stid, store_flag_t flags, bool sync_volume)
 {
     rc_t r;
     if (stid.store)  {
-        enter();
+        auto_leave_t enter;
         r = _set_store_flags(stid, flags, sync_volume);
         // exchanges i/o mutex for volume mutex
-        leave();
     }
     return r;
-}
-
-inline rc_t
-io_m::get_store_flags(const stid_t& stid, store_flag_t& flags)
-{
-    // Called from bf- can't use monitor mutex because
-    // that could cause us to re-enter the I/O layer
-    // (embedded calls)
-    return _get_store_flags(stid, flags);
 }
 
 inline rc_t                         
@@ -722,8 +730,6 @@ io_m::init_store_histo(store_histo_t* h, const stid_t& stid,
     }
     return r;
 }
-
-
 
 /*<std-footer incl-file-exclusion='SM_IO_H'>  -- do not edit anything below this line -- */
 

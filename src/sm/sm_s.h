@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='SM_S_H'>
 
- $Id: sm_s.h,v 1.86.2.8 2010/03/19 22:20:27 nhall Exp $
+ $Id: sm_s.h,v 1.91 2010/05/26 01:20:43 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -57,6 +57,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
+/**\brief Extent number.
+ * \details
+ * Used in extid_t.
+ */
 typedef w_base_t::uint4_t        extnum_t;
 
 #ifndef STHREAD_H
@@ -71,11 +75,17 @@ typedef w_base_t::uint4_t        extnum_t;
 #pragma interface
 #endif
 
+/**\brief Extent ID.
+ * \details
+ * Identifies an extent of a volume.  Needed to
+ * acquire an extent lock.  Most of the internal interfaces use
+ * the extnum_t since the volume is implicit.
+ */
 class extid_t {
 public:
     vid_t        vol; 
     fill2        filler; // because vol is 2 bytes & ext is 4
-    extnum_t        ext;
+    extnum_t     ext;
 
     friend ostream& operator<<(ostream&, const extid_t& x);
     friend istream& operator>>(istream&, extid_t &x); 
@@ -120,7 +130,7 @@ public:
 class rid_t;
 
 /**\brief Short Record ID
- *\ingroup IDs
+ *\ingroup IDS
  * \details
  * This class represents a short record identifier, which is
  * used when the volume id is implied somehow.
@@ -128,7 +138,7 @@ class rid_t;
  * A short record id contains a slot, a (short) page id, and a store number.
  * A short page id is just a page number (in basics.h).
  *
- * See \ref IDs.
+ * See \ref IDS.
  */
 class shrid_t {
 public:
@@ -148,7 +158,7 @@ public:
 #define RID_T
 
 /**\brief Record ID
- *\ingroup IDs
+ *\ingroup IDS
  * \details
  * This class represents a long record identifier, used in the
  * Storage Manager API, but not stored persistently.
@@ -156,7 +166,7 @@ public:
  * A record id contains a slot and a (long) page id.
  * A long page id contains a store id and a volume id.
  *
- * See \ref IDs.
+ * See \ref IDS.
  */
 class rid_t {
 public:

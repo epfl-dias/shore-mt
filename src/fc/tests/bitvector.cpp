@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: bitvector.cpp,v 1.1.2.1 2009/12/03 00:19:45 nhall Exp $
+ $Id: bitvector.cpp,v 1.4 2010/06/15 17:24:29 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -92,7 +92,11 @@ int main()
     }
 	w_assert1(w.is_empty()==false);
 	w_assert1(w.is_full()==true);
+#if defined(ARCH_LP64)
 	w_assert1(w.num_words()==4);
+#else
+	w_assert1(w.num_words()==8);
+#endif
 
 	w.copy(v);
 	w_assert1(w.num_bits_set()==7);
@@ -111,26 +115,52 @@ int main()
 
 	w.set_bit(0);
 	int n=w.words_overlap(tmp, v);
+#if defined(ARCH_LP64)
 	w_assert1(n==4); // bit 0 is in both
+#else
+	w_assert1(n==8); // bit 0 is in both
+#endif
 
 	w.set_bit(5);
 	n=w.words_overlap(tmp, v);
+
+#if defined(ARCH_LP64)
 	w_assert1(n==3); // bit 5 is not in both
+#else
+	w_assert1(n==7); // bit 5 is not in both
+#endif
 	w.clear_bit(5);
 	n=w.words_overlap(tmp, v);
+
+#if defined(ARCH_LP64)
 	w_assert1(n==4); // back to former state
+#else
+	w_assert1(n==8); // back to former state
+#endif
 
 	w.set_bit(200);
 	n=w.words_overlap(tmp, v);
-	w_assert1(n==4);
+#if defined(ARCH_LP64)
+	w_assert1(n==4); 
+#else
+	w_assert1(n==8); 
+#endif
 
 	w.set_bit(255);
 	n=w.words_overlap(tmp, v);
-	w_assert1(n==4);
+#if defined(ARCH_LP64)
+	w_assert1(n==4); 
+#else
+	w_assert1(n==8); 
+#endif
 
 	w.set_bit(72);
 	n=w.words_overlap(tmp, v);
-	w_assert1(n==4);
+#if defined(ARCH_LP64)
+	w_assert1(n==4); 
+#else
+	w_assert1(n==8); 
+#endif
 
 	// Is all of w found in v?
 	w_assert1(w.overlap(tmp,v) == true);

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: dir.cpp,v 1.105.2.10 2010/03/25 18:05:10 nhall Exp $
+ $Id: dir.cpp,v 1.111 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -793,19 +793,6 @@ sdesc_t::invalidate()
          if( _histoid->release() ) { delete _histoid; }
          add_store_utilization(0);
     }
-}
-
-shpid_t        
-sdesc_t::hog_last_pid() const 
-{
-    if(xct()) xct()->acquire_1thread_xct_mutex();
-    return _last_pid;
-}
-
-void                
-sdesc_t::free_last_pid() const 
-{
-    if(xct()) xct()-> release_1thread_xct_mutex();
 }
 
 void                

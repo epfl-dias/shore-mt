@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: file_scan.cpp,v 1.24.2.7 2010/03/19 22:20:38 nhall Exp $
+ $Id: file_scan.cpp,v 1.27 2010/06/08 22:28:15 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -262,9 +262,8 @@ setup_device_and_volume(const char* device_name, bool init_device,
 void
 usage(option_group_t& options)
 {
-    cerr << "Usage: server [-h] [-i] -s p|l|s -l r|f [options]" << endl;
+    cerr << "Usage: server [-h] [-i] -l r|f [options]" << endl;
     cerr << "       -i initialize device/volume and create file with nrec records" << endl;
-    cerr << "       -s scantype   use p(hysical) l(logical) or s(can_i)"  << endl;
     cerr << "       -l lock granularity r(record) or f(ile)" << endl;
     cerr << "Valid options are: " << endl;
     options.print_usage(true, cerr);
@@ -279,7 +278,7 @@ void scan_i_scan(const stid_t& fid, int num_rec,
     bool    eof = false;
     int     i = 0;
     do {
-    W_COERCE(scan.next(handle, 0, eof));
+        W_COERCE(scan.next(handle, 0, eof));
         if(eof) break;
 
         w_assert1(handle->pinned());
@@ -303,26 +302,6 @@ void scan_i_scan(const stid_t& fid, int num_rec,
     cout << "scan_i scan complete" << endl;
 }
 
-#if 0
-void lid_scan(const lvid_t& lvid, const rid_t& start_rid, int num_rec)
-{
-    cout << "starting lid scan of " << num_rec << " records" << endl;
-    rid_t     rid = start_rid;
-    pin_i     pin;
-    int     i;
-    for (i = 0, rid = start_rid; i < num_rec; i++, rid.increment(1)) {
-    W_COERCE(pin.pin(lvid, rid, 0));
-    }
-    assert(i == num_rec);
-    cout << "lid scan complete" << endl;
-}
-#endif
-
-void pys_scan(const stid_t&, int)
-{
-    cerr << "NOT IMPLEMENTED: physical scan" << endl;
-    
-}
 
 /* create an smthread based class for all sm-related work */
 class smthread_user_t : public smthread_t {
@@ -369,8 +348,8 @@ void smthread_user_t::run()
              opt_num_rec));
 
     W_COERCE(options.add_option("rec_size", "# > 0",
-             NULL, "size for records",
-             true, option_t::set_value_long,
+             "7000", "size for records",
+             false, option_t::set_value_long,
              opt_rec_size));
 
     // have the SSM add its options to the group
@@ -389,7 +368,7 @@ void smthread_user_t::run()
     int option;
     char* scan_type = 0;
     const char* lock_gran = "f";  // lock granularity (file by default)
-    while ((option = getopt(argc, argv, "n:his:l:")) != -1) {
+    while ((option = getopt(argc, argv, "n:hil:")) != -1) {
     switch (option) {
     case 'n' :
             cmdline_num_rec = strtol(optarg, 0, 0);
@@ -409,22 +388,12 @@ void smthread_user_t::run()
         init_device = true;
         }
         break;
-    case 's':
-        scan_type = optarg;
-        if (scan_type[0] != 's' &&
-        scan_type[0] != 'l' &&
-        scan_type[0] != 'p') {
-        cerr << "scan type option (-s) must be one of s,p,l" << endl;
-        retval = 1;
-        return;
-        }
 
-        break;
     case 'l':
         lock_gran = optarg;
         if (lock_gran[0] != 'r' &&
         lock_gran[0] != 'f' ) {
-        cerr << "lock granularity option (-l) must be one of s,p,l" << endl;
+        cerr << "lock granularity option (-l) must be one of r,f" << endl;
         retval = 1;
         return;
         }
@@ -489,16 +458,6 @@ void smthread_user_t::run()
             scan_i_scan(fid, num_rec, cc);
             break;
         }
-#if 0
-        case 'l':
-            if (lock_gran[0] == 'f') {
-            ssm->lock(lvid, fid, SH);
-            }
-            lid_scan(lvid, start_rid, num_rec);
-            break;
-#endif
-        case 'p':
-            pys_scan(fid, num_rec);
             break;
         }
         W_COERCE(ssm->commit_xct());

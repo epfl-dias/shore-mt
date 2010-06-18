@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='EXTENT_H'>
 
- $Id: extent.h,v 1.10.2.9 2010/03/19 22:20:23 nhall Exp $
+ $Id: extent.h,v 1.14 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -277,13 +277,8 @@ extlink_p::put(slotid_t idx, const extlink_t& e)
 {
     DBG(<<"extlink_p::put(" <<  idx << " owner=" <<
     e.owner << ", " << e.next << ")");
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const vec_t    extent_vec_tmp(&e, extlink_t::logged_size());
     W_COERCE(overwrite(0, idx * sizeof(extlink_t), extent_vec_tmp));
-#else
-    W_COERCE(overwrite(0, idx * sizeof(extlink_t),
-         vec_t(&e, extlink_t::logged_size())));
-#endif
 }
 
 
@@ -304,13 +299,13 @@ class stnode_p : public page_p {
     // max # store nodes on a page
     enum { max = data_sz / sizeof(stnode_t) };
 
-    const stnode_t&         get(slotid_t idx);
-    rc_t             put(slotid_t idx, const stnode_t& e);
+    const stnode_t&       get(slotid_t idx);
+    rc_t                  put(slotid_t idx, const stnode_t& e);
 
     private:
     stnode_t&             item(snum_t i);
     struct layout_t {
-    stnode_t             item[max];
+		stnode_t          item[max];
     };
 
     friend class page_link_log;        // just to keep g++ happy
@@ -333,12 +328,8 @@ stnode_p::get(slotid_t idx)
 inline w_rc_t 
 stnode_p::put(slotid_t idx, const stnode_t& e)
 {
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const vec_t stnode_vec_tmp(&e, sizeof(e));
     W_DO(overwrite(0, idx * sizeof(stnode_t), stnode_vec_tmp));
-#else
-    W_DO(overwrite(0, idx * sizeof(stnode_t), vec_t(&e, sizeof(e))));
-#endif
     return RCOK;
 }
 

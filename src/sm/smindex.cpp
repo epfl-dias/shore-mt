@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: smindex.cpp,v 1.100.2.8 2010/03/19 22:20:27 nhall Exp $
+ $Id: smindex.cpp,v 1.103 2010/06/08 22:28:56 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -87,13 +87,13 @@ rc_t
 ss_m::create_index(
     vid_t                 vid, 
     ndx_t                 ntype, 
-    store_property_t         property,
-    const char*         key_desc,
+    store_property_t      property,
+    const char*           key_desc,
     concurrency_t         cc, 
-    stid_t&                 stid
+    stid_t&               stid
     )
 {
-    SM_PROLOGUE_RC(ss_m::create_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_index, in_xct, read_write, 0);
     if(property == t_temporary) {
                 return RC(eBADSTOREFLAGS);
     }
@@ -111,7 +111,7 @@ ss_m::create_md_index(
     int2_t                 dim
     )
 {
-    SM_PROLOGUE_RC(ss_m::create_md_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_md_index, in_xct, read_write, 0);
     W_DO(_create_md_index(vid, ntype, property,
                           stid, dim));
     return RCOK;
@@ -124,7 +124,7 @@ ss_m::create_md_index(
 rc_t
 ss_m::destroy_index(const stid_t& iid)
 {
-    SM_PROLOGUE_RC(ss_m::destroy_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_index, in_xct, read_write, 0);
     W_DO( _destroy_index(iid) );
     return RCOK;
 }
@@ -132,7 +132,7 @@ ss_m::destroy_index(const stid_t& iid)
 rc_t
 ss_m::destroy_md_index(const stid_t& iid)
 {
-    SM_PROLOGUE_RC(ss_m::destroy_md_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_md_index, in_xct, read_write, 0);
     W_DO( _destroy_md_index(iid) );
     return RCOK;
 }
@@ -144,24 +144,24 @@ ss_m::destroy_md_index(const stid_t& iid)
 rc_t
 ss_m::bulkld_index(
     const stid_t&         stid, 
-    int                        nsrcs,
+    int                   nsrcs,
     const stid_t*         source,
-    sm_du_stats_t&         _stats,
-    bool                sort_duplicates, // = true
-    bool                lexify_keys // = true
+    sm_du_stats_t&        _stats,
+    bool                  sort_duplicates, // = true
+    bool                  lexify_keys // = true
     )
 {
-    SM_PROLOGUE_RC(ss_m::bulkld_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::bulkld_index, in_xct, read_write, 0);
     W_DO(_bulkld_index(stid, nsrcs, source, _stats, sort_duplicates, lexify_keys) );
     return RCOK;
 }
 
 w_rc_t        ss_m::bulkld_index(
-    const        stid_t        &stid,
-    const        stid_t        &source,
+    const  stid_t        &stid,
+    const  stid_t        &source,
     sm_du_stats_t        &_stats,
-    bool                sort_duplicates,
-    bool                lexify_keys
+    bool                 sort_duplicates,
+    bool                 lexify_keys
     )
 {
     return bulkld_index(stid, 1, &source, _stats,
@@ -171,14 +171,14 @@ w_rc_t        ss_m::bulkld_index(
 rc_t
 ss_m::bulkld_md_index(
     const stid_t&         stid, 
-    int                        nsrcs,
+    int                   nsrcs,
     const stid_t*         source,
-    sm_du_stats_t&         _stats,
-    int2_t                 hff, 
-    int2_t                 hef, 
-    nbox_t*                 universe)
+    sm_du_stats_t&        _stats,
+    int2_t                hff, 
+    int2_t                hef, 
+    nbox_t*               universe)
 {
-    SM_PROLOGUE_RC(ss_m::bulkld_md_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::bulkld_md_index, in_xct, read_write, 0);
     W_DO(_bulkld_md_index(stid, nsrcs, source, _stats, hff, hef, universe));
     return RCOK;
 }
@@ -187,10 +187,10 @@ w_rc_t
 ss_m::bulkld_md_index(
     const stid_t        &stid,
     const stid_t        &source,
-    sm_du_stats_t        &_stats,
-    int2_t                hff,
-    int2_t                hef,
-    nbox_t                *universe
+    sm_du_stats_t       &_stats,
+    int2_t              hff,
+    int2_t              hef,
+    nbox_t              *universe
 )
 {
     return bulkld_md_index(stid, 1, &source, _stats, hff, hef, universe);
@@ -202,7 +202,7 @@ ss_m::bulkld_index(
     sort_stream_i&         sorted_stream,
     sm_du_stats_t&         _stats)
 {
-    SM_PROLOGUE_RC(ss_m::bulkld_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::bulkld_index, in_xct, read_write, 0);
     W_DO(_bulkld_index(stid, sorted_stream, _stats) );
     DBG(<<"bulkld_index " <<stid<<" returning RCOK");
     return RCOK;
@@ -211,13 +211,13 @@ ss_m::bulkld_index(
 rc_t
 ss_m::bulkld_md_index(
     const stid_t&         stid, 
-    sort_stream_i&         sorted_stream,
-    sm_du_stats_t&         _stats,
-    int2_t                 hff, 
-    int2_t                 hef, 
-    nbox_t*                 universe)
+    sort_stream_i&        sorted_stream,
+    sm_du_stats_t&        _stats,
+    int2_t                hff, 
+    int2_t                hef, 
+    nbox_t*               universe)
 {
-    SM_PROLOGUE_RC(ss_m::bulkld_md_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::bulkld_md_index, in_xct, read_write, 0);
     W_DO(_bulkld_md_index(stid, sorted_stream, _stats, hff, hef, universe));
     return RCOK;
 }
@@ -228,7 +228,7 @@ ss_m::bulkld_md_index(
 rc_t
 ss_m::print_index(stid_t stid)
 {
-    SM_PROLOGUE_RC(ss_m::print_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::print_index, in_xct, read_only, 0);
     W_DO(_print_index(stid));
     return RCOK;
 }
@@ -236,7 +236,7 @@ ss_m::print_index(stid_t stid)
 rc_t
 ss_m::print_md_index(stid_t stid)
 {
-    SM_PROLOGUE_RC(ss_m::print_index, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::print_index, in_xct, read_only, 0);
     W_DO(_print_md_index(stid));
     return RCOK;
 }
@@ -251,7 +251,7 @@ ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
 #endif
         )
 {
-    SM_PROLOGUE_RC(ss_m::create_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_assoc, in_xct, read_write, 0);
     W_DO(_create_assoc(stid, key, el
 #ifdef SM_DORA
                        , bIgnoreLocks
@@ -270,7 +270,7 @@ ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el
 #endif
                     )
 {
-    SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, read_write, 0);
     W_DO(_destroy_assoc(stid, key, el
 #ifdef SM_DORA
                         , bIgnoreLocks
@@ -287,7 +287,7 @@ ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el
 rc_t
 ss_m::destroy_all_assoc(stid_t stid, const vec_t& key, int& num)
 {
-    SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, read_write, 0);
     W_DO(_destroy_all_assoc(stid, key, num));
     return RCOK;
 }
@@ -303,7 +303,7 @@ ss_m::find_assoc(stid_t stid, const vec_t& key,
 #endif
               )
 {
-    SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, read_only, 0);
     W_DO(_find_assoc(stid, key, el, elen, found
 #ifdef SM_DORA
                      , bIgnoreLocks
@@ -318,7 +318,7 @@ ss_m::find_assoc(stid_t stid, const vec_t& key,
 rc_t
 ss_m::create_md_assoc(stid_t stid, const nbox_t& key, const vec_t& el)
 {
-    SM_PROLOGUE_RC(ss_m::create_md_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::create_md_assoc, in_xct, read_write, 0);
     W_DO(_create_md_assoc(stid, key, el));
     return RCOK;
 }
@@ -331,7 +331,7 @@ rc_t
 ss_m::find_md_assoc(stid_t stid, const nbox_t& key,
                     void* el, smsize_t& elen, bool& found)
 {
-    SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, read_only, 0);
     W_DO(_find_md_assoc(stid, key, el, elen, found));
     return RCOK;
 }
@@ -343,7 +343,7 @@ ss_m::find_md_assoc(stid_t stid, const nbox_t& key,
 rc_t
 ss_m::destroy_md_assoc(stid_t stid, const nbox_t& key, const vec_t& el)
 {
-    SM_PROLOGUE_RC(ss_m::destroy_md_assoc, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::destroy_md_assoc, in_xct, read_write, 0);
     W_DO(_destroy_md_assoc(stid, key, el));
     return RCOK;
 }
@@ -355,7 +355,7 @@ ss_m::destroy_md_assoc(stid_t stid, const nbox_t& key, const vec_t& el)
 rc_t
 ss_m::draw_rtree(const stid_t& stid, ostream &s)
 {
-    SM_PROLOGUE_RC(ss_m::draw_rtree, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::draw_rtree, in_xct, read_only, 0);
     W_DO(_draw_rtree(stid, s));
     return RCOK;
 }
@@ -367,7 +367,7 @@ rc_t
 ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat, 
                 uint2_t size, uint2_t* ovp, bool audit)
 {
-    SM_PROLOGUE_RC(ss_m::rtree_stats, in_xct, 0);
+    SM_PROLOGUE_RC(ss_m::rtree_stats, in_xct, read_only, 0);
     W_DO(_rtree_stats(stid, stat, size, ovp, audit));
     return RCOK;
 }
@@ -440,9 +440,9 @@ rc_t
 ss_m::_create_md_index(
     vid_t                 vid, 
     ndx_t                 ntype, 
-    store_property_t         property,
-    stid_t&                 stid, 
-    int2_t                 dim
+    store_property_t      property,
+    stid_t&               stid, 
+    int2_t                dim
     )
 {
     W_DO( io->create_store(vid, 100/*unused*/, 
@@ -524,11 +524,11 @@ ss_m::_destroy_md_index(const stid_t& iid)
 rc_t
 ss_m::_bulkld_index(
     const stid_t&         stid,
-    int                        nsrcs,
-    const stid_t*        source,
-    sm_du_stats_t&         _stats,
-    bool                 sort_duplicates, //  = true
-    bool                 lexify_keys //  = true
+    int                   nsrcs,
+    const stid_t*         source,
+    sm_du_stats_t&        _stats,
+    bool                  sort_duplicates, //  = true
+    bool                  lexify_keys //  = true
     )
 {
     sdesc_t* sd;
@@ -573,12 +573,12 @@ ss_m::_bulkld_index(
 rc_t
 ss_m::_bulkld_md_index(
     const stid_t&         stid, 
-    int                        nsrcs,
+    int                   nsrcs,
     const stid_t*         source, 
-    sm_du_stats_t&         _stats,
-    int2_t                 hff, 
-    int2_t                 hef, 
-    nbox_t*                 universe)
+    sm_du_stats_t&        _stats,
+    int2_t                hff, 
+    int2_t                hef, 
+    nbox_t*               universe)
 {
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, EX) );

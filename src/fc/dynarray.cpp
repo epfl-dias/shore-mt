@@ -22,19 +22,13 @@
 */
 
 #include "dynarray.h"
-
 #include "shore-config.h"
-
 #include <errno.h>
 #include <sys/mman.h>
 #include <algorithm>
 #include <cstdlib>
 #include <cassert>
 #include <cstring>
-
-#ifdef TEST_ME
-#include <cstdio>
-#endif
 
 // no system I know of *requires* larger pages than this
 static size_t const MM_PAGE_SIZE = 8192;
@@ -46,7 +40,7 @@ static size_t align_up(size_t bytes, size_t align) {
     return (bytes+mask) &~ mask;
 }
 
-#if HAVE_DECL_MAP_ALIGN && !defined(TEST_ME)
+#if HAVE_DECL_MAP_ALIGN 
 #define USE_MAP_ALIGN 1
 #endif
 
@@ -192,59 +186,3 @@ int dynarray::ensure_capacity(size_t min_size) {
     return err;
 }
 
-#ifdef TEST_ME
-#include <unistd.h>
-#include <cstdio>
-
-static int foocount = 0;
-struct foo {
-    int id;
-    foo() : id(++foocount) { std::fprintf(stderr, "foo#%d\n", id); }
-    ~foo() { std::fprintf(stderr, "~foo#%d\n", id); }
-};
-
-template struct dynvector<foo>;
-
-int main() {
-    {
-	dynarray mm;
-	int err;
-
-	err = mm.init(5l*1024*1024*1024);
-	char const* base = mm;
-	std::fprintf(stderr, "&mm[0] = %p\n", base);
-	err = mm.resize(10000);
-	err = mm.resize(100000);
-	err = mm.resize(1000000);
-	err = mm.fini();
-    }
-    {
-	// test alignment
-	dynarray mm;
-	int err;
-	
-	err = mm.init(5l*1024*1024*1024, 1024*1024*1024);
-    }
-
-    {
-	int err;
-	dynvector<foo> dv;
-	err = dv.init(100000);
-	std::fprintf(stderr, "size:%ld  capacity:%ld  limit:%ld\n", dv.size(), dv.capacity(), dv.limit());
-	err = dv.resize(4);
-	std::fprintf(stderr, "size:%ld  capacity:%ld  limit:%ld\n", dv.size(), dv.capacity(), dv.limit());
-	err = dv.resize(10);
-	std::fprintf(stderr, "size:%ld  capacity:%ld  limit:%ld\n", dv.size(), dv.capacity(), dv.limit());
-	foo f;
-	err = dv.push_back(f);
-	err = dv.push_back(f);
-	err = dv.push_back(f);
-	std::fprintf(stderr, "size:%ld  capacity:%ld  limit:%ld\n", dv.size(), dv.capacity(), dv.limit());
-	err = dv.resize(16);
-	std::fprintf(stderr, "size:%ld  capacity:%ld  limit:%ld\n", dv.size(), dv.capacity(), dv.limit());
-	err = dv.fini();
-    }
-
-    return 0;
-}
-#endif

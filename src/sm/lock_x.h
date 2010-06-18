@@ -24,7 +24,7 @@
 // -*- mode:c++; c-basic-offset:4 -*-
 /*<std-header orig-src='shore' incl-file-exclusion='LOCK_X_H'>
 
- $Id: lock_x.h,v 1.62.2.13 2010/03/19 22:20:24 nhall Exp $
+ $Id: lock_x.h,v 1.65 2010/06/15 17:30:07 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -66,8 +66,6 @@ This file contains declarations for classes used in implementing
 the association between locks and transactions.  The important
 classes are:
     lock_request_t: a transaction's request for a lock. 
-    lock_cache_t: queue-based cache of transactions recent requests
-        or
     lock_cache_t: cache of transactions recent requests
     xct_lock_info_t: lock information associated with a transaction 
 
@@ -122,73 +120,72 @@ class xct_lock_info_t; // forward
  * it hangs off a lock_head_t list called _queue.
  *
  * Lock requests also sit in a list hanging off the transaction that
- * made the request; this is the xct_lock_info_t's _my_req_list.
+ * made the request; this is the xct_lock_info_t's my_req_list.
  *
  * These lists are protected by locks in the objects that hold the
  * lists.  The lock manager grabs a lock in the lock_head_t to
  * traverse the requests for that lock.
  *
  */
-class lock_request_t {
+class lock_request_t : public w_base_t {
 public:
     typedef lock_base_t::lmode_t lmode_t; // common/basics.h: lock_mode_t
     typedef lock_base_t::duration_t duration_t; // in common/basics.h
     typedef lock_base_t::status_t status_t; // lock_s.h
 private:
     lock_base_t::status_t  _state;        // lock state
-    lmode_t                _mode;        // mode requested (and granted)
-    lmode_t                _convert_mode; // if in convert wait, mode desired 
-    xct_lock_info_t*       _lock_info;    // owning xct/agent. SLI makes
-    smthread_t*            _thread;        // thread to wakeup when serviced 
-    int                    _count;
-    duration_t             _duration;    // lock duration
-    int4_t                 _num_children; // number of child objects obtained
-                           // under same criteria as xct cache
+    lmode_t           _mode;        // mode requested (and granted)
+    lmode_t           _convert_mode; // if in convert wait, mode desired 
+    xct_lock_info_t*  _lock_info;    // owning xct/agent. SLI makes
+    smthread_t*       _thread;        // thread to wakeup when serviced 
+    int               _ref_count;
+    duration_t        _duration;    // lock duration
+    int4_t            _num_children; // number of child objects obtained
+                      // under same criteria as xct cache
 
 public:
     /// The  thread to wake up when a request can be "serviced"
-    smthread_t*            thread() const { return _thread;} 
+    smthread_t*       thread() const { return _thread;} 
 
     /// set_thread used only by acquire (attempt to acquire the lock)
-    void                   set_thread(smthread_t *t) { _thread=t;} 
+    void              set_thread(smthread_t *t) { _thread=t;} 
 
     /// long/immediate, etc
-    duration_t             get_duration() const { return _duration; } 
+    duration_t        get_duration() const { return _duration; } 
 
     // set_duration used only by acquire in event of upgrade
-    void                   set_duration(duration_t d) { _duration=d; } 
+    void              set_duration(duration_t d) { _duration=d; } 
 
     // get_count used in release to make sure we don't free the
     // structure while still needed
-    int                    get_count() const { return _count; }
+    int               get_count() const { return _ref_count; }
     // inc_count used in acquire; we hold the lock head mutex
-    int                    inc_count() { return ++_count; }
+    int               inc_count() { return ++_ref_count; }
     // dec_count used in release; we hold the lock head mutex
-    int                    dec_count() { return --_count; }
+    int               dec_count() { return --_ref_count; }
+    w_link_t          rlink;        // link of requests in lock _queue
+                      // hanging off the lock_head.
+                      // protected by the lock_head mutex.
 
-    w_link_t               rlink;        // link of requests in lock _queue
-                           // hanging off the lock_head.
-                           // protected by the lock_head mutex.
+                      // the get_lock_head() trick
+                      // w/ xlink.member_of() unsafe
+    w_link_t          xlink;        // link for xd->_lock.list 
 
-                           // the get_lock_head() trick
-                           // w/ xlink.member_of() unsafe
-    w_link_t               xlink;        // link for xd->_lock.list 
-
-    int4_t                 num_children() const { return _num_children;}    
-    void                   set_num_children(int4_t n) { _num_children=n;}    
-    int4_t                 inc_num_children() { return ++_num_children; }    
+    int4_t            num_children() const { return _num_children;}    
+    void              set_num_children(int4_t n) { _num_children=n;}    
+    int4_t            inc_num_children() { return ++_num_children; }    
 
     lock_request_t volatile* vthis() { return this; }
 
     // convert_mode used when we hold lock head mutex
-    lmode_t                convert_mode() const { return _convert_mode; } 
+    lmode_t           convert_mode() const { return _convert_mode; } 
 
     // set_convert_mode used only by acquire in event of upgrade
     // and we hold lock head mutex
-    void                   set_convert_mode(lmode_t m) { _convert_mode=m; } 
+    void              set_convert_mode(lmode_t m) { _convert_mode=m; } 
 
     /// returns an enum lock_mode_t: NL,IS, IX, SH, SIX, UD, EX 
-    lmode_t                mode() const { return _mode; } // mode requested &granted)
+    lmode_t           mode() const { return _mode; } // mode requested &granted)
     // set_mode used:
     // release-duration when upgrading to EX for the purpose of freeing an
     //    extent in the case of extent locks; we grab the lock head mutex
@@ -196,19 +193,19 @@ public:
     // wakeup_waiters : acquire failed, or release
     //   when we have the lock head mutex and are safely traversing the
     //   queue
-    void                   set_mode(lmode_t m) { _mode=m; } 
+    void              set_mode(lmode_t m) { _mode=m; } 
 
     /// granted, converting, waiting,
-    status_t               status() const       { return (status_t) _state; }
+    status_t          status() const       { return (status_t) _state; }
 
     // set_status used:
     // acquire compatible lock, no waiting; we have lock head mutex
     // wakeup_waiters : acquire failed, or release
     //   when we have the lock head mutex and are safely traversing the
     //   queue
-    void                   set_status(status_t s) { _state = s; }
+    void              set_status(status_t s) { _state = s; }
 
-    NORET	      lock_request_t();
+    NORET             lock_request_t();
     
     void              init(
                           xct_t*        x,
@@ -219,7 +216,7 @@ public:
                           xct_t*        x,
                           bool        is_quark_marker);
 
-    void	      reset();
+    void             reset();
 
     NORET            ~lock_request_t(); // inlined below because of fwd ref
 
@@ -231,7 +228,7 @@ public:
 
     bool             is_quark_marker() const;
 
-    friend ostream&     operator<<(ostream&, const lock_request_t& l);
+    friend ostream&  operator<<(ostream&, const lock_request_t& l);
 
 private:
     /* disabled */
@@ -239,76 +236,7 @@ private:
     lock_request_t &operator=(const lock_request_t &);
 };
 
-struct lock_cache_elem_t {
-    lockid_t            lock_id;
-    lock_base_t::lmode_t    mode;
-    lock_request_t*        req;
-
-    lock_cache_elem_t()
-    : mode(NL),
-      req(0)
-    {
-    }
-
-    const lock_cache_elem_t &operator=(const lock_cache_elem_t &r)
-    {
-    lock_id = r.lock_id;
-    mode = r.mode;
-    req = r.req;
-    return *this;
-    }
-
-private:
-    // disabled
-    lock_cache_elem_t(const lock_cache_elem_t &);
-};
-    
-
-template <int S>
-class lock_cache_t {
-    lock_cache_elem_t        buf[S];
-public:
-    void reset() {
-        for(int i=0; i < S; i++) buf[i].lock_id.zero();
-    }
-    lock_cache_elem_t* probe(const lockid_t& id) {
-        // probe a single bucket. Caller should verify its contents
-        uint4_t idx = w_hash(id);
-        return  &buf[idx % S];
-    }
-    lock_cache_elem_t* search(const lockid_t& id) {
-        // probe a single bucket. If it fails, oh well.
-        lock_cache_elem_t* p = probe(id);
-        return (p->lock_id == id && p->mode != NL)? p : 0;
-    }
-    void compact() {
-        // do nothing...
-    }
-    bool put(const lockid_t& id, lock_base_t::lmode_t m, 
-                lock_request_t* req, lock_cache_elem_t &victim) {
-            lock_cache_elem_t* p = probe(id);
-            bool evicted = true;
-            // don't replace entries that are higher in the hierarchy!
-            if(p->mode != NL) {
-                if(p->lock_id.lspace() >= id.lspace())
-                    victim = *p;
-                else {
-                    victim.lock_id = id;
-                    victim.req = req;
-                    victim.mode = m;
-                    return true; // never mind...
-                }
-            }
-        else
-            evicted = false;
-        
-        p->lock_id = id;
-        p->req = req;
-        p->mode = m;
-        return evicted;
-    }
-};
-
+#include "lock_cache.h"
 
 /* This is the same class over and over, but we need it to be unique
    so that each place it's defined gets a different thread-lock /me/
@@ -324,13 +252,12 @@ public:
  * static TLS qnode (queue node for a queue-based synchronization primitive). 
  *
  */
-#define DEF_LOCK_X_TYPE \
+#define DEF_LOCK_X_TYPE(N) \
 struct lock_x {                      \
     typedef queue_based_lock_t::ext_qnode qnode;   \
     queue_based_lock_t mutex;                      \
     qnode* get_me() {                \
-        static __thread qnode me = EXT_QNODE_INITIALIZER;    \
-        return &me;                  \
+        return &(me()->get_me##N());\
     }                                \
     rc_t acquire() {                 \
         mutex.acquire(get_me());     \
@@ -362,7 +289,7 @@ public:
     /// Non-null indicates a thread is trying to satisfy this
     /// request for this xct, and is either blocked or is in the middle
     /// of deadlock detection.
-    lock_request_t * waiting_request() const { return _wait_request; }
+    lock_request_t * volatile waiting_request() const { return _wait_request; }
 
     /// See above.
     void             set_waiting_request(lock_request_t*r) { _wait_request=r; }
@@ -398,7 +325,7 @@ public:
     // IP: We use a reduced lock cache size in DORA since locks are not being used
     enum { lock_cache_size = 3};
 #else
-    enum { lock_cache_size = 50};
+    enum { lock_cache_size = 25};
 #endif
 
     /// ID of the transaction that owns this structure.
@@ -442,47 +369,52 @@ public:
                         lock_cache_elem_t & victim) {
                         return _lock_cache.put(name, mode, req, victim);
                     }
+    void            compact_cache(const lockid_t &name) {
+                        _lock_cache.compact(name);
+                    }
 
-    void		set_nonblocking();
-    bool		is_nonblocking() const { return _noblock; }
+
+    void            set_nonblocking();
+    bool            is_nonblocking() const { return _noblock; }
 
 private:
-    lock_cache_t<lock_cache_size*3>    _lock_cache;
-    DEF_LOCK_X_TYPE;                // declare & define lock_x type
+    lock_cache_t<lock_cache_size,(lockid_t::NUMLEVELS-1)>    _lock_cache;
+    DEF_LOCK_X_TYPE(2);                // declare & define lock_x type
 public:
-    // serialize access to lock_info_t
-    lock_x                             lock_info_mutex; 
+    // serialize access to lock_info_t: public for lock_m
+    lock_x          lock_info_mutex; 
 
     /*
      * List of locks acquired by this xct. Protected by the
      * lock_x mutex in the xct_lock_info_t (this structure).
      * Chained through: xlink.
-     * Named _my_req_list to distinguish it from the list of
+     * Named my_req_list to distinguish it from the list of
      * lock requests hanging off the lock_head_t (_queue).
      * Lists are of the same type.
+     * Public for lock_core_m
      */
-    request_list_t                     _my_req_list[t_num_durations];
+    request_list_t  my_req_list[t_num_durations];
 
 private:
 
     // tid of the most recent transaction using this lock_info; monotonically 
     // increasing.
-    tid_t            _tid;     
-    lock_request_t*  _wait_request;  // lock waited for a thread of this xct 
-    bool             _blocking;      // the thread trying to satisfy
+    tid_t           _tid;     
+    lock_request_t* _wait_request;  // lock waited for a thread of this xct 
+    bool            _blocking;      // the thread trying to satisfy
                                      // _wait_request is blocking, rather than
                                      // in the deadlock detector but running.
     atomic_thread_map_t  _wait_map; // for dreadlocks DLD
 
     // now this is in the thread :
-    // lockid_t            hierarchy[lockid_t::NUMLEVELS];
-    lockid_t::name_space_t    _lock_level;
+    // lockid_t     hierarchy[lockid_t::NUMLEVELS];
+    lockid_t::name_space_t _lock_level;
 
     // for implementing quarks
-    lock_request_t*           _quark_marker;
+    lock_request_t*  _quark_marker;
 
     // checkpoint-induced poisoning active?
-    bool 			_noblock;
+    bool             _noblock;
 
 private:
      /* disabled */
@@ -507,19 +439,19 @@ public:
                 // repeated (see comment in callback.cpp).
    };
 
-    w_link_t            chain;        // link in hash chain off the bucket.
+    w_link_t         chain;        // link in hash chain off the bucket.
                                       // protected by bucket mutex.
-    lock_head_t*        _next;
-    lockid_t            name;        // the name of this lock
-                        // requests for this lock 
-    lmode_t            granted_mode;    // the mode of the granted group
-    bool               waiting;    // flag indicates
-                        // nonempty wait group
+    lock_head_t*     _next;
+    lockid_t         name;        // the name of this lock
+                     // requests for this lock 
+    lmode_t          granted_mode;    // the mode of the granted group
+    bool             waiting;    // flag indicates
+                     // nonempty wait group
     /* # threads trying to acquire this lock's head_mutex.
        In order to avoid acquiring the (expensive, blocking)
        lock->head_mutex during the (contended, otherwise short) bucket lock
-       critical section, thread increment the pin_cnt, release the
-       bucket, acquire the lock->mute, then decrement pin_cnt. Changes
+       critical section, threads increment the pin_cnt, release the
+       bucket, acquire the lock->mutex, then decrement pin_cnt. Changes
        to pin_cnt must be atomic because it's not protected fully by
        any critical section.
 
@@ -535,17 +467,17 @@ public:
        the bucket rather than the lock head)
     */
 public:
-    int volatile        pin_cnt;
+    int volatile     pin_cnt;
     struct my_lock {
         queue_based_lock_t mutex;
         
         // track whether this mutex is contended
-        int total_acquires;
-        int contended_acquires;
-        bool _contended;
+        int              total_acquires;
+        int              contended_acquires;
+        bool             _contended;
 #define MY_LOCK_DEBUG 0
-#ifdef MY_LOCK_DEBUG
-        sthread_t* _holder;
+#if MY_LOCK_DEBUG
+        sthread_t*         _holder;
 #endif
 
         /* Detect contention for the mutex.
@@ -563,33 +495,32 @@ public:
             return _contended;
         }
         queue_based_lock_t::ext_qnode* get_me() {
-            static __thread 
-                queue_based_lock_t::ext_qnode me = EXT_QNODE_INITIALIZER;
-            return &me;
+            // This is in the tcb_t of smthread:
+            return &me()->get_me1();
         }
         rc_t acquire() {
             bool contended = mutex.acquire(get_me());
             if(contended)
                 contended_acquires = ((contended_acquires*7) >> 3) + 1024;
-#ifdef MY_LOCK_DEBUG
+#if MY_LOCK_DEBUG
             _holder = me();
 #endif
             return RCOK;
         }
         rc_t release() {
-#ifdef MY_LOCK_DEBUG
+#if MY_LOCK_DEBUG
             _holder = 0;
 #endif
             mutex.release(get_me());
             return RCOK;
         }
-#ifdef MY_LOCK_DEBUG
+#if MY_LOCK_DEBUG
         bool is_mine() { return _holder == me(); }
 #endif
         my_lock(char const* = NULL) 
             : total_acquires(5)
             , contended_acquires(0)
-#ifdef MY_LOCK_DEBUG
+#if MY_LOCK_DEBUG
             , _holder(0)
 #endif
         { }
@@ -605,18 +536,24 @@ public:
     lmode_t          granted_mode_other(const lock_request_t* exclude);
     lock_request_t*  find_lock_request(const xct_lock_info_t*  xdli);
     int              queue_length() const { 
+#if MY_LOCK_DEBUG
                             w_assert2(MUTEX_IS_MINE(
                                 const_cast<lock_head_t *>(this)->head_mutex));
+#endif
                             return _queue.num_members(); 
                      }
     int              unsafe_queue_length() const { return _queue.num_members(); }
     void             queue_append(lock_request_t * r) { 
+#if MY_LOCK_DEBUG
                             w_assert1(MUTEX_IS_MINE(head_mutex));
+#endif
                             w_assert1(r->status()); // != lock_m::t_no_status
                             _queue.append(r); 
                         }
     lock_request_t*  queue_prev(lock_request_t *req) { 
+#if MY_LOCK_DEBUG
                           w_assert2(MUTEX_IS_MINE(head_mutex));
+#endif
                           return _queue.prev(&req->rlink); 
                      }
 
@@ -638,7 +575,9 @@ public:
     {
         NORET safe_queue_iterator_t(lock_head_t &l) 
         {
+#if MY_LOCK_DEBUG
             w_assert1(MUTEX_IS_MINE(l.head_mutex));
+#endif
             reset(l._queue, false);
         }
         NORET ~safe_queue_iterator_t() {}
@@ -673,7 +612,8 @@ inline lock_head_t*
 lock_request_t::get_lock_head() const
 {
     // XXX perhaps this should be an "associated list"??
-    return (lock_head_t*) (((char*)rlink.member_of()) -
+    return (lock_head_t*) (
+            ((char*)rlink.member_of()) -
                    w_offsetof(lock_head_t, _queue));
 }
 

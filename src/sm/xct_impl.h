@@ -105,12 +105,10 @@ private:
     friend class block_alloc<xct_t>;
 private:
     void            acquire_1thread_log_mutex();
-#if GNATS_69_FIX
-    rc_t            acquire_1thread_log_mutex_conditional();
-#endif
     void            release_1thread_log_mutex();
     bool            is_1thread_log_mutex_mine() const;
     void            assert_1thread_log_mutex_free()const;
+private:
     bool            is_1thread_xct_mutex_mine() const;
     void            assert_1thread_xct_mutex_free()const;
 
@@ -162,7 +160,7 @@ private:
 
     bool            forced_readonly() const;
 
-    w_rc_t             _flush_logbuf(bool sync=false);
+    w_rc_t             _flush_logbuf();
     w_rc_t	       _sync_logbuf(bool block=true);
 
     void 		_teardown(bool is_chaining);
@@ -187,6 +185,7 @@ public:
 	//-- from xct.h ----------------------------------------------------
 	tid_t                  _tid;
 	timeout_in_ms                _timeout; // default timeout value for lock reqs
+	bool                         _warn_on;
 	xct_lock_info_t*             _lock_info;
 
 	/* 
@@ -203,6 +202,10 @@ public:
 	// is using the xct structure on behalf of a transaction 
 	// TBD whether this should be a spin- or block- lock:
 	queue_based_lock_t              _1thread_xct;
+	
+	// Count of number of threads are doing update operations.
+	// Used by start_crit and stop_crit.
+	volatile int                 _updating_operations; 
 
 	//-- from xct_impl.h -----------------------------------------------
 	
@@ -300,7 +303,6 @@ private: // all data members private
 #ifdef XCT_IMPL_C
 #undef inline
 #define inline
-#endif
 
 inline
 xct_impl::state_t
@@ -356,22 +358,8 @@ xct_impl::GetEscalationThresholdsArray()
     return escalationThresholds;
 }
 
-inline void xct_impl::AddStoreToFree(const stid_t& stid)
-{
-    acquire_1thread_xct_mutex();
-    _core->_storesToFree.push(new stid_list_elem_t(stid));
-    release_1thread_xct_mutex();
-}
-
-inline void xct_impl::AddLoadStore(const stid_t& stid)
-{
-    acquire_1thread_xct_mutex();
-    _core->_loadStores.push(new stid_list_elem_t(stid));
-    release_1thread_xct_mutex();
-}
-
 inline
-vote_t
+xct_impl::vote_t
 xct_impl::vote() const
 {
     return _core->_vote;
@@ -458,7 +446,6 @@ xct_impl::gtid() const
     return _core->_global_tid;
 }
 
-#ifdef XCT_IMPL_C
 #undef inline
 #define inline inline
 #endif

@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: rtree.cpp,v 1.145.2.9 2010/03/19 22:20:26 nhall Exp $
+ $Id: rtree.cpp,v 1.147 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -383,28 +383,12 @@ rtree_base_p::set_hdr(const rtctrl_t& new_hdr)
     return RCOK;
 }
 
-void rtree_base_p::ntoh()
-{
-    /*
-     *  BUGBUG -- fill in when appropriate 
-     */
-    W_FATAL(eINTERNAL);
-}
-
 rc_t
 rtree_p::format(const lpid_t& pid, tag_t tag, 
         uint4_t flags, store_flag_t store_flags)
 {
     W_DO( rtree_base_p::format(pid, tag, flags, store_flags) );
     return RCOK;
-}
-
-void rtree_p::ntoh()
-{
-    /*
-     *  BUGBUG -- fill in when appropriate 
-     */
-    W_FATAL(eINTERNAL);
 }
 
 MAKEPAGECODE(rtree_p, rtree_base_p)
@@ -1399,7 +1383,7 @@ rtree_m::_split_page(
 
     wrk_branch_t* work = new wrk_branch_t[count+1];
     if (!work) return RC(eOUTOFMEMORY);
-#ifdef ZERO_INIT
+#if ZERO_INIT
     memset(work, '\0', sizeof(wrk_branch_t) * (count +1) );
 #endif
     w_auto_delete_array_t<wrk_branch_t> auto_del_work(work);
@@ -1629,7 +1613,7 @@ rtree_m::_propagate_insert(
         anchor = xd->anchor();
         X_DO(__propagate_insert(xd, pl), anchor);
         SSMTEST("rtree.1");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("rtree.1"));
     } else {
         W_DO(__propagate_insert(xd, pl));
     }
@@ -1681,7 +1665,7 @@ rtree_m::_propagate_remove(
         anchor = xd->anchor();
         X_DO(__propagate_remove(xd,pl), anchor);
         SSMTEST("rtree.2");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("rtree.2"));
     } else {
         W_DO(__propagate_remove(xd,pl));
     }
@@ -1774,7 +1758,7 @@ rtree_m::create(
     X_DO( page.set_hdr(hdr), anchor );
 
     SSMTEST("rtree.3");
-    xd->compensate(anchor);
+    xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("rtree.3"));
 
     return RCOK;
 }
@@ -1887,14 +1871,14 @@ rtree_m::insert(
                 rc = leaf.insert(key, elem);
                 if ( rc.is_error() ) {
                     w_assert1(rc.err_num() != eRECWONTFIT);
-                    xd->release_anchor();
+                    xd->release_anchor(true LOG_COMMENT_USE("rtree1"));
                     return RC_AUGMENT(rc);
                 }
             }
         }
         if (xd) {
             SSMTEST("rtree.4");
-            xd->compensate(anchor);
+            xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("rtree.4"));
         }
     }
         
@@ -2885,7 +2869,7 @@ rtree_m::bulk_load(
 
     if (xd)  {
         SSMTEST("rtree.5");
-        xd->compensate(anchor);
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("rtree.5"));
     }
 
     stats.entry_cnt = cnt;

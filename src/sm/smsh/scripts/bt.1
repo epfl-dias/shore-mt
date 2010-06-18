@@ -1,6 +1,6 @@
 # <std-header style='tcl' orig-src='shore'>
 #
-#  $Id: bt.1,v 1.8.4.1 2009/12/03 00:21:05 nhall Exp $
+#  $Id: bt.1,v 1.10 2010/06/08 22:28:28 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -43,17 +43,22 @@ set uniq 1
 set ndx [sm create_index $volid uni_btree]
 verbose created index $ndx
 sm commit_xct
+verbose "************************************************* created "
 
 do_until_stat bt_splits 10 insert 1 s l commit
 sm gather_stats
+verbose "************************************************** splits "
 
 sm begin_xct
-scan $ndx [llength $keylist]
+test_scan $ndx [llength $keylist]
 sm commit_xct
+verbose "************************************************** scanned "
 
-do_until_stat bt_shrinks 10 remove 1 s m commit
+do_until_stat bt_shrinks 1 remove 1 s l commit
 sm gather_stats
+verbose "************************************************** shrinks "
 sm begin_xct
-scan $ndx [llength $keylist]
+test_scan $ndx 0
 sm commit_xct
+verbose "************************************************** scanned "
 

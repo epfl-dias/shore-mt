@@ -1,6 +1,6 @@
 <std-header style='plain' orig-src='shore'>
 
- $Id: README,v 1.9.2.2 2009/10/13 22:14:33 nhall Exp $
+ $Id: README,v 1.12 2010/06/08 22:28:24 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -27,64 +27,64 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
   -- do not edit anything above this line --   </std-header>
 
-The Ssh program is a shell for testing the Shore Storage Manager.
+The smsh program is a shell for testing the Shore Storage Manager.
 
-Ssh has two "configuration" files.
+smsh has two "configuration" files.
 The first .shoreconfig (same name as the one for the shore server)
-where all options are set (previously they were set in .sshrc).
+where all options are set (previously they were set in .smshrc).
 All option lines now have the form:
-        ssh.server.executablename.optionname
-Ssh first looks for a .shoreconfig file in your home directory
+        smsh.server.executablename.optionname
+smsh first looks for a .shoreconfig file in your home directory
 and then in the local directory.  An example file is in
 .shoreconfig.example.
 
-Ssh has a new option called ssh_sshrc which points to an rc file
-to be read.  Normally this is set to ~/.sshrc.  The .sshrc file
+smsh has a new option called smsh_smshrc which points to an rc file
+to be read.  Normally this is set to ~/.smshrc.  The .smshrc file
 is interpreted by Tcl.  It's primary purpose is to describe
 devices and volumes used by the scripts.  An example is in 
-.sshrc.example.  
+.smshrc.example.  
 
 
 *********************************************************************
 
-You can run ssh on a single script at at time thus:
+You can run smsh on a single script at at time thus:
 
 with physical oids:
-	ssh -f ../scripts/btree.1 
+	smsh -f ../scripts/btree.1 
 
 (obsolete) with logical oids:
-	ssh -lf ../scripts/lid.1
+	smsh -lf ../scripts/lid.1
 
 to run a test that still reproduces a bug:
-	ssh -f ../scripts/bugs/xxxx
+	smsh -f ../scripts/bugs/xxxx
 
 to run with simulated preemptive thread switches (switch on each
     page latch, unlatch): Build with USE_SSMTEST, then do 
-	ssh -yf ../scripts/xxxx
+	smsh -yf ../scripts/xxxx
 
 
 *********************************************************************
 
-You can run ssh on groups of scripts thus:
+You can run smsh on groups of scripts thus:
 
    --normal "regression" testing:
-	ssh -f ../scripts/all
+	smsh -f ../scripts/all
 
    --some performance tests
-	ssh -f ../scripts/all.perf
+	smsh -f ../scripts/all.perf
 
    --some to find out which tests need to unset tcl variables:
-	ssh -f ../scripts/cleanup.all
+	smsh -f ../scripts/cleanup.all
 	then look at the file called "garbage_variables" ...
 
    --to run (presumably) forever in pseudo-random order...
-	ssh -f ../scripts/random.all
+	smsh -f ../scripts/random.all
 
 *********************************************************************
 
 To get a better testing of crash recovery, use the shell scripts
-runsmsh.  It forks off an ssh that runs random.all, and it also
-kills (with a signal) the ssh at pseudo-random times. 
+runsmsh.  It forks off an smsh that runs random.all, and it also
+kills (with a signal) the smsh at pseudo-random times. 
 
 *********************************************************************
 

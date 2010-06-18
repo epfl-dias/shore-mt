@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='OPTION_H'>
 
- $Id: option.h,v 1.30.2.4 2010/03/25 18:04:28 nhall Exp $
+ $Id: option.h,v 1.31 2010/05/26 01:20:12 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -40,22 +40,64 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
-/**\defgroup OPTIONS Options Configuration 
+/**\addtogroup OPTIONS 
  *
- * The options configuration facility consists of 3 classes: option_t,
- * option_group_t, and option_file_scan_t.  
+ * The storage manager has run-time options. Some of them must be set
+ * (they do not have defaults), so we provide this run-time options-control
+ * package that can be used by the server to set the values for options
+ * (both with and without defaults).
+ *
+ * This package makes it easy for values to be set and read 
+ * in one or more of these ways:
+ * - on a command line
+ * - in an input stream
+ * - in a file with an X-resources-style syntax that includes wildcarding:
+ *    \e Aclass.Bclass.programname.optionname \b : \e value
+ * - explicitly in the server code
+ * - with defaults in the server code.
+ *
+ * A server creates is options (required and optional) with
+ * their default values, and the server then adds the storage
+ * manager's options to the collected set of "known" options.  
+ *
+ * Subsequently, the configuration file(s) may be scanned and 
+ * the command line by the options-package code to find values for
+ * any of the known options.
+ *
+ * All this is must be done before a storage manager is started up,
+ * so that the values are available to the storage manager.
+ * Before starting up the storage manager, the server should also 
+ * determine if all required options have values, and this package helps
+ * in that regard as well.
+ *
+ * This is all achieved with the following three classes:
+ * option_t,
+ * option_group_t, and 
+ * option_file_scan_t.  
  *
  * Objects of type option_t contain information about individual options.  
- * An option has a string name and value.  
+ * An option has a string name and an assigned value.  
+ * It might also have a default value. It is either "required" or "optional".
  *
  * An option_group_t manages a related group of options.  
+ * The group has its own "class name", which is a set of appended names.
+ * This allows hierarchical grouping of options.  (The original SHORE code
+ * had many more layers and libraries, including client and server components,
+ * so this was useful. A full-blown RDBMS built on the storage manager might
+ * also make use of this hierarchical grouping.)
  *
- * An option_file_scan_t is used to parse a file  containing option 
- * configuration information.
+ * An option_file_scan_t is parses a file containing option name-value
+ * assignments.
+ *
  * An option_stream_scan_t does the same for an input stream.
  *
- * \todo examples of options usage: show the code, show the file contents,
- * using print_description and print_values
+ * The example \ref startstop.cpp shows how 
+ * options are used in a minimal way.
+ *
+ * The example consisting of 
+ * \ref create_rec.cpp and 
+ * \ref init_config_options.cpp
+ * is more complete.
 */
 
 #ifndef __opt_error_def_gen_h__
@@ -193,11 +235,29 @@ public:
 
     /**\brief Add an option to this group.
      *
+     * @param[in] name   Name of option.
+     * @param[in] possible_values   String for printing "help" information.
+     * @param[in] default_value   Default value or NULL.
+     * @param[in] description   Description of the options's purpose.
+     * @param[in] required   User must provide a value if "true".
+     * @param[in] set_func   Callback used during file- or command-line- 
+	 * scanning  to set the option value; this is needed because 
+	 * the options are typed.
+	 * Possible callback functions include several provided here, described below.
+     * @param[out] new_opt   The option_t created by this method is returned here.
+     * @param[in] err_stream   Errors encountered during processing will
+	 * cause messages to be sent here.
+	 *
      * \details
      * Creates an option_t and adds it to this group.
      * The set_func parameter indicates what callback function to call
-     * when the option is set.  Use one of the functions
-     * from option_t or write your own.
+     * when the option is set.  Write your own or use one of 
+	 * these functions from option_t: 
+     * - set_value_bool()
+     * - set_value_int4()
+     * - set_value_int8()
+     * - set_value_charstr()
+	 *
      */
     w_rc_t        add_option(const char* name, 
                        const char* possible_values,
@@ -226,7 +286,7 @@ public:
      * \details
      * @param[in] opt_class_name is a string of the form level1.level2.optionname.
      * A "?" can be used as a wild card for any single level name.
-     * A "*" can be used as a wild card for any number of level name.
+     * A "*" can be used as a wild card for any number of level names.
      * @param[out] ret Pass in an option_t* and it will be filled in if found.
      * @param[in] exact  opt_class_name is not an abbreviation.
      *
@@ -313,6 +373,7 @@ private:
  *   
  * Given an instream, scan for options in a given option_troup_t
  * on that stream.
+ * This is used by option_file_scan_t.
  */
 class option_stream_scan_t : public w_base_t {
         istream                &_input;

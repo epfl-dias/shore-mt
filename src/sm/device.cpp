@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore'>
 
- $Id: device.cpp,v 1.23.2.5 2010/03/19 22:20:23 nhall Exp $
+ $Id: device.cpp,v 1.26 2010/06/08 22:28:55 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -65,13 +65,17 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "device.h"
 
 #ifdef EXPLICIT_TEMPLATE
-template class w_list_t<device_s,sm_vol_wlock_t>;
-template class w_list_i<device_s,sm_vol_wlock_t>;
-template class w_list_const_i<device_s,sm_vol_wlock_t>;
+template class w_list_t<device_s,queue_based_lock_t>;
+template class w_list_i<device_s,queue_based_lock_t>;
+template class w_list_const_i<device_s,queue_based_lock_t>;
 #endif
 
+// NOTE: this might be overkill, since the r/w lock
+// _begin_xct_mutex prevents multiple concurrent dismounts, mounts:
+queue_based_lock_t  device_m::_table_lock;
+
 device_m::device_m()
-    : _tab(W_LIST_ARG(device_s, link), SM_VOL_WLOCK(_begin_xct_mutex) )
+    : _tab(W_LIST_ARG(device_s, link), &_table_lock)
 {
 }
 
@@ -80,7 +84,10 @@ device_m::~device_m()
     w_assert1(_tab.is_empty());
 }
 
-w_rc_t device_m::mount(const char* dev_name, const device_hdr_s& dev_hdr, u_int& vol_cnt)
+w_rc_t device_m::mount(
+    const char* dev_name, 
+    const device_hdr_s& dev_hdr, 
+    u_int& vol_cnt)
 {
     // protected by _begin_xct_mutex in caller
     device_s* _dev = _find(dev_name);
@@ -125,7 +132,7 @@ w_rc_t device_m::dismount_all()
     // protected by _begin_xct_mutex
     // which prevents an xct from starting while we dismount,
     // and protects against multiple threads doing this at once
-    w_list_i<device_s,sm_vol_wlock_t> scan(_tab);
+    w_list_i<device_s,queue_based_lock_t> scan(_tab);
     while(scan.next()) {
         scan.curr()->link.detach();
         delete scan.curr();
@@ -167,7 +174,7 @@ rc_t device_m::list_devices(const char**& dev_list, devid_t*& devid_list, u_int&
         dev_cnt = 0;
         return RC(eOUTOFMEMORY);
     }
-    w_list_i<device_s,sm_vol_wlock_t> scan(_tab);
+    w_list_i<device_s,queue_based_lock_t> scan(_tab);
     for (int i = 0; scan.next(); i++) {
         dev_list[i] = scan.curr()->name;
         devid_list[i] = scan.curr()->id;
@@ -178,7 +185,7 @@ rc_t device_m::list_devices(const char**& dev_list, devid_t*& devid_list, u_int&
 void device_m::dump() const
 {
     cout << "DEVICE TABLE: " << endl;
-    w_list_const_i<device_s,sm_vol_wlock_t> scan(_tab);
+    w_list_const_i<device_s,queue_based_lock_t> scan(_tab);
     while(scan.next()) {
         cout << scan.curr()->name << "  id:" << scan.curr()->id << "  quota = "  << scan.curr()->quota_pages << endl;
     }
@@ -186,14 +193,14 @@ void device_m::dump() const
 
 device_s* device_m::_find(const char* dev_name)
 {
-    w_list_i<device_s,sm_vol_wlock_t> scan(_tab);
+    w_list_i<device_s,queue_based_lock_t> scan(_tab);
     while(scan.next() && strcmp(dev_name, scan.curr()->name)) ;
     return scan.curr();
 }
 
 device_s* device_m::_find(const devid_t& devid)
 {
-    w_list_i<device_s,sm_vol_wlock_t> scan(_tab);
+    w_list_i<device_s,queue_based_lock_t> scan(_tab);
     while(scan.next() && devid != scan.curr()->id) ;
     return scan.curr();
 }
