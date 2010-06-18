@@ -521,6 +521,18 @@ xct_t::num_threads()
     return _core->_threads_attached;
 }
 
+int
+xct_t::compensated_op_depth() const
+{
+    return i_this->_in_compensated_op;
+}
+
+int
+check_compensated_op_nesting::compensated_op_depth(xct_t* xd)
+{
+    return xd->compensated_op_depth();
+}
+
 auto_release_anchor_t::~auto_release_anchor_t() 
 {
 	if(_xd) _xd->release_anchor(_and_compensate LOG_COMMENT_USE("autorel"));

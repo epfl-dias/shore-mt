@@ -2784,6 +2784,7 @@ vol_t::free_ext_after_xct(extnum_t ext, snum_t& old_owner)
                 lsn_t anchor;
                 xct_t* xd = xct();
                 w_assert9(xd);
+		check_compensated_op_nesting ccon(xd, __LINE__);
                 anchor = xd->anchor();
 
                 link.clrall();

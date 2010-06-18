@@ -263,6 +263,9 @@ public:
         holder_list::iterator it=holders.begin();
         int c=0;
         for(; it!=holders.end(); ++it) if(it->_latch == l) c++;
+	if(c > 2) {
+	    fprintf(stderr, "Lots-o-latches! tid:%d count:%d\n", pthread_self(), c);
+	}
         return c;
     }
 
