@@ -179,7 +179,7 @@ public:
     inline
     const stid_t&       stid() const {return _stid;}
 
-    shpid_t volatile    hog_last_pid() const { return *&_last_pid; }
+    shpid_t    hog_last_pid() const { return *&_last_pid; }
     void                free_last_pid() const {} // DEAD
     void                set_last_pid(shpid_t p);
 

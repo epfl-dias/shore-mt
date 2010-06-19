@@ -190,7 +190,8 @@ public:
                         );
     int4_t       hash_func() const { return _hash_func; }
     void         set_hash_func(int4_t h) { _hash_func=h; }
-    int4_t       volatile hash() const { return _hash;}
+    
+    int4_t       hash() const { return _hash;}
     void         set_hash(int4_t h) { _hash=h;}
 
 
@@ -208,7 +209,7 @@ public:
     // I'm making _pin_cnt private just so I can be sure all updates
     // are through the right methods.
     void                zero_pin_cnt() { _pin_cnt=0; }
-    int4_t              volatile pin_cnt() const { return _pin_cnt; }
+    int4_t              pin_cnt() const { return _pin_cnt; }
 
     // is_hot: is someone waiting for the latch?
     // NOTE: this is somewhat racy, in that it returns false negatives

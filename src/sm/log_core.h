@@ -96,10 +96,10 @@ private:
     long volatile        _waiting_for_space; 
     long volatile        _waiting_for_flush;
     long volatile        _start; // byte number of oldest unwritten byte
-    long volatile        start_byte() const { return _start; } 
+    long        start_byte() const { return _start; } 
 
     long volatile        _end; // byte number of insertion point
-    long volatile        end_byte() const { return _end; } 
+    long        end_byte() const { return _end; } 
 
     long                 _segsize; // log buffer size
     long                 segsize() const { return _segsize; }

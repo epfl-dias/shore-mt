@@ -289,7 +289,7 @@ public:
     /// Non-null indicates a thread is trying to satisfy this
     /// request for this xct, and is either blocked or is in the middle
     /// of deadlock detection.
-    lock_request_t * volatile waiting_request() const { return _wait_request; }
+    lock_request_t *  waiting_request() const { return _wait_request; }
 
     /// See above.
     void             set_waiting_request(lock_request_t*r) { _wait_request=r; }

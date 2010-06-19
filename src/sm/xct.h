@@ -394,7 +394,7 @@ public:
                                     atomic_dec(_updating_operations);
                                     w_assert2(_updating_operations >= 0);
                                  }
-    int volatile                 update_threads() const { 
+    int                 update_threads() const { 
                                     return _updating_operations;
     } 
 

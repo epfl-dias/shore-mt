@@ -1432,10 +1432,9 @@ xct_impl::get_logbuf(logrec_t*& ret, page_p const* p)
 	    if(badnews) {
 		release_1thread_log_mutex(); 
 		return RC(eOUTOFLOGSPACE);
-	    }
-	    
-	success:
+	    }	   
 	}
+    success:
 	_log_bytes_ready += MIN_BYTES_READY;
         DBG( << " get_logbuf: _log_bytes_rsvd " << _log_bytes_rsvd  
             << " _log_bytes_ready " << _log_bytes_ready

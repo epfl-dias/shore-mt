@@ -55,7 +55,7 @@ if COMPILER_IS_GCC
 # or system include file uses long long, in which case we will have to.
 #
 #
-ALWAYS_FLAGS += -Wextra -Wall -Wno-long-long -Werror -pthread
+ALWAYS_FLAGS += -Wextra -Wall -Wno-long-long -pthread
 # NO_INLINE_FLAGS =  -fno-inline
 NO_INLINE_FLAGS =  
 YES_INLINE_FLAGS =  -finline-functions
