@@ -628,7 +628,7 @@ latch_t::_release(latch_holder_t* me)
                 W_COERCE(_blocked_list.wakeup_all());
             }
             else {
-                W_COERCE(_blocked_list.wakeup_fist());
+                W_COERCE(_blocked_list.wakeup_first());
             }
         }
     }

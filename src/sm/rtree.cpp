@@ -374,12 +374,8 @@ rtree_base_p::set_hdr(const rtctrl_t& new_hdr)
 {
     vec_t v;
     v.put(&new_hdr, sizeof(new_hdr));
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     vec_t hdr_vec_tmp(&new_hdr, sizeof(new_hdr));
     W_DO( overwrite(0, 0, hdr_vec_tmp) );
-#else
-    W_DO( overwrite(0, 0, vec_t(&new_hdr, sizeof(new_hdr))) );
-#endif
     return RCOK;
 }
 
@@ -1609,7 +1605,7 @@ rtree_m::_propagate_insert(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd && compensate) {
         anchor = xd->anchor();
         X_DO(__propagate_insert(xd, pl), anchor);
@@ -1662,7 +1658,7 @@ rtree_m::_propagate_remove(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd && compensate)  {
         anchor = xd->anchor();
         X_DO(__propagate_remove(xd,pl), anchor);
@@ -1740,7 +1736,7 @@ rtree_m::create(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     anchor = xd->anchor();
 
     X_DO( io->alloc_a_page(stid, 
@@ -1838,10 +1834,10 @@ rtree_m::insert(
             return RC_AUGMENT(rc);
 
         lsn_t anchor;
-            xct_t* xd = xct();
+        xct_t* xd = xct();
         w_assert3(xd);
-	check_compensated_op_nesting ccon(xd, __LINE__);
-            if(xd) anchor = xd->anchor();
+        check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
+        if(xd) anchor = xd->anchor();
 
         // overflow treatment
         bool lvl_split[rtstk_t::max_rtstk_sz];
@@ -2808,7 +2804,7 @@ rtree_m::bulk_load(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd) anchor = xd->anchor();
 
     lpid_t pid;

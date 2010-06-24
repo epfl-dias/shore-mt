@@ -177,7 +177,7 @@ typedef w_base_t::int8_t sm_diskaddr_t;
  *
  */
 
-// NANCY: TODO make thread-safe for 32-bit platform
+/*\bug GNATS 136: TODO make thread-safe for 32-bit platform */
 /**\brief Log Sequence Number. See \ref LSNS.
  *
  * \ingroup LSNS

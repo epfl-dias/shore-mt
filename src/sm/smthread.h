@@ -574,21 +574,17 @@ public:
     static  void     vtable_collect_names(vtable_row_t& t);
     /**\endcond skip */
 
-    /* TODO NANCY CLEAN UP THESE COMMENTS */
     /* thread-level block() and unblock aren't public or protected
-       accessible.  Control sm thread-level blocking with ordinary
-       synchronization tools at the sm level */
+       accessible.  
+       These methods are used by the lock manager.
+       Otherwise, ordinarly pthreads sychronization variables
+       are used.
+    */
     w_rc_t::errcode_t smthread_block(timeout_in_ms WAIT_FOREVER,
                       const char * const caller = 0,
                       const void * id = 0);
     w_rc_t            smthread_unblock(w_rc_t::errcode_t e);
 
-    /* block/unblock is used as an adhoc sync. method instead of
-       using "guaranteed" synchronization.  Some places in the code
-       which block/unblock may already have a mutex that locks
-       the synchronization area.  This interface allows those locations
-       to block(area_mutex) and get rid of the overhead associated
-       with locking another mutex for the sm-level block */
 private:
     w_rc_t::errcode_t _smthread_block( timeout_in_ms WAIT_FOREVER,
                               const char * const why =0);

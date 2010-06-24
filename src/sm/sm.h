@@ -514,6 +514,12 @@ private:
  *
  * Deleting the quark without closing it causes it to be closed.
  * Quarks may \e not be used with multi-threaded transactions.
+ *
+ * Note that if a transaction has multiple threads attached when
+ * a thread opens a quark, there is no way to determine where the
+ * quark takes effect, and since it affects the locks acquired by
+ * all threads of the transaction, it must be used very carefully
+ * where multiply-threaded transactions are concerned.
  */
 
 /**\brief List of locks acquired by a transaction since
@@ -789,6 +795,155 @@ public:
         tid_t&                   tid,
         timeout_in_ms            timeout = WAIT_SPECIFIED_BY_THREAD);
 
+#undef FORK_LOG_STREAM
+#if FORK_LOG_STREAM
+    /**\brief Fork the designated transaction's log stream and attach
+     *to the new one.
+     *
+     * \details
+	 * 
+	 * \todo parameters
+     *
+     * Somewhat misnamed for historical reaons, the xct_t returned by
+     * begin_xct actually represents one (and the only, at first) \e
+     * log \e stream of the transaction. This log stream is not
+     * reentrant and must be duplicated in order for other threads to
+     * attach to the transaction. The storage manager considers a
+     * transaction to be multithreaded at any time multiple log
+     * streams exist, regardless of whether threads are currently
+     * attached to them. 
+     *
+     * Each log stream is independent of the others, and each may have
+     * its own anchor and savepoint(s); locks are still shared among
+     * all of a transaction's log streams. All log streams are
+     * equivalent in the sense that ecah can perform any operation the
+     * original could. Any stream can fork new streams or end the
+     * transaction (assuming no others exist), and the original stream
+     * can be closed (assuming others exist).
+     *
+     * Log streams may migrate freely between threads, and
+     * attaching/detaching them is a lightweight operation. However,
+     * only one thread may use a stream at a time, and Bad Things Will
+     * Happen (tm) if two threads use one log stream
+     * simultaneously. Release builds of the SM detect simultaneous
+     * attachments on a best-effort basis only, while debug builds
+     * enforce these conditions strictly.
+     *
+     * One risk of allowing multiple log streams is the possibility
+     * for them to become "tangled" with respect to savepoints. For
+     * example, all streams which access the same value must roll back
+     * if any does, and rolling back a stream to undo one operation
+     * may roll back other, unrelated work, as a side effect. For this
+     * reason, savepoint operations may not occur when multiple
+     * streams are present, though multiple streams may work in parallel
+     * before, during, and after an active savepoint. All work on all
+     * streams performed during a savepoint can thus be rolled back to
+     * reach a known, consistent state.
+     *
+     * \e Notes
+     *
+     * In order to reduce overheads the system prefers to reopen
+     * previously-closed log streams rather than creating new ones. As
+     * a result the cost of forking log streams is more closely tied
+     * to the maximum number open at any instant rather than the total
+     * number of calls to fork_log_stream.
+     *
+     * \e Restrictions
+     *
+     * At most one thread may attach to a log stream at a time, and
+     * attempts to attach a second thread to a log stream fail with
+     * TWOTHREAD. The converse also holds: attaching a second log
+     * stream to a thread fails with INTRANS. 
+     *
+     * At least one log stream must exist at all times, and attempts
+     * to close the last one will fail with ONETHREAD.
+     *
+     * Some operations fail with TWOTHREAD if more than one log stream
+     * exists. Notable examples include commit_xct/abort_xct,
+     * creation/deletion of stores, use of quarks, and taking/rolling
+     * back savepoints. Any stream is equally suitable for performing
+     * these operations (not just the one returned by xct_begin) as
+     * long as all others have been closed. Further, these operations
+     * do not preclude the existence of multiple streams at other
+     * times (including while savepoints or quarks are active).
+     *
+     * Some features cannot be combined with multithreaded
+     * transactions at all. The main example (at this point) is
+     * 2PC. Attempts to use these features after a call to
+     * fork_log_stream will fail with TWOTHREAD (even if all others
+     * have since been closed). Similarly, attempts to fork the log
+     * stream after calling enter_2pc fail with IN2PC.
+	 * TODO: WHY THIS RESTRICTION?  Can't roll back as one stream?
+	 * I thought checkpoints would know the #streams in an xct
+     */
+    static rc_t		 fork_log_stream(xct_t* forkme);
+
+    /**\brief Detach from, and close, the attached log stream
+     *\ingroup SSMXCT
+     *
+     * \details
+     *
+     * When multiple log streams are created by fork_log_stream, all
+     * but one must be closed before the transaction can end. In
+     * addition, unwanted log streams may be closed at any
+     * time. Attempting to close the last log stream fails with
+     * ONETHREAD.
+     */
+    static rc_t		close_log_stream();
+
+    /**\brief Instruments the current thread with the stats object
+     * provided.
+	 * \todo parameters
+     *
+     *\details
+     *
+     * The storage manager tracks a wide variety of statistics which
+     * are ultimately collected on a per-thread basis and eventually
+     * aggregated centrally. Statistics objects are not reentrant and
+     * should only be assigned to one thread at a time.
+     *
+     * Statistics are always cleared when attached and snapped when
+     * detached from their owner, but the system never deletes
+     * user-supplied objects.
+     *
+     * There are two ways to track statistics:
+     *
+     * 1. Log stream-assigned. The user explicitly attaches a
+     *    statistics object to a log stream at creation time
+     *    (xct_begin attaches stats to the starting stream). Closing
+     *    the stream or committing the transaction detaches the stats
+     *    automatically. This method may impose high overhead for
+     *    short transactions.
+     *
+     * 2. Thread-assigned. The user explicitly attaches a statistics
+     *    object to an agent thread (with no transaction
+     *    attached). All transactions which subsequently attach to the
+     *    thread will use the thread's object if they do not have
+     *    their own. Stats are detached automatically if the thread
+     *    terminates.
+     *
+     * Statistics cannot be detached while a transaction is attached
+     * to the calling thread (failing with INTRANS). The system
+     * prefers stream-assigned over thread-assigned stats if both are
+     * available; if neither is available the system creates a
+     * stream-assigned stats and deletes it when the stream closes.
+     *
+     * This function silently replaces whatever stats were previously
+     * attached.
+     */
+    static rc_t		attach_stats(sm_stats_info_t* s);
+
+    /*\brief detaches user stats from the current thread. 
+     *
+     * \details
+     *
+     * No effect if no stats were previously attached.
+     *
+     * Errors: INTRANS if a transaction is currently attached.
+     */      
+    static rc_t		detach_stats();
+#endif
+
     /**\addtogroup SSM2PC  
      * The storage manager contains support for externally-coordinated
      * transactions that use
@@ -990,6 +1145,10 @@ public:
     /**\brief Commit a transaction.
      *\ingroup SSMXCT
      * @param[in] lazy   Optional, controls flushing of log.
+     * @param[out] plastlsn   If non-null, this is a pointer to a
+	 *                    log sequence number into which the storage
+	 *                    manager writes the that of the last log record
+	 *                    inserted for this transaction.
      * \details
      *
      * Commit the attached transaction and detach it, destroy it.
@@ -1004,6 +1163,10 @@ public:
      *\ingroup SSMXCT
      * @param[out] stats   Get a copy of the statistics for this transaction.
      * @param[in] lazy   Optional, controls flushing of log.
+     * @param[out] plastlsn   If non-null, this is a pointer to a
+	 *                    log sequence number into which the storage
+	 *                    manager writes the that of the last log record
+	 *                    inserted for this transaction.
      * \details
      *
      * Commit the attached transaction and detach it, destroy it.
@@ -1011,9 +1174,9 @@ public:
      * recovery of this transaction might not be possible.
      */
     static rc_t            commit_xct(
-        sm_stats_info_t*&         stats, 
-        bool                      lazy = false,
-        lsn_t* plastlsn=NULL);
+									sm_stats_info_t*& stats, 
+									bool              lazy = false,
+									lsn_t*            plastlsn=NULL);
 
     /**\brief Commit an instrumented transaction and start a new one.
      *\ingroup SSMXCT
@@ -1241,6 +1404,8 @@ public:
      * All attribute values will be strings.
      * The virtual table v can be printed with its output operator
      * operator\<\< for ostreams.
+	 *
+	 * \attention Not atomic. Can yield stale data. 
      */
     static rc_t            xct_collect(vtable_t&v, bool names_too=true);
 
@@ -1256,6 +1421,8 @@ public:
      * All attribute values will be strings.
      * The virtual table v can be printed with its output operator
      * operator<< for ostreams.
+	 *
+	 * \attention Not atomic. Can yield stale data. 
      */
     static rc_t            bp_collect(vtable_t&v, bool names_too=true);
 
@@ -1269,6 +1436,9 @@ public:
      * All attribute values will be strings.
      * The virtual table v can be printed with its output operator
      * operator<< for ostreams.
+	 *
+	 * \attention Not atomic. Can yield stale data. 
+	 * Cannot be used in a multi-threaded-transaction context.
      */
     static rc_t            lock_collect(vtable_t&v, bool names_too=true);
 
@@ -1282,6 +1452,8 @@ public:
      * All attribute values will be strings.
      * The virtual table v can be printed with its output operator
      * operator<< for ostreams.
+	 *
+	 * \attention Not thread-safe. Can yield stale data. 
      */
     static rc_t            thread_collect(vtable_t&v, bool names_too=true);
 
@@ -1403,19 +1575,25 @@ public:
     */
     static rc_t            set_disk_delay(u_int milli_sec);
 
-    // This method tells the log manager to start generating corrupted
-    // log records.  This will make it appear that a crash occurred
-    // at that point in the log.  A call to this method should be
-    // followed immediately by a dirty shutdown of the ssm.
+	/**\cond skip */
+	// TODO : document crash testing facilities
+    /**\brief Simulate a crash
+	 * \details
+	 * This method tells the log manager to start generating corrupted
+     * log records.  This will make it appear that a crash occurred
+     * at that point in the log.  A call to this method should be
+     * followed immediately by a dirty shutdown of the ssm.
+	 */
     static rc_t            start_log_corruption();
+	/**\endcond skip */
 
     // Forces a log flush
-    static rc_t 		sync_log(bool block=true);
-    static rc_t 		flush_until(lsn_t& anlsn, bool block=true);
+    static rc_t 		    sync_log(bool block=true);
+    static rc_t 		    flush_until(lsn_t& anlsn, bool block=true);
 
     // Allowing to access info about the important lsns (curr and durable)
-    static rc_t                 get_curr_lsn(lsn_t& anlsn);
-    static rc_t                 get_durable_lsn(lsn_t& anlsn);
+    static rc_t            get_curr_lsn(lsn_t& anlsn);
+    static rc_t            get_durable_lsn(lsn_t& anlsn);
 
 
     /*
@@ -2774,6 +2952,7 @@ public:
      *
      *****************************************************************/
 
+#if SLI_HOOKS
     /* enable/disable SLI globally for all threads created after this
        point. Does *NOT* disable SLI for existing threads.
      */
@@ -2782,6 +2961,7 @@ public:
 
     static rc_t			set_log_features(char const* features);
     static char const* 		get_log_features();
+#endif
 
     /**\brief Acquire a lock.
      * \ingroup SSMLOCK
@@ -3140,18 +3320,12 @@ private:
 
     static rc_t            _destroy_file(const stid_t& fid); 
 
-    // if "forward_alloc" is true, then scanning for a new free extent, in the
-    // case where file needs to grow to accomodate the new record, is done by
-    // starting ahead of the currently last extent of the file, instead of the
-    // beginning of the volume (i.e. extents are allocated in increasing
-    // numerical order).
     static rc_t            _create_rec(
         const stid_t&            fid, 
         const vec_t&             hdr, 
         smsize_t                 len_hint, 
         const vec_t&             data, 
-        rid_t&                   new_rid,
-        bool                     forward_alloc = true
+        rid_t&                   new_rid
 #ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif

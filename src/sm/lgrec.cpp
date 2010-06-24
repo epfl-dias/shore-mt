@@ -610,12 +610,8 @@ lgdata_p::append(const vec_t& data, uint4_t start, uint4_t amount)
 
     // new vector at correct start and with correct size
     if(data.is_zvec()) {
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const zvec_t amt_vec_tmp(amount);            
         W_DO(splice(0, (slot_length_t) tuple_size(0), 0, amt_vec_tmp));
-#else
-        W_DO(splice(0, (slot_length_t) tuple_size(0), 0, zvec_t(amount)));
-#endif
     } else {
         vec_t new_data(data, u4i(start), u4i(amount));
         w_assert9(amount == new_data.size());
@@ -632,12 +628,8 @@ lgdata_p::update(uint4_t offset, const vec_t& data, uint4_t start,
 
     // new vector at correct start and with correct size
     if(data.is_zvec()) {
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const zvec_t amt_vec_tmp(amount);
         W_DO(splice(0, u4i(offset), u4i(amount), amt_vec_tmp));
-#else
-        W_DO(splice(0, u4i(offset), u4i(amount), zvec_t(amount)));
-#endif
     } else {
         vec_t new_data(data, u4i(start), u4i(amount));
         w_assert9(amount == new_data.size());

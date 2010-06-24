@@ -94,7 +94,7 @@ class latch_holder_t
 {
 public:
 
-#define LATCH_CAN_BLOCK_LONG 0
+// #define LATCH_CAN_BLOCK_LONG 0 in sthread.h 
 /*
  FRJ says that it's not worth blocking the thread because
  latches aren't held long enough.  Possible exceptions: tree-

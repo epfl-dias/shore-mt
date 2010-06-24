@@ -69,10 +69,10 @@ const lpid_t lpid_t::bof;
 const lpid_t lpid_t::eof;
 const lpid_t lpid_t::null;
 
+// debug pretty-print of an lsn -- used in debugger
 char const* 
 db_pretty_print(lsn_t const* lsn, int /*i=0*/, char const* /* s=0 */) 
 {
-// TODO: NANCY WHAT's THIS? (added by smt guys ) debug pretty print
   char *tmp = (char *) ::valloc(100);
   snprintf(tmp, sizeof(tmp), "%d.%lld", lsn->hi(), (long long int)(lsn->lo()));
   return tmp;

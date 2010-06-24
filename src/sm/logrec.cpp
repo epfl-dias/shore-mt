@@ -1310,13 +1310,8 @@ page_splice_log::redo(page_p* page)
     w_assert1(memcmp(dp->old_image(), p, dp->old_len) == 0);
 #endif 
 
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const vec_t new_vec_tmp(dp->new_image(), dp->new_len);
     W_COERCE(page->splice(dp->idx, dp->start, dp->old_len, new_vec_tmp));
-#else
-    W_COERCE(page->splice(dp->idx, dp->start, dp->old_len,
-                        vec_t(dp->new_image(), dp->new_len)));
-#endif
 }
 
 void
@@ -1459,12 +1454,8 @@ page_splicez_log::redo(page_p* page)
     vec_t z;
 
     if(dp->nlen == 0) {
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const zvec_t new_vec_tmp(dp->new_len);
         z.set(new_vec_tmp);
-#else
-        z.set(zvec_t(dp->new_len));
-#endif
     } else {
         z.set(dp->new_image(), dp->new_len);
     }
@@ -1513,12 +1504,8 @@ page_splicez_log::undo(page_p* page)
 
     vec_t z;
     if(dp->olen == 0) {
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const zvec_t old_vec_tmp(dp->old_len);
         z.set(old_vec_tmp);
-#else
-        z.set(zvec_t(dp->old_len));
-#endif
     } else {
         z.set(dp->old_image(), dp->old_len);
     }
@@ -2528,10 +2515,10 @@ alloc_file_page_log::undo(page_p* W_IFDEBUG1(already_fixed))
         //
         w_assert3(page.pid() == this->pid());
         w_assert3(page.pid()._stid.store == this->pid()._stid.store);
-        // TODO NANCY: is this true or is it possible, per the
+        // Is it possible, per the
         // comment in _undo_alloc_file_page(), that
         // the page was discarded and could be anything?
-        // Yes.
+        // Yes. The assert is bogus:
         // w_assert1(page.tag() == page_p::t_file_p);
 
         file_p *fp = (file_p *)&page;

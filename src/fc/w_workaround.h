@@ -340,6 +340,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /* Grab our form if needed.  */
 #ifdef FC_NEED_UNBOUND_FORM
+// in w_form.cpp
 extern const char *form(const char *, ...);
 #endif
 

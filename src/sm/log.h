@@ -142,7 +142,7 @@ public:
                             return _min_chkpt_rec_lsn;
                         }
 
-	rc_t                file_was_archived(const char *file);
+    rc_t                file_was_archived(const char *file);
 
 private:
     /**\brief Helper for _write_master */
@@ -276,6 +276,8 @@ public:
                               return _curr_lsn;
                         }
 
+    bool                squeezed_by(const lsn_t &)  const ;
+
 
     /**\brief used by crash.cpp, but only for assertions */
     lsn_t               durable_lsn() const {
@@ -327,7 +329,8 @@ public:
     // back off by one byte so we don't depend on other inserts to
     // arrive after us
     // used by bf_m
-    rc_t    flush_all(bool block=true) { return flush(curr_lsn().advance(-1),block); }
+    rc_t    flush_all(bool block=true) { 
+                          return flush(curr_lsn().advance(-1), block); }
 
 public:
     /**\brief used by partition */

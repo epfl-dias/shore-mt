@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore'>
 
- $Id: xct.cpp,v 1.207.2.17 2010/01/28 04:54:21 nhall Exp $
+ $Id: vtable_xct.cpp,v 1.3 2010/06/21 20:39:39 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -45,7 +45,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_escalation.h"
 #include "lock_x.h"
 #include "xct_dependent.h"
-#include "xct_impl.h"
 
 #include <vtable.h>
 #include <sm_vtable_enum.h>
@@ -135,7 +134,7 @@ xct_t::vtable_collect(vtable_row_t &t)
 
     // xct_forced_readonly_attr
     t.set_string(xct_forced_readonly_attr, 
-            (i_this->forced_readonly()?"true":"false"));
+            (forced_readonly()?"true":"false"));
 }
 
 void        

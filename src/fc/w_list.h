@@ -338,6 +338,15 @@ public:
         w_list_t<T,LOCK>::push(t);
     }
 
+    // a set of consistent and intuitive names
+    // TODO: replace throughout the SM
+    w_list_t<T,LOCK>&	push_front(T* t) { return push(t); }
+    w_list_t<T,LOCK>&	push_back (T* t) { return append(t); }
+    T*	front() { return top(); }
+    T*	back()  { return bottom(); }
+    T*	pop_front() { return pop(); }
+    T*	pop_back()  { return chop(); }
+    
     /// Insert 
     w_list_t<T,LOCK>&   push(T* t)   {
         link_of(t)->attach(&_tail);

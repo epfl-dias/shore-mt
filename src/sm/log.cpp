@@ -702,7 +702,7 @@ fileoff_t log_m::reserve_space(fileoff_t amt) {
 #if USE_LOG_RESERVATIONS
     return (amt > 0)? take_space(&_space_available, amt) : 0;
 #else
-	return (_space_available > amt) ? _space_available - amt : 0; 
+    return (_space_available > amt) ? _space_available - amt : 0; 
 #endif
 }
 
@@ -714,7 +714,7 @@ fileoff_t log_m::consume_chkpt_reservation(fileoff_t amt) {
     return (amt > 0)? 
         take_space(&_space_rsvd_for_chkpt, amt) : 0;
 #else
-	return amt; // anything > 0 means ok
+    return amt; // anything > 0 means ok
 #endif
 }
 
@@ -756,7 +756,7 @@ rc_t log_m::wait_for_space(fileoff_t &amt, timeout_in_ms timeout)
 #else
 rc_t log_m::wait_for_space(fileoff_t &, timeout_in_ms ) 
 {
-	return RCOK;
+    return RCOK;
 }
 #endif
 
@@ -766,10 +766,25 @@ log_m::activate_reservations()
     log_core::THE_LOG->activate_reservations();
 }
 
+// Determine if this lsn is holding up scavenging of logs by (being 
+// on a presumably hot page, and) being a rec_lsn that's in the oldest open
+// log partition and that oldest partition being sufficiently aged....
+bool                
+log_m::squeezed_by(const lsn_t &self)  const 
+{
+    // many partitions are open
+    return 
+    ((curr_lsn().file() - global_min_lsn().file()) >=  (PARTITION_COUNT-2))
+        &&
+    (self.file() == global_min_lsn().file())  // the given lsn 
+                                              // is in the oldest file
+    ;
+}
+
 rc_t                
 log_m::file_was_archived(const char *file)
 {
-	// TODO: should check that this is the oldest, 
-	// and that we indeed asked for it to be archived.
-	return log_core::THE_LOG->file_was_archived(file);
+    // TODO: should check that this is the oldest, 
+    // and that we indeed asked for it to be archived.
+    return log_core::THE_LOG->file_was_archived(file);
 }

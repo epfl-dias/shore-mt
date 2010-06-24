@@ -129,7 +129,7 @@ public:
     static rc_t                  get_page(
         const lpid_t&               pid,
         bfcb_t*                     b,
-        uint2_t                       ptag,
+        uint2_t                     ptag,
         bool                        no_read,
         bool                        ignore_store_id);
 

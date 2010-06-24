@@ -499,7 +499,7 @@ sthread_t::set_hugetlbfs_path(const char *what)
     }
 
     // stat the path to make sure it at least exists.
-    // NANCY TODO: check the permissions and all that
+    // TODO: check the permissions and all that
     struct stat statbuf;
     int e=stat(what, &statbuf);
     if(e) {
@@ -541,7 +541,7 @@ sthread_t::set_bufsize_huge(
     //  GET FILE DESCRIPTOR FOR MMAP
     //
     // ***********************************************************
-    // NANCY TODO: verify that this file can be multiply mapped
+    // TODO: verify that this file can be multiply mapped
     // by diff users (i.e., don't need unique file name for each sm)
 
 
@@ -804,7 +804,7 @@ sthread_t::open(const char* path, int flags, int mode, int &ret_fd)
         // have many more open files than sthread_t::open_max.  
         // But with threading, we are stuck with the the os limit O(1024). 
         // For now, we use the original code because open_max starts out 0.
-        // TODO NANCY: We need to use os limit here, acquire the array once.  
+        // TODO : We need to use os limit here, acquire the array once.  
         // I suppose it's worth doing this dynamically for several reasons.
         // Not all threads do I/O, for one thing.
         //

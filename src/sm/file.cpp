@@ -1306,49 +1306,49 @@ file_m::_free_page(file_p& page)
             // If we failed with the immediate locks, now try 
             // longer-term locks:
 
-			// FRJ: actually, we *can't* resolve it because unfixing
-			// the page here doesn't unfix the page in
-			// alloc_file_page_log::undo
-			// and if we hang onto the fixed page while we do the
-			// lock_force, we can deadlocok.
+            // FRJ: actually, we *can't* resolve it because unfixing
+            // the page here doesn't unfix the page in
+            // alloc_file_page_log::undo
+            // and if we hang onto the fixed page while we do the
+            // lock_force, we can deadlocok.
             if (0 && rc.err_num() == eLOCKTIMEOUT) {
                 page.unfix();
                 rc = lm->lock_force(pid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
-				if(!rc.is_error()) {
-					// got lock. nothing should go wrong with the latch
-					W_DO(page.conditional_fix(pid, LATCH_EX));
+                if(!rc.is_error()) {
+                    // got lock. nothing should go wrong with the latch
+                    W_DO(page.conditional_fix(pid, LATCH_EX));
 
-					// Re-check.   Because we unfixed the page and
-					// re-fixed it, we have to check that it's
-					// still part of this store.  That's done by
-					// passing in "true" to io_m::free_page
-					if (page.rec_count() == 0) {
-						rc = smlevel_0::io->free_page(pid, 
-								true/*chk store memb*/ );
-						// Could fail to get the lock - eDEADLOCK 
-						// this time.
-						if(rc.is_error()) {
-							if(rc.err_num() == eDEADLOCK) {
-								// Ok give up and let other xct free the
-								// page. We could have two xcts trying to
-								// free the page at the same time.
-								return RCOK;
-							}
-							w_assert1(rc.err_num() != eLOCKTIMEOUT);
-						} 
-					}
-					// else leave it as eOK
-				}
-			} // if 0 && eLOCKTIMEOUT
+                    // Re-check.   Because we unfixed the page and
+                    // re-fixed it, we have to check that it's
+                    // still part of this store.  That's done by
+                    // passing in "true" to io_m::free_page
+                    if (page.rec_count() == 0) {
+                        rc = smlevel_0::io->free_page(pid, 
+                                true/*chk store memb*/ );
+                        // Could fail to get the lock - eDEADLOCK 
+                        // this time.
+                        if(rc.is_error()) {
+                            if(rc.err_num() == eDEADLOCK) {
+                                // Ok give up and let other xct free the
+                                // page. We could have two xcts trying to
+                                // free the page at the same time.
+                                return RCOK;
+                            }
+                            w_assert1(rc.err_num() != eLOCKTIMEOUT);
+                        } 
+                    }
+                    // else leave it as eOK
+                }
+            } // if 0 && eLOCKTIMEOUT
 
-			// Bail on eOK or any unacceptable failure
-			if(rc.err_num() != eDEADLOCK && rc.err_num() != eLOCKTIMEOUT)
-				return rc.reset(); 
-	    
-			// It's OK if we couldn't get the lock. Give up and let
-			// other xct free the page. We could have two xcts trying
-			// to free the page at the same time.
-			// Drop down and return RCOK.
+            // Bail on eOK or any unacceptable failure
+            if(rc.err_num() != eDEADLOCK && rc.err_num() != eLOCKTIMEOUT)
+                return rc.reset(); 
+        
+            // It's OK if we couldn't get the lock. Give up and let
+            // other xct free the page. We could have two xcts trying
+            // to free the page at the same time.
+            // Drop down and return RCOK.
         }
     }
     return RCOK;
@@ -1384,9 +1384,13 @@ file_m::_undo_alloc_file_page(file_p& page)
 
     // Page tag could be *anything*, in that if the
     // page was discarded from the bp before it was
-    // made durable as a file_p, its tag is left over
-    // from its prior life. NANCY TODO IS THIS RIGHT?
-    //
+    // made durable as a file_p (i.e., if it was
+    // not formatted), its tag is left over
+    // from its prior life. 
+    // There's a gap in the file_p allocation code 
+    // in which that could be the case, and this doesn't
+    // cope with it properly.  See GNATS 129. Fixing that
+    // will address this.
 
     if(page.tag() == page_p::t_file_p) {
         return _free_page(page);
@@ -1553,11 +1557,11 @@ file_m::_alloc_page(
 
 
     {
-		// Filter EX-latches the page; we hold the ex latch
-		// and return the page latched.
+        // Filter EX-latches the page; we hold the ex latch
+        // and return the page latched.
         alloc_file_page_filter_t ok(store_flags, page);
         W_DO(io->alloc_a_file_page(&ok, fid, near_p, allocPid, IX,search_file));
-		w_assert1(page.is_mine()); // EX-latched
+        w_assert1(page.is_mine()); // EX-latched
         // Now we format, since it couldn't be done during accept()
         W_DO(page.format(allocPid, page.t_file_p, page.t_virgin, store_flags));
     }
@@ -1574,7 +1578,7 @@ file_m::_alloc_page(
      * point to the log record of the alloc_file_page for *this* page.
      */
     w_assert2(page.lsn().valid());
-	w_assert2(page.is_mine()); // EX-latched
+    w_assert2(page.is_mine()); // EX-latched
 
     return RCOK;
 }
@@ -2049,7 +2053,7 @@ file_p::_find_and_lock_free_slot(
         rid_t rid(pid(), idx);
 
         // IP: For DORA it may ignore to acquire other locks than the RID
-	rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE
+    rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE
 #ifdef SM_DORA
                       , 0, 0, 0, bIgnoreParents
 #endif
@@ -2304,8 +2308,8 @@ file_m::get_du_statistics(
             file_stats.unalloc_file_pg_cnt += _stats.numReservedPages;
 
             // Now do same for large object file
-            // NANCY TODO: WHY IS THIS NOT USING unalloc_large_page_cnt?
-            // WHY DO WE NOT SET THE file_pg_cnt ? 
+            // TODO: Why is this not using unalloc_large_page_cnt?
+            //       Why do we not set the file_pg_cnt ? 
             // NOTE: we do not audit this file
             _stats.Clear();
             W_COERCE( io->get_store_meta_stats(lfid, _stats) );

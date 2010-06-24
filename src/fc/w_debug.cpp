@@ -63,14 +63,21 @@ regex_t     _w_debug::re_posix_re;
 char*       _w_debug::re_error_str = "Bad regular expression";
 #endif /* USE_REGEX */
 
+// I'm ambivalent about making this thread-safe.
+// To do so would require moving this and all related tests into
+// sthread/.
+// The disadvantage is that it would that much more change the
+// timing of things.
+// The errlog and such is most useful for debugging single-threaded
+// tests anyway, and still somewhat useful for mt stuff despite this
+// being not-safe; it would clearly change the timing for mt situations
+// we're trying to debug; I think it's probably more useful to
+// decipher mixed-up debugging output for those cases.
+//
+
 w_debug::w_debug(const char *n, const char *f) : 
     ErrLog(n, log_to_unix_file, f?f:"-")
 {
-#ifdef FC_DEBUG_WIN32_LOCK
-    // TODO NANCY: if you choose to keep this w_debug  stuff,
-    // maybe put some syn primitives in here
-    InitializeCriticalSection(&_crit);
-#endif
 #ifdef USE_REGEX
     //re_ready = false;
     //re_error_str = "Bad regular expression";
@@ -113,18 +120,12 @@ w_debug::~w_debug()
 {
     if(_flags) delete [] _flags;
     _flags = NULL;
-#ifdef FC_DEBUG_WIN32_LOCK
-    DeleteCriticalSection(&_crit);
-#endif
 
 }
 
 void
 w_debug::setflags(const char *newflags)
 {
-#ifdef FC_DEBUG_WIN32_LOCK
-    EnterCriticalSection(&_crit);
-#endif
     if(!newflags) return;
 #ifdef USE_REGEX
     {
@@ -132,9 +133,6 @@ w_debug::setflags(const char *newflags)
         if((s=re_comp_debug(newflags)) != 0) {
             cerr << "Error in regex, flags not set: " <<  s << endl;
             mask = _none;
-#ifdef FC_DEBUG_WIN32_LOCK
-            LeaveCriticalSection(&_crit);
-#endif
             return;
         }
     }
@@ -150,9 +148,6 @@ w_debug::setflags(const char *newflags)
         mask |= _all;
     }
     assert( !( none() && all() ) );
-#ifdef FC_DEBUG_WIN32_LOCK
-    EnterCriticalSection(&_crit);
-#endif
 }
 
 #ifdef USE_REGEX
@@ -195,9 +190,6 @@ w_debug::flag_on(
 )
 {
     int res = 0;
-#ifdef FC_DEBUG_WIN32_LOCK
-    EnterCriticalSection(&_crit);
-#endif
     assert( !( none() && all() ) );
     if(_flags==NULL) {
     res = 0; //  another constructor called this
@@ -220,9 +212,6 @@ w_debug::flag_on(
     } else if(fn && strstr(_flags,fn)) {
     res = 1;
     }
-#ifdef FC_DEBUG_WIN32_LOCK
-    LeaveCriticalSection(&_crit);
-#endif
     return res;
 }
 

@@ -54,12 +54,6 @@
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-// TODO NANCY For now, back these out while I am studying this
-// I'm thinking these fixes weren't needed if we called the
-// space_t methods properly in the cases of 
-// 1) multiple active txs on recovery (they get rolled back in active state)
-// 2) rollback_work  (active state)
-//
 
 #define SM_SOURCE
 #define PAGE_C
@@ -71,8 +65,6 @@
 #include <sm_int_1.h>
 #include <page.h>
 #include <page_h.h>
-
-
 
 w_base_t::w_base_t::uint4_t
 page_p::get_store_flags() const

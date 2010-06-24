@@ -198,14 +198,9 @@ smthread_main_t::find_file_info(
 
 
     smsize_t    info_len = sizeof(info);
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const vec_t        key_vec_tmp(key, strlen(key));
     W_DO(ss_m::find_assoc(root_iid, key_vec_tmp,
                           &info, info_len, found));
-#else
-    W_DO(ss_m::find_assoc(root_iid, vec_t(key, strlen(key)),
-                      &info, info_len, found));
-#endif
     if (!found) {
         cerr << "No file information found, looking for "
             << key
@@ -542,7 +537,6 @@ void smthread_creator_t::run()
     cout << "calling vol_root_id lvid= " << vid << endl;
     W_COERCE(ss_m::vol_root_index(vid, root_iid));
 
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const vec_t key_vec_tmp(key, strlen(key));
     const vec_t info_vec_tmp(&info, sizeof(info));
 #if 1 && defined(USING_VALGRIND) 
@@ -562,11 +556,6 @@ void smthread_creator_t::run()
                             info_vec_tmp));
     cout << " Creating assoc "
                 << key << " --> " << info << endl;
-#else
-    W_DO(ss_m::create_assoc(root_iid,
-            vec_t(key, strlen(key)),
-            vec_t(&info, sizeof(info))));
-#endif
     W_COERCE(ssm->commit_xct());
 
 

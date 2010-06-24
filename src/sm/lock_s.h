@@ -240,6 +240,8 @@ public:
         t_user4              = 9   // parent is t_user3
     };
 
+    static const int cached_granularity = t_page;
+
     typedef uint4_t          page_bits_t;
 
     /**\brief User-defined entity 1 */
@@ -368,7 +370,7 @@ private:
     //
 public:
     /// extract slot number lockid whose lspace() == t_record 
-    const slotid_t&   slot() const;
+    slotid_t          slot() const;
 private:
     void              set_slot(const slotid_t & e);
     uint2_t           slot_bits() const;

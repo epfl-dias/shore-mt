@@ -35,10 +35,9 @@ include_HEADERS = \
     w_debug.h w_defines.h \
     w_error.h \
     w_findprime.h \
-    w_form.h \
     w_getopt.h w_gettimeofday.h \
     w_hash.h w_heap.h w_list.h w_minmax.h \
-    w_rc.h w_rusage.h w_shore_alloc.h \
+    w_rc.h w_rusage.h \
     w_stream.h w_strstream.h \
     w_stat.h \
     w_workaround.h \
@@ -52,7 +51,7 @@ libfc_a_SOURCES      = \
         mem_block.cpp \
         gethrtime.cpp \
         w_compat_strstream.cpp \
-        w_form.cpp w_form_base.cpp \
+        w_form.cpp \
         common_tmpl.cpp w_debug.cpp errlog.cpp w_getopt.cpp nbox.cpp \
         stime.cpp vtable.cpp w_base.cpp w_bitmap.cpp w_error.cpp \
         valgrind_help.cpp \

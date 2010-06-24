@@ -26,7 +26,6 @@
 #undef SM_LOG_PARTITIONS
 
 
-
 /* Undefine this to fall back to protecting volume operations with a
    full-blown mutex. This is probably undesirable as it will severely
    limit scalability, but can be used to debug if bad behavior by
@@ -35,7 +34,7 @@
 #define VOLUME_OPS_USE_OCC 1
 
 
-/* FRJ: Undefine or zero this to remove log space accounting. This is
+/* FRJ: Define this to zero to remove log space accounting. This is
    probably undesirable because it allows the log to become wedged and
    the system unrecoverable. However, log space accounting does not
    yet handle recovery of prepared transactions and therefore must be

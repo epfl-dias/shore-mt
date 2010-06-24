@@ -93,7 +93,7 @@ include_HEADERS = \
 	sort.h sort_s.h \
 	sysdefs.h \
 	vol.h \
-	xct.h xct_dependent.h xct_impl.h \
+	xct.h xct_dependent.h \
 	zkeyed.h 
 
 libsm_a_SOURCES      =  \
@@ -130,7 +130,7 @@ libsm_a_SOURCES      =  \
 	smstats.cpp \
 	smthread.cpp \
 	vol.cpp \
-	xct.cpp xct_impl.cpp \
+	xct.cpp \
 	vtable_sm.cpp \
 	vtable_smthread.cpp \
 	vtable_xct.cpp

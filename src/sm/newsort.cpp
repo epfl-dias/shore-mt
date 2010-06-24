@@ -897,8 +897,8 @@ private:
         /*
          * Compress all Booleans into one byte/short/word/
          */
-        typedef uint1_t           booleans_t;
-        booleans_t                _booleans;
+        typedef uint1_t       booleans_t;
+        booleans_t            _booleans;
         enum { 
             _is_dup=0x1, 
             _has_index_key=0x2, 
@@ -2727,7 +2727,7 @@ run_mgr::flush_run(bool flush_to_tmpfile)
 
 
 /* was static & not thread safe */
-__thread long randx = 1; /* NANCY TODO : use other random methods we have */
+__thread long randx = 1; /* TODO : use other random methods we have */
 
 /*
  * Called by flush_run 
@@ -2744,9 +2744,13 @@ run_mgr::_QuickSort(
      * NB: Presently won't work for long longs, given standard 
      * comparison functions, since it uses 
      * integers for
-     * comparisons.  Key comparisons must return -1, 0, +1, not
+     * comparisons.  
+     * Key comparisons must return -1, 0, +1, not
      * the difference between the two keys.
-     * TODO: NANCY: what about the above comment???
+     *
+     * NOTE: the int8_cmp and uint8_cmp have been fixed to return
+     * proper limited values.
+     * So this should be ok now.
      */
 
     /* XXX If you change this to be > 30, use the dynamic allocation
@@ -2767,6 +2771,7 @@ run_mgr::_QuickSort(
     }
     record_malloc(MAXSTACKDEPTH * sizeof(qs_stack_item));
 
+    // array, stack indexes 
     int sp = 0;
     int l, r;
     meta_header_t* tmp;
@@ -3857,12 +3862,16 @@ run_mgr::_KeyCmp(const meta_header_t *_k1, const meta_header_t* _k2) const
     }
 done:
 #ifdef PRINT_KEYCMP
-    DBG(<<"KEYCMP returning " << partial_result << " is_ascending:" << info.is_ascending() );
+    DBG(<<"KEYCMP returning " 
+            << partial_result << " is_ascending:" << info.is_ascending() );
 #endif /* PRINT_KEYCMP */
 
     callback_epilogue();
 
-    if(info.is_ascending()) return partial_result;
+    if (partial_result > 0) partial_result = 1;
+    else if(partial_result < 0) partial_result = -1;
+    // else partial result is 0;
+    if(info.is_ascending()) return partial_result ;
     else return (0-partial_result);
 }
 

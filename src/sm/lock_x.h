@@ -378,7 +378,7 @@ public:
     bool            is_nonblocking() const { return _noblock; }
 
 private:
-    lock_cache_t<lock_cache_size,(lockid_t::NUMLEVELS-1)>    _lock_cache;
+    lock_cache_t<lock_cache_size,(lockid_t::cached_granularity+1)>    _lock_cache;
     DEF_LOCK_X_TYPE(2);                // declare & define lock_x type
 public:
     // serialize access to lock_info_t: public for lock_m

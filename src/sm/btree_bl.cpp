@@ -332,7 +332,7 @@ btree_m::purge(
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert3(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     anchor = xd->anchor();
 
     lpid_t pid;
@@ -489,8 +489,8 @@ btree_m::bulk_load(
                     bool insert_one = false;
                     cvec_t key(pr->hdr(), pr->hdr_size());
                     cvec_t el(pr->body(), (int)pr->body_size());
-					DBG(<<"pr->hdr_size " << pr->hdr_size());
-					DBG(<<"pr->body_size " << pr->body_size());
+                    DBG(<<"pr->hdr_size " << pr->hdr_size());
+                    DBG(<<"pr->body_size " << pr->body_size());
 
                     /*
                      *  check uniqueness and sort order
@@ -540,7 +540,7 @@ btree_m::bulk_load(
                         ++cnt;
                         if(lexify_keys) {
                             DBG(<<"lexify, before sink.put(key, el) key = " 
-									<< key);
+                                    << key);
                             cvec_t* real_key = 0;
                             W_DO(_scramble_key(real_key, key, nkc, kc));
                             W_DO( sink.put(*real_key, el) );
@@ -759,7 +759,7 @@ btsink_t::map_to_root()
     lsn_t anchor;
     xct_t* xd = xct();
     w_assert1(xd);
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd)  anchor = xd->anchor();
 
     for (int i = 0; i <= _top; i++)  {
@@ -828,7 +828,7 @@ btsink_t::_add_page(const int i, shpid_t pid0)
 {
     lsn_t anchor;
     xct_t* xd = xct();
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd) anchor = xd->anchor();
 
     {

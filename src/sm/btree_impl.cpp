@@ -810,7 +810,7 @@ again:
                                     bool left_heavy;
                                     slotid_t slot = 1;
                                     int addition = key.size() + el.size() + 2;
-				    check_compensated_op_nesting ccon(xd, __LINE__);
+                                    check_compensated_op_nesting ccond(xd, __LINE__, __FILE__);
                                     if(xd) anchor = xd->anchor();
                 DBG(<<" splitting page " << leaf.pid() 
                         << " parent.usabel_space()= " << parent.usable_space()
@@ -2097,8 +2097,8 @@ btree_impl::_lookup(
                         leaf, LATCH_SH, false, &p2, LATCH_NL);
                 //eRETRY means we need to restart the search
                 //but we're going to restart it ANYWAY.
-                //TODO NANCY: look this case up in the paper and document it
-                //here
+                //TODO look this case up in the paper and document it here
+                //filed in GNATS 137
                 W_IGNORE(rc);
 
                 tree_root.unfix(); // instant latch
@@ -3021,7 +3021,7 @@ btree_impl::_split_leaf(
     lsn_t         anchor;         // serves as savepoint too
     xct_t*         xd = xct();
 
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd)  anchor = xd->anchor();
 
 #if BTREE_LOG_COMMENT_ON
@@ -3419,7 +3419,10 @@ no_change:
                         W_DO(log_comment("clr_smo/T"));
 #endif 
                         W_DO( p[c].clr_smo(true));
-                        // no way to downgrade the latch. TODO NANCY NOW WE CAN downgrade
+                        // no way to downgrade the latch. 
+                        // TODO NOW WE CAN DOWNGRADE: modify this code according
+                        // to Mohan
+                        //filed as GNATS 137
                     }
 
                     // we shouldn't be able to get an error from get_tree_latch

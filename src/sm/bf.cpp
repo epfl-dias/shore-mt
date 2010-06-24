@@ -236,17 +236,11 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
     // Determine if this page is holding up scavenging of logs by (being 
     // presumably hot, and) having a rec_lsn that's in the oldest open
     // log partition and that oldest partition being sufficiently aged....
-    // TODO: NANCY: Put some of this code in the log manager and get the
-    // the hard-coded constant '6' out of here. It needs to be a function
-    // of log partitions, which is variable.
-    if(mode == LATCH_EX && smlevel_0::log && curr_rec_lsn().valid()) {
+    if(mode == LATCH_EX && smlevel_0::log && curr_rec_lsn().valid()) 
+    {
         w_assert1(latch.is_mine()); 
-        int oldest = smlevel_0::log->global_min_lsn().file();
-        int youngest = smlevel_0::log->curr_lsn().file();
-        int self = this->curr_rec_lsn().file();
 
-        if( youngest - oldest >= 6  // lots of open partitions
-                && self == oldest  // my rec lsn is in the oldest file
+        if( smlevel_0::log->squeezed_by(this->curr_rec_lsn())
                 && !old_rec_lsn().valid() // I don't have an old_rec_lsn so I'm
                 // not in the process of being flushed by a cleaner thread
                 )
@@ -260,10 +254,8 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
             if(rval != EBUSY) {
                 w_assert1(!rval);
                 w_assert0(!old_rec_lsn().valid()); // never set when the mutex is free!
-                oldest = smlevel_0::log->global_min_lsn().file();
-                youngest = smlevel_0::log->curr_lsn().file();
                 // recheck
-                if(youngest - oldest >= 6 && self == oldest) {
+                if(smlevel_0::log->squeezed_by(this->curr_rec_lsn())) {
                     /* FRJ: We've stumbled across a hot-old-dirty
                        page. This beast is notorious for preventing the
                        system from reclaiming log space because all dirty
@@ -777,13 +769,13 @@ bf_cleaner_thread_t::run()
                             // smlevel_0::max_many_pages, 
                             count, 
                             pids, WAIT_FOREVER, &_retire);
-			if(rc.is_error()
-			   && rc.err_num() != smlevel_0::eBPFORCEFAILED) {
-				w_ostrstream trouble;
-				trouble << "eBPFORCEFAILED in bf_m::_clean_segment " << rc ;
-				fprintf(stderr, "%s\n", trouble.c_str());
-				W_COERCE(rc);
-			}
+            if(rc.is_error()
+               && rc.err_num() != smlevel_0::eBPFORCEFAILED) {
+                w_ostrstream trouble;
+                trouble << "eBPFORCEFAILED in bf_m::_clean_segment " << rc ;
+                fprintf(stderr, "%s\n", trouble.c_str());
+                W_COERCE(rc);
+            }
             atomic_add_int_delta(_ndirty, -count);
         }
         
@@ -1399,7 +1391,7 @@ bf_m::upgrade_latch(page_s*& buf, latch_mode_t        m)
         w_assert9(!b->latch.is_mine());
         const lpid_t&       pid = buf->pid;
         uint2_t                     tag = buf->tag;
-	lsn_t old_page_lsn = buf->lsn1;
+        lsn_t old_page_lsn = buf->lsn1;
         unfix(buf, false, 1);
 
         // this can actually happen, but we can't safely continue
@@ -1411,10 +1403,10 @@ bf_m::upgrade_latch(page_s*& buf, latch_mode_t        m)
         store_flag_t        store_flags;
         W_COERCE(fix(buf, pid, tag, m, false, store_flags, false));
         w_assert9(b->latch.mode() == m);
-	if(buf->lsn1 != old_page_lsn) {
-	    INC_TSTAT(bf_upgrade_latch_changed);
-	}
-	    
+        if(buf->lsn1 != old_page_lsn) {
+            INC_TSTAT(bf_upgrade_latch_changed);
+        }
+        
     }
     w_assert9(b->latch.mode() >= m);
 
@@ -1449,7 +1441,7 @@ bf_m::upgrade_latch_if_not_block(const page_s* buf, bool& would_block)
     // rec_lsn isn't null
     latch_mode_t m = _core->latch_mode(b);
     if(m == LATCH_EX ) {
-            b->update_rec_lsn(m);
+        b->update_rec_lsn(m);
     }
 }
 
@@ -1620,7 +1612,7 @@ bf_m::unfix(const page_s* buf, bool dirty, int ref_bit)
             // Thus, we must have the case where the page is not
             // really dirty even though it was marked dirty in the
             // control block.
-	    w_assert0(b->latch.is_mine());
+            w_assert0(b->latch.is_mine());
             if(b->pin_cnt() <= 1) {
                 // Make it clean.
                 b->mark_clean();
@@ -1775,13 +1767,13 @@ void page_writer_thread_t::run()
         // we don't care if cleaning failed for normal reasons
         if(rc.is_error()
            && rc.err_num() == smlevel_0::eBPFORCEFAILED) {
-			rc = RCOK; // avoid an error-not-checked when this
-			           // is an eBPFORCEFAILED
-		} else {
-			// choke here
-			w_assert0(!rc.is_error()
+            rc = RCOK; // avoid an error-not-checked when this
+                       // is an eBPFORCEFAILED
+        } else {
+            // choke here
+            w_assert0(!rc.is_error()
               || rc.err_num() == smlevel_0::eBPFORCEFAILED);
-		}
+        }
 
     }
  done:
@@ -1857,7 +1849,7 @@ void  bfcb_t::set_rec_lsn(const lsn_t &what) {
     // identify the cases.
     w_assert0(latch.is_mine());
     w_assert0(!what.valid() || !smlevel_0::log
-	      || what >= smlevel_0::log->global_min_lsn());
+          || what >= smlevel_0::log->global_min_lsn());
     _rec_lsn = what;
 }
 
@@ -1928,6 +1920,7 @@ bf_m::_clean_segment(
     // At the end of the loop below, you can see how it checks for
     // last pass and changes the timeout.
     bool force_failed = false;
+
     {
         int consecutive = 0;
         w_assert1(page_locks[0] == NULL);
@@ -1950,6 +1943,7 @@ bf_m::_clean_segment(
                 {
                     skipped = false;
                     pthread_mutex_t** lock_acquired = NULL;
+
                     if(consecutive == 0) {
                         // First page seen since last run was written. 
                         // Grab the first page mutex.
@@ -2010,17 +2004,17 @@ bf_m::_clean_segment(
 
                     if(_core->_in_htab(bp) && bp->dirty()) {
                         // ... copy the whole page
-			w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
-		        w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
+                        w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
+                        w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
                         w_assert1(consecutive < smlevel_0::max_many_pages);
                         pbuf[consecutive] = *bp->frame();
-		        bparray[consecutive] = bp;
-		        
-		        // save the rec_lsn and mark the page clean
-		        bp->save_rec_lsn();
-		        bp->mark_clean();
-		        
-                        w_assert2 ( 
+                        bparray[consecutive] = bp;
+                        
+                        // save the rec_lsn and mark the page clean
+                        bp->save_rec_lsn();
+                        bp->mark_clean();
+                        
+                        w_assert2 (
                             // st_regular:
                             (bp->curr_rec_lsn() <= bp->frame()->lsn1) ||
                             // st_tmp
@@ -2055,9 +2049,9 @@ bf_m::_clean_segment(
                     // unprocessed either.  skipped is true
                     INC_TSTAT(bf_already_evicted);
                 }
-		else {
-		    force_failed = true;
-		}
+                else {
+                    force_failed = true;
+                }
                 w_assert2(skipped);
             }
 
@@ -2075,11 +2069,11 @@ bf_m::_clean_segment(
                    3. We have max_many_pages consecutive pids
                    4. A consecutive pid was unpinnable or not dirty 
                       after all
-		   5. The next pid would cause page_locks[1] <
-		      page_locks[0] (due to modulo wraparound),
-		      admitting the risk of deadlock
-		   6. timeout=WAIT_FOREVER (risk of deadlock with an
-		      EX-latch holder who decides to clean the page)
+                   5. The next pid would cause page_locks[1] <
+                      page_locks[0] (due to modulo wraparound),
+                      admitting the risk of deadlock
+                   6. timeout=WAIT_FOREVER (risk of deadlock with an
+                      EX-latch holder who decides to clean the page)
 
                    Note that the first three cases can be checked
                    before pinning the page (in the preceding loop
@@ -2092,7 +2086,7 @@ bf_m::_clean_segment(
                         skipped  // case 4
                         || (i+1 == count)  // case 1 last page in bp
                         || (consecutive == max_many_pages) // case 3 above
-		        || (timeout != WAIT_IMMEDIATE) // case 6 above
+                        || (timeout != WAIT_IMMEDIATE) // case 6 above
                         ;
                 // Now check case 2
                 if(!should_flush) 
@@ -2104,12 +2098,13 @@ bf_m::_clean_segment(
                         // next pid is non-consecutive (case 2 above)
                         should_flush = true;
                     }
-		    else if(page_write_mutex_t::locate(next_pid)
-			    < page_write_mutex_t::locate(first_pid))
-		    {
-			// would break the page_write_mutex protocol (case 5)
-			should_flush = true;
-		    }
+                    else 
+                    if(page_write_mutex_t::locate(next_pid)
+                            < page_write_mutex_t::locate(first_pid))
+                    {
+                        // would break the page_write_mutex protocol (case 5)
+                        should_flush = true;
+                    }
                 }
 
                 if(should_flush) 
@@ -2142,7 +2137,8 @@ bf_m::_clean_segment(
                         //
                         consecutive--;
                         page_s* ps = &pbuf[consecutive];
-			bfcb_t* bp = bparray[consecutive];
+                        bfcb_t* bp = bparray[consecutive];
+
                         bool   both(false);
                         pthread_mutex_t* thispagelock = 
                             page_write_mutex_t::locate(ps->pid);
@@ -2191,7 +2187,7 @@ bf_m::_clean_segment(
 
         w_assert1(timeout == WAIT_IMMEDIATE || !force_failed);
     }
-    return force_failed? RC(eBPFORCEFAILED) : RCOK;
+    return force_failed?  RC(eBPFORCEFAILED) : RCOK;
 }
 
 
@@ -2282,7 +2278,6 @@ bf_m::_write_out(const page_s* pbuf, uint4_t cnt)
     // WAL: ensure that the log is durable to this lsn
     if(highest > lsn_t::null && log) {
         INC_TSTAT(bf_log_flush_lsn);
-
         W_COERCE( log->flush(highest) );
     }
 
@@ -2389,7 +2384,7 @@ bf_m::get_page(
         W_DO( io->read_page(pid, *b->frame_nonconst()) );
     }
 
-    // NANCY TODO: if  nothing is to be done for the no_read case,
+    // TODO: if  nothing is to be done for the no_read case,
     // then avoid calling this altogether
     //
     if (! no_read)  {
@@ -2572,13 +2567,13 @@ bf_m::get_rec_lsn(int &start, int &count, lpid_t pid[], lsn_t rec_lsn[],
              * assertion.
              *
              * Avoid checkpointing temp pages.
-	     *
-	     * NOTE: page cleaners break several rules as they write
-	     * out dirty pages (see comments for
-	     * bf_m::_clean_segment), and using safe_rec_lsn() deals with
-	     * the problem.
+             *
+             * NOTE: page cleaners break several rules as they write
+             * out dirty pages (see comments for
+             * bf_m::_clean_segment), and using safe_rec_lsn() deals with
+             * the problem.
              */
-	    lsn_t rlsn = _core->_buftab[start].safe_rec_lsn();
+            lsn_t rlsn = _core->_buftab[start].safe_rec_lsn();
             if(rlsn != lsn_t::null) {
                 pid[i] = _core->_buftab[start].pid();
                 rec_lsn[i] = rlsn;
@@ -2607,11 +2602,11 @@ bf_m::min_rec_lsn()
 {
     lsn_t lsn = lsn_t::max;
     for (int i = 0; i < npages(); i++)  {
-	lsn_t rec_lsn = _core->_buftab[i].safe_rec_lsn();
-        if (_core->_buftab[i].dirty()
-	    	&& _core->_buftab[i].pid().page
-	    	&& rec_lsn < lsn)
-            lsn = rec_lsn;
+    lsn_t rec_lsn = _core->_buftab[i].safe_rec_lsn();
+    if (_core->_buftab[i].dirty() && 
+            _core->_buftab[i].pid().page &&
+            rec_lsn < lsn)
+        lsn = rec_lsn;
     }
     return lsn;
 }
@@ -2878,9 +2873,6 @@ bf_m::_scan(const bf_filter_t& filter, bool write_dirty, bool discard)
         }
 
         w_assert1(count <= npages());
-        // w_assert1(my_page_writer_control == NULL); // NANCY added
-        // whenI made all callers to _scan use the serial means of
-        // flushing
         // NOTE: this could return in error if it couldn't
         // clean all the buffers
         W_DO(_clean_buf(NULL,
@@ -3002,7 +2994,7 @@ bf_m::_scan(const bf_filter_t& filter, bool write_dirty, bool discard)
                 }
 #endif
                 CRITICAL_SECTION(cs, page_write_mutex_t::locate(b->pid())); 
-		w_assert0(!b->old_rec_lsn().valid()); // never set when the mutex is free!
+                w_assert0(!b->old_rec_lsn().valid()); // never set when the mutex is free!
                 rc_t rc = _write_out(b->frame(), 1);
                 if(rc.is_error()) {
                     // we should not get here, because
@@ -3057,10 +3049,7 @@ bf_m::_set_dirty(bfcb_t* b)
 {
     if( !b->dirty() ) {
         b->set_dirty_bit();
-
         w_assert2( _core->latch_mode(b) == LATCH_EX );
-
-
         /*
          * The following assert should hold because:
          * prior to set_dirty, the page should have

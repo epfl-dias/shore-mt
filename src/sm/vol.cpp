@@ -425,19 +425,10 @@ extlink_i::get(extnum_t idx, const extlink_t* &res)
 
    // DBGTHRD(<<"extlink_i::get(" << idx <<  " )");
 
-    bool was_already_fixed = _page.is_fixed(); // TODO: NANCY racy?
-    // have to see if is_fixed() means by anyone or by me ?
-
     // Forcing extlink_i::get to acquire a LATCH_EX (used to be LATCH_SH)
     // is a workaround for BUG_LATCH_RACE
     // W_COERCE( _page.fix(pid, LATCH_SH) );
     W_COERCE( _page.fix(pid, LATCH_EX) ); // BUG_LATCH_RACE workaround
-
-    if( !was_already_fixed ) {
-        // TODO: NANCY what is _dirty_on_pin if we don't change it here?
-        // How is it used?  Make a note here
-        _dirty_on_pin = _page.is_dirty();
-    }
 
     slotid_t slot = (slotid_t)(idx%(extlink_p::max));
     res = &_page.get(slot);
@@ -651,9 +642,6 @@ extlink_i::set_next(extnum_t ext, extnum_t new_next, bool log_it)
  *
  *********************************************************************/
 
-// TODO: NANCY  See if this is ever used.   If it is, why
-// doesn't it have to get an EX latch for BUG_LATCH_RACE?
-// examine in-place interface
 w_rc_t stnode_i::get(snum_t idx, const stnode_t *&stnodep)
 {
     w_assert9(idx);
@@ -668,12 +656,12 @@ w_rc_t stnode_i::get(snum_t idx, const stnode_t *&stnodep)
 // Copy-out interface
 w_rc_t stnode_i::get(snum_t idx, stnode_t &stnode)
 {
-        const        stnode_t        *st;
+    const        stnode_t        *st;
 
-        W_DO(get(idx, st));
+    W_DO(get(idx, st));
 
-        stnode = *st;
-        return RCOK;
+    stnode = *st;
+    return RCOK;
 }
 
 /*********************************************************************
@@ -2784,7 +2772,7 @@ vol_t::free_ext_after_xct(extnum_t ext, snum_t& old_owner)
                 lsn_t anchor;
                 xct_t* xd = xct();
                 w_assert9(xd);
-		check_compensated_op_nesting ccon(xd, __LINE__);
+                check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
                 anchor = xd->anchor();
 
                 link.clrall();
@@ -3955,9 +3943,7 @@ bool vol_t::_is_alloc_page_of(
         // pinned a page while holding it. Fortunately, we don't
         // actually *do* anything with the volume once we've
         // constructed the extlink_i, so we can safely release the
-        // mutex before trying to pin the page NANCY TODO: evaluate the
-        // correctness of this comment. I'm not sure that's true, what
-        // with all the possible races in file record allocation.
+        // mutex before trying to pin the page 
     }
     // Not found in the cache.  Now look at the extent link.
 

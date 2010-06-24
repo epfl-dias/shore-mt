@@ -105,7 +105,9 @@ class smthread_t;
 #pragma interface
 #endif
 
+#ifndef SDISK_H
 #include <sdisk.h>
+#endif
 
 class vtable_row_t;
 class vtable_t;
@@ -184,8 +186,8 @@ public:
 
     /* import sdisk base */
     typedef sdisk_base_t::fileoff_t    fileoff_t;
-    typedef sdisk_base_t::filestat_t    filestat_t;
-    typedef sdisk_base_t::iovec_t    iovec_t;
+    typedef sdisk_base_t::filestat_t   filestat_t;
+    typedef sdisk_base_t::iovec_t      iovec_t;
 
 
     /* XXX magic number */
@@ -278,7 +280,10 @@ class ThreadFunc
 
 
 class sthread_init_t;
+#define LATCH_CAN_BLOCK_LONG 0
+#if LATCH_CAN_BLOCK_LONG 
 class sthread_priority_list_t;
+#endif
 class sthread_main_t;
 
 // these macros allow us to notify the SunStudio race detector about lock acquires/releases
@@ -538,7 +543,9 @@ typedef mcs_lock queue_based_spin_lock_t; // spin preferred
 typedef mcs_lock queue_based_lock_t;
 #endif
 
+#ifndef SRWLOCK_H
 #include <srwlock.h>
+#endif
 
 /**\brief A multiple-reader/single-writer lock based on pthreads (blocking)
  *
@@ -623,7 +630,9 @@ class sthread_t : public sthread_named_base_t
 {
     friend class sthread_init_t;
     friend class sthread_main_t;
+#if LATCH_CAN_BLOCK_LONG 
     friend class sthread_priority_list_t;
+#endif
     /* For access to block() and unblock() */
     friend class latch_t;
     /* For access to I/O stats */
@@ -937,9 +946,9 @@ protected:
 
 
 /**\cond skip */
-// TODO: NANCY: get rid of priorities... Get rid of the prioritized list.
-// It is used by the scond_t and by latches if 
-// LATCH_CAN_BLOCK_LONG. 
+#if LATCH_CAN_BLOCK_LONG 
+// TODO: Get rid of the prioritized list.
+// It is used by latches if LATCH_CAN_BLOCK_LONG. 
 // See if there are ever different priority threads that are 
 // ever waiting on the same condition. If not
 // you can use a regular list.
@@ -956,6 +965,7 @@ private:
     sthread_priority_list_t&    operator=(const sthread_priority_list_t&);
 };
 /**\endcond skip */
+#endif
 
 #define MUTEX_ACQUIRE(mutex)    W_COERCE((mutex).acquire());
 #define MUTEX_RELEASE(mutex)    (mutex).release();

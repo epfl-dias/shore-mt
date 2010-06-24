@@ -34,7 +34,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-/* skip documentation for this for now. TODO NANCY DOCUMENT THIS */
+/* skip documentation for this for now. */
 
 #include <cstring>
 

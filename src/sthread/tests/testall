@@ -88,7 +88,10 @@ rm -f /tmp/all*.out
 execute thread1 $outf
 execute thread2 $outf
 execute "thread2 -h" $outf 
-execute run_thread3 $outf thread3-out
+
+# order changes: 
+execute run_thread3 $outf 
+
 execute thread4 $outf
 execute pthread_test $outf
 execute mmap $outf

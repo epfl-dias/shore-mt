@@ -1424,7 +1424,6 @@ histoid_compare_t::ge(const pginfo_t& left, const pginfo_t& right) const
 // WARNING: this function assumes that a thread only locks one histoid
 // at a time. AFAIK this is the case, and there are assertions to
 // verify as well.
-// TODO NANCY: change the asserts to w_assert3 once we know we're good
 static __thread queue_based_lock_t::ext_qnode histoid_me = EXT_QNODE_INITIALIZER;
 
 void

@@ -99,23 +99,78 @@ class option_t;
 typedef   w_rc_t        rc_t;
 
 
-struct check_compensated_op_nesting {
-    static int compensated_op_depth(xct_t* xd);
+/* This structure collects the depth on construction
+ * and checks that it matches the depth on destruction; this
+ * is to ensure that we haven't forgotten to release
+ * an anchor somewhere.
+ * It's been extended to check the # times
+ * we have acquired the 1thread_log_mutex. 
+ *
+ * We're defining the CHECK_NESTING_VARIABLES macro b/c
+ * this work is spread out and we want to have 1 place to
+ * determine whether it's turned on or off; don't want to 
+ * make the mistake of changing the debug level (on which
+ * it depends) in only one of several places.
+ *
+ * NOTE: this doesn't work in a multi-threaded xct context.
+ * That's b/c the check is too late -- once the count goes
+ * to zero, another thread can change it and throw off all the
+ * counts. To be sure, we'd have to use a TLS copy as well
+ * as the common copy of these counts.
+ */
 #if W_DEBUG_LEVEL > 0
+#define CHECK_NESTING_VARIABLES 1
+#else
+#define CHECK_NESTING_VARIABLES 0
+#endif
+struct check_compensated_op_nesting {
+#if CHECK_NESTING_VARIABLES
     xct_t* _xd;
     int _depth;
+    int _depth_of_acquires;
     int _line;
-    check_compensated_op_nesting(xct_t* xd, int line)
-	: _xd(xd), _depth(_xd? compensated_op_depth(_xd) : 0), _line(line)
+    const char *const _file;
+    // static methods are so we can avoid having to
+    // include xct.h here.
+    static int compensated_op_depth(xct_t* xd, int dflt);
+    static int acquire_1thread_log_depth(xct_t* xd, int dflt);
+
+    check_compensated_op_nesting(xct_t* xd, int line, const char *const file)
+    : _xd(xd), 
+    _depth(_xd? compensated_op_depth(_xd, 0) : 0), 
+    _depth_of_acquires(_xd? acquire_1thread_log_depth(_xd, 0) : 0), 
+    _line(line),
+    _file(file)
     {
     }
+
     ~check_compensated_op_nesting() {
-	w_assert0(!_xd || _depth == compensated_op_depth(_xd));
+        if(_xd) {
+            if( _depth != compensated_op_depth(_xd, _depth) ) {
+                fprintf(stderr, 
+                    "th.%d check_compensated_op_nesting(%d,%s) depth was %d is %d\n",
+                    sthread_t::me()->id,
+                    _line, _file, _depth, compensated_op_depth(_xd, _depth));
+            }
+
+            if(_depth_of_acquires != acquire_1thread_log_depth(_xd, _depth)) {
+                fprintf(stderr, 
+                "th.%d check_acquire_1thread_log_depth (%d,%s) depth was %d is %d\n",
+                    sthread_t::me()->id,
+                    _line, _file, _depth_of_acquires, 
+                    acquire_1thread_log_depth(_xd, _depth));
+            }
+
+            w_assert0(_depth == compensated_op_depth(_xd, _depth));
+            w_assert0(_depth_of_acquires == acquire_1thread_log_depth(_xd, _depth));
+        }
     }
 #else
-    check_compensated_op_nesting(xct_t*, int) { }
+    check_compensated_op_nesting(xct_t*, int, const char *const) { }
 #endif
 };
+
+
 
 /**\cond skip */
 

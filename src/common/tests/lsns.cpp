@@ -36,9 +36,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <w.h>
 #include <lsn.h>
 
-// TODO: NANCY: make lsns atomic for 32-bit platform, write unit tests
-// for that here.
-
 int main()
 {
     for(int i=-2; i < 4; i++)

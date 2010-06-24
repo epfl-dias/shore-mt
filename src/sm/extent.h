@@ -305,7 +305,7 @@ class stnode_p : public page_p {
     private:
     stnode_t&             item(snum_t i);
     struct layout_t {
-		stnode_t          item[max];
+        stnode_t          item[max];
     };
 
     friend class page_link_log;        // just to keep g++ happy
@@ -346,7 +346,8 @@ stnode_p::put(slotid_t idx, const stnode_t& e)
 class extlink_i {
 public:
     NORET            extlink_i(const lpid_t& root)
-                    : _dirty_on_pin(false), _root(root) {
+                    : 
+                    _root(root) {
                         // The extent maps start on page 1. 
                         w_assert1(root.page >= 1);
                     }
@@ -371,10 +372,8 @@ public:
     rc_t             clr_pmap_bits(snum_t snum, extnum_t idx, const Pmap &bits);
     rc_t             set_next(extnum_t ext, extnum_t new_next, bool log_it = true);
     const extlink_p& page() const { return _page; } // for logging purposes
-    bool             was_dirty_on_pin() const { return _dirty_on_pin; }
 
 private:
-    bool                _dirty_on_pin;
     extid_t             _id;
     lpid_t              _root;
     extlink_p           _page;

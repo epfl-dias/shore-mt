@@ -52,8 +52,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 // NOTE: now each thread has its own generator; this might not be what
 // we want, but for now such is the case, until we have a MT-safe/reentrant
-// generator.   Before we can tell, I have to analyze how the smsh and scripts
-// use this.  TODO NANCY
+// generator.   
 __thread rand48*       generatorp(NULL);
 __thread char *        resultcharbufp(NULL);
 __thread vec_t *       resultvecp(NULL);
@@ -528,12 +527,8 @@ parse_vec(const char *c, int len)
     if(::strncmp(c, "zvec", 4)==0) {
         c+=4;
         i = objectsize(c);
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const zvec_t i_zvec_tmp(i);
         junk.set(i_zvec_tmp);
-#else
-        junk.set(zvec_t(i));
-#endif
         // DBG(<<"returns zvec_t("<<i<<")");
             return junk;
     }

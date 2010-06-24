@@ -23,7 +23,7 @@
 
 /*<std-header orig-src='shore' incl-file-exclusion='BF_S_H'>
 
- $Id: bf_s.h,v 1.44 2010/06/08 22:28:55 nhall Exp $
+ $Id: bf_s.h,v 1.45 2010/06/18 21:22:50 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -109,7 +109,7 @@ private:
 
     bool        _dirty;          // true if page is dirty
     lsn_t       _rec_lsn;        // recovery lsn
-    lsn_t	    _old_rec_lsn;	 // valid if the page is being cleaned
+    lsn_t        _old_rec_lsn;     // valid if the page is being cleaned
 
     bfcb_t*     _next_free;    // used by the (singly-linked) freelist
 
@@ -152,15 +152,18 @@ public:
     void  set_dirty_bit() { _dirty = true;  }
 
     lsn_t safe_rec_lsn() const {
-		/* Work with a copy of _old_rec_lsn in case the original gets
-		   cleared while we're deciding whether to return it.
+        /* Work with a copy of _old_rec_lsn in case the original gets
+           cleared while we're deciding whether to return it.
 
-		   We don't care if we get a stale rec_lsn (recovery would
-		   just take slightly longer that way), but we can't afford to
-		   return lsn_t::null if _rec_lsn is valid.
-		 */
-		lsn_t old = _old_rec_lsn;
-		return old.valid()? old : _rec_lsn;
+           We don't care if we get a stale rec_lsn (recovery would
+           just take slightly longer that way), but we can't afford to
+           return lsn_t::null if _rec_lsn is valid.
+
+           If that's the case, we have to return an lsn rather than
+           a reference to an lsn.
+         */
+        lsn_t old = _old_rec_lsn;
+        return old.valid()? old : _rec_lsn;
     }
     
     const lsn_t&  curr_rec_lsn() const  { return _rec_lsn;  }

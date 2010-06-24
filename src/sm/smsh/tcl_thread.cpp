@@ -966,7 +966,6 @@ static void create_stdcmd(Tcl_Interp* ip)
     Tcl_CreateCommand(ip, TCL_CVBUG "read_random", t_read_random, 0, 0);
     Tcl_CreateCommand(ip, TCL_CVBUG "write_random", t_write_random, 0, 0);
     Tcl_CreateCommand(ip, TCL_CVBUG "debuginfo", t_debuginfo, 0, 0);
-    // TODO: NANCY : remove or document: note, used only in coord scripts
 
     Tcl_CreateCommand(ip, TCL_CVBUG "fork_thread", t_fork_thread, 0, 0);
     Tcl_CreateCommand(ip, TCL_CVBUG "join_thread", t_join_thread, 0, 0);
@@ -1629,7 +1628,6 @@ void tcl_thread_t::uninitialize()
         ip = 0;
     }
     // In case Tcl has some cleaning up to do
-    // Is this part of my Tcl problem?  TODO NANCY Tcl_FinalizeThread();
     clean_up_shell();
 }
 

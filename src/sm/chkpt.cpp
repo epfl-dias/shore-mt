@@ -68,7 +68,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "logdef_gen.cpp"
 #include "bf_core.h"
 #include "xct_dependent.h"
-
 #include <new>
 
 #ifdef EXPLICIT_TEMPLATE
@@ -108,68 +107,65 @@ private:
 
 struct old_xct_tracker {
     struct dependent : xct_dependent_t  {
-	w_link_t _link;
-	old_xct_tracker* _owner;
+        w_link_t _link;
+        old_xct_tracker* _owner;
 
-	dependent(xct_t* xd, old_xct_tracker* owner)
-	    : xct_dependent_t(xd), _owner(owner)
-	{
-	    register_me();
-	}
-	
-	virtual void
-	xct_state_changed(smlevel_1::xct_state_t,
-			  smlevel_1::xct_state_t new_state)
-	{
-	    if(new_state == smlevel_1::xct_ended) 
-		_owner->report_finished(xd());
-	}
+        dependent(xct_t* xd, old_xct_tracker* owner)
+            : xct_dependent_t(xd), _owner(owner)
+        {
+            register_me();
+        }
+    
+        virtual void xct_state_changed(smlevel_1::xct_state_t,
+              smlevel_1::xct_state_t new_state)
+        {
+            if(new_state == smlevel_1::xct_ended) 
+            _owner->report_finished(xd());
+        }
     };
 
-    old_xct_tracker()
-	: _list(W_LIST_ARG(dependent, _link), 0)
-	, _count(0)
+    old_xct_tracker() : _list(W_LIST_ARG(dependent, _link), 0) , _count(0)
     {
-	pthread_mutex_init(&_lock, 0);
-	pthread_cond_init(&_cond, 0);
+        pthread_mutex_init(&_lock, 0);
+        pthread_cond_init(&_cond, 0);
     }
     
     ~old_xct_tracker() {
-	w_assert2(! _count);
-	while(_list.pop());
+        w_assert2(! _count);
+        while(_list.pop());
     }
     
     void track(xct_t* xd) {
-	dependent* d = new dependent(xd, this);
-	pthread_mutex_lock(&_lock);
-	_count++;
-	_list.push(d);
-	pthread_mutex_unlock(&_lock);
+        dependent* d = new dependent(xd, this);
+        pthread_mutex_lock(&_lock);
+        _count++;
+        _list.push(d);
+        pthread_mutex_unlock(&_lock);
     }
     
     bool finished() const {
-	long volatile const* count = &_count;
-	return 0 == *count;
+        long volatile const* count = &_count;
+        return 0 == *count;
     }
     
     void wait_for_all() {
-	pthread_mutex_lock(&_lock);
-	while(_count)
-	    pthread_cond_wait(&_cond, &_lock);
-	pthread_mutex_unlock(&_lock);
+        pthread_mutex_lock(&_lock);
+        while(_count)
+            pthread_cond_wait(&_cond, &_lock);
+        pthread_mutex_unlock(&_lock);
     }
 
      void report_finished(xct_t*) {
-	pthread_mutex_lock(&_lock);
-	if(! --_count)
-	    pthread_cond_signal(&_cond);
-	pthread_mutex_unlock(&_lock);
+        pthread_mutex_lock(&_lock);
+        if(! --_count)
+            pthread_cond_signal(&_cond);
+        pthread_mutex_unlock(&_lock);
     }
     
-    pthread_mutex_t	_lock;
-    pthread_cond_t 	_cond;
+    pthread_mutex_t    _lock;
+    pthread_cond_t     _cond;
     w_list_t<dependent, unsafe_list_dummy_lock_t> _list;
-    long 		_count;
+    long             _count;
     
 };
 
@@ -187,7 +183,6 @@ chkpt_m::chkpt_m()
 {
 }
 
-
 /*********************************************************************
  * 
  *  chkpt_m::~chkpt_m()
@@ -202,9 +197,6 @@ chkpt_m::~chkpt_m()
     retire_chkpt_thread();
     }
 }
-    
-
-
 
 /*********************************************************************
  *
@@ -326,13 +318,13 @@ void chkpt_m::take()
      * page table lists every page in the buffer pool). Every time we
      * reclaim a log segment this reservation is topped up atomically.
      */
-#define LOG_INSERT(constructor_call, rlsn)			\
-    do {							\
-	new (logrec) constructor_call;				\
-	W_COERCE( log->insert(*logrec, rlsn) );			\
-	if(!log->consume_chkpt_reservation(logrec->length())) {	\
-	    W_FATAL(eOUTOFLOGSPACE);				\
-	}							\
+#define LOG_INSERT(constructor_call, rlsn)            \
+    do {                            \
+    new (logrec) constructor_call;                \
+    W_COERCE( log->insert(*logrec, rlsn) );            \
+    if(!log->consume_chkpt_reservation(logrec->length())) {    \
+        W_FATAL(eOUTOFLOGSPACE);                \
+    }                            \
     } while(0)
     
     /* if current partition is max_openlog then the oldest lsn we can
@@ -347,41 +339,40 @@ void chkpt_m::take()
        Also, remember the current checkpoint count so we can see
        whether we get raced...
      */
-#warning "TODO use log_warn_callback in case old transactions aren't logging right now"
+// #warning "TODO use log_warn_callback in case old transactions aren't logging right now"
     long curr_pnum = log->curr_lsn().file();
     long too_old_pnum = std::max(0l, curr_pnum - max_openlog+1);
     if(!log->verify_chkpt_reservation()) {
-	/* Yikes! The log can't guarantee that we'll be able to
-	   complete any checkpoint after this one, so we must reclaim
-	   space even if the log doesn't seem to be full.
-	*/
-	long too_old_pnum = log->global_min_lsn().file();
-	if(too_old_pnum == curr_pnum) {
-	    // how/why did they reserve so much log space???
-	    W_FATAL(eOUTOFLOGSPACE);
+    /* Yikes! The log can't guarantee that we'll be able to
+       complete any checkpoint after this one, so we must reclaim
+       space even if the log doesn't seem to be full.
+    */
+		long too_old_pnum = log->global_min_lsn().file();
+		if(too_old_pnum == curr_pnum) {
+			// how/why did they reserve so much log space???
+			W_FATAL(eOUTOFLOGSPACE);
+		}
 	}
-    }
 
-
-    /* We cannot proceed if any transaction has a too-low start_lsn;
-       wait for them to complete before continuing.
-       
-       WARNING: we have to wake any old transactions which are waiting
-       on locks, or we risk deadlocks where the lock holder waits on a
-       full log while the old transaction waits on the lock.
-     */
-    lsn_t oldest_valid_lsn = log_m::first_lsn(too_old_pnum+1);
-    old_xct_tracker tracker;
+	/* We cannot proceed if any transaction has a too-low start_lsn;
+	   wait for them to complete before continuing.
+	   
+	   WARNING: we have to wake any old transactions which are waiting
+	   on locks, or we risk deadlocks where the lock holder waits on a
+	   full log while the old transaction waits on the lock.
+	 */
+	lsn_t oldest_valid_lsn = log_m::first_lsn(too_old_pnum+1);
+	old_xct_tracker tracker;
     { 
-	xct_i it(true); // do acquire the xlist_mutex...
-	while(xct_t* xd=it.next()) {
-	    lsn_t const &flsn = xd->first_lsn();
-	    if(flsn.valid() && flsn < oldest_valid_lsn) {
-		// poison the transaction and add it to the list...
-		xd->force_nonblocking();
-		tracker.track(xd);
-	    }
-	}
+    xct_i it(true); // do acquire the xlist_mutex...
+    while(xct_t* xd=it.next()) {
+        lsn_t const &flsn = xd->first_lsn();
+        if(flsn.valid() && flsn < oldest_valid_lsn) {
+			// poison the transaction and add it to the list...
+			xd->force_nonblocking();
+			tracker.track(xd);
+        }
+    }
     }
 
     /* release the chkpt_serial to do expensive stuff
@@ -405,7 +396,7 @@ void chkpt_m::take()
     // raced?
     chkpt_serial_m::chkpt_acquire();
     if(_chkpt_count != chkpt_stamp)
-	goto retry;
+    goto retry;
     
     /*
      *  Finally, we're ready to start the actual checkpoint!
@@ -590,7 +581,7 @@ void chkpt_m::take()
                 /*
                  *  Write a Transaction Table Log
                  */
-		LOG_INSERT(chkpt_xct_tab_log(youngest, i, tid, state,
+        LOG_INSERT(chkpt_xct_tab_log(youngest, i, tid, state,
                                    last_lsn, undo_nxt), 0);
             }
         } while (xd);
@@ -612,8 +603,8 @@ void chkpt_m::take()
             // To write tx-related log records for a tx,
             // logstub_gen.cpp functions expect the tx to be attached.
             // NB: we might be playing with fire by attaching
-            // two threads to the tx.  NOT PREEMPTIVE-SAFE!!!! TODO NANCY
-            // look into this
+            // two threads to the tx.  NOT PREEMPTIVE-SAFE!!!! 
+            // TODO: look into this
             //
             me()->attach_xct(xd);
             w_assert1(xd->state() == xct_t::xct_prepared);
@@ -626,8 +617,8 @@ void chkpt_m::take()
 
     /*
      *  Make sure that min_rec_lsn and min_xct_lsn are valid
-     *
-     *  Log reservations require that min_rec_lsn <= master; this is
+	 *       
+	 *  Log reservations require that min_rec_lsn <= master; this is
      *  correct because if everything is clean the min_*_lsn are still
      *  set to lsn_t::max, and even if a min_*_lsn were larger than
      *  the master, recovery would have to start from the master LSN

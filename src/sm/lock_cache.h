@@ -72,23 +72,23 @@ struct lock_cache_elem_t : public w_base_t {
 
     const lock_cache_elem_t &operator=(const lock_cache_elem_t &r)
     {
-		lock_id = r.lock_id;
-		mode = r.mode;
-		req = r.req;
-		return *this;
+        lock_id = r.lock_id;
+        mode = r.mode;
+        req = r.req;
+        return *this;
     }
 
-	void clear() {
-		mode = NL;
-		req = NULL;
-		lock_id.zero();
-	}
+    void clear() {
+        mode = NL;
+        req = NULL;
+        lock_id.zero();
+    }
 
-	void dump() const {
-		if(mode != NL) {
-			cout << "\tlock_id " << lock_id << " mode " << mode << endl;
-		}
-	}
+    void dump() const {
+        if(mode != NL) {
+            cout << "\tlock_id " << lock_id << " mode " << mode << endl;
+        }
+    }
 
 private:
     // disabled
@@ -103,11 +103,11 @@ public:
     void dump() const {
         for(int j=0; j < L; j++) 
         for(int i=0; i < S; i++) buf[i][j].dump();
-	}
+    }
     void reset() {
         // for(int i=0; i < S; i++) buf[i].lock_id.zero();
-		// zeroing out the lock id doesn't change the mode and
-		// thereby make the slot available!
+        // zeroing out the lock id doesn't change the mode and
+        // thereby make the slot available!
         for(int j=0; j < L; j++) 
         for(int i=0; i < S; i++) buf[i][j].clear();
     }
@@ -120,67 +120,66 @@ public:
         // probe a single bucket. If it fails, oh well.
         lock_cache_elem_t* p = probe(id, id.lspace());
         return (p->lock_id == id && p->mode != NL)? p : NULL;
-		//If probe finds one with a different (presumably higher-in
-		//hierarcy) lspace, we return NULL.
+        //If probe finds one with a different (presumably higher-in
+        //hierarcy) lspace, we return NULL.
     }
 
-	// Remove from the table all locks subsumed by this one.
-	// To make this a little more easily, we've made the table into an array of
-	// hash tables.
+    // Remove from the table all locks subsumed by this one.
+    // To make this a little more easily, we've made the table into an array of
+    // hash tables.
     void compact(const lockid_t &_l) 
-	{
-		if(_l.lspace()+1 < L) {
-			for (int k = _l.lspace() + 1; k < L; ++k)
-			{
-				for(int i=0; i < S; i++) {
-					lock_cache_elem_t *p = &buf[i][k];
-					lockid_t l(p->lock_id);
-					if(p->mode == NL) continue;
-					l.truncate(_l.lspace());
-					if(l == _l) {
-						p->clear(); // make it available
-					}
-				}
-			}
-		}
-	}
+    {
+        for (int k = _l.lspace() + 1; k <= lockid_t::cached_granularity; k++)
+        {
+            for(int i=0; i < S; i++) {
+                lock_cache_elem_t *p = &buf[i][k];
+                if(p->mode == NL) continue;
+                lockid_t l(p->lock_id);
+                l.truncate(_l.lspace());
+                if(l == _l) {
+                    p->clear(); // make it available
+                }
+            }
+        }
+    }
     void compact() {
         // do nothing...
         for(int j=0; j < L; j++) 
         for(int i=0; i < S; i++) compact(buf[i][j].lock_id);
     }
     bool put(const lockid_t& id, lock_base_t::lmode_t m, 
-                lock_request_t* req, lock_cache_elem_t &victim) {
-            lock_cache_elem_t* p = probe(id, id.lspace());
-            bool evicted = true;
-			// mode is NL means it's an empty slot.
-            if(p->mode != NL) {
-				// don't replace entries that are higher in the hierarchy!
-				// Hash *might* take us to an that which happens to
-				// subsume our lock.
-                if(p->lock_id.lspace() >= id.lspace())
-				{
-					// Element in table has equal or higher granularity.
-					// Replace it.
-                    victim = *p;
-				} else {
-					// item we're trying to insert has
-					// higher granularity.  Don't insert.
-                    victim.lock_id = id;
-                    victim.req = req;
-                    victim.mode = m;
-                    return true; // never mind...
-					// make it look like the one we requested was
-					// evicted b/c it's subsumed by the entry found
-					// in the table, although the modes might differ.
-					// OR it's a hash collision and the
-					// lower-granularity lock wins.
-                }
+                lock_request_t* req, lock_cache_elem_t &victim) 
+    {
+        lock_cache_elem_t* p = probe(id, id.lspace());
+        bool evicted = true;
+        // mode is NL means it's an empty slot.
+        if(p->mode != NL) {
+            // don't replace entries that are higher in the hierarchy!
+            // Hash *might* take us to an that which happens to
+            // subsume our lock.
+            if(p->lock_id.lspace() >= id.lspace())
+            {
+                // Element in table has equal or higher granularity.
+                // Replace it.
+                victim = *p;
             } else {
-				// empty slot. Use it. Didn't evict anyone.
-				evicted = false;
-			}
-        
+                // item we're trying to insert has
+                // higher granularity.  Don't insert.
+                victim.lock_id = id;
+                victim.req = req;
+                victim.mode = m;
+                return true; // never mind...
+                // make it look like the one we requested was
+                // evicted b/c it's subsumed by the entry found
+                // in the table, although the modes might differ.
+                // OR it's a hash collision and the
+                // lower-granularity lock wins.
+            }
+        } else {
+            // empty slot. Use it. Didn't evict anyone.
+            evicted = false;
+        }
+    
         p->lock_id = id;
         p->req = req;
         p->mode = m;

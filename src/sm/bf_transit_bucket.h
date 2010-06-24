@@ -164,20 +164,9 @@ public:
    atomically. If a new thread comes looking for the page later,
    it won't find anything in the htab and will have to call grab().
 
-   NANCY TODO: this is old, wrong.  
    At the start of a page grab, the thread acquires the transit bucket
-   mutex in order to prevent other grabs to the same page. After a
-   second search of the htab to verify the page is not already
-   in-transit-in, the thread finds a replacement frame by searching
-   the free list, then by evicting a (hopefully clean, cold) frame
-   from the pool. 
+   mutex in order to prevent other grabs to the same page. 
    
-   NANCY TODO: this is old, wrong.  
-   When find() hits an in-transit-in page, everything proceeds as
-   normal except the latch acquire will block (because the transiting
-   thread holds it in EX). Once the acquire succeeds it must check the
-   pid -- on the off chance a page read failed the pid will have been
-   cleared.
  */
 /*
  * This corresponds to part of the changes described in Shore-MT paper,

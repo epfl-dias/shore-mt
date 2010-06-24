@@ -564,7 +564,6 @@ io_m::get_lvid(const vid_t vid)
 }
 
 
-
 /*********************************************************************
  *
  *  io_m::get_lvid(dev_name, lvid)
@@ -576,9 +575,6 @@ io_m::get_lvid(const char* dev_name, lvid_t& lvid)
     auto_leave_t enter;
     return _get_lvid(dev_name, lvid);
 }
-
-
-
 
 /*********************************************************************
  *
@@ -641,8 +637,6 @@ io_m::mount(const char* device, vid_t vid,
 
     return RCOK;
 }
-
-
 
 /*********************************************************************
  *
@@ -1084,7 +1078,7 @@ io_m::alloc_a_file_page(
     // we compensate, but we don't want to do that until
     // we have finished logging the page allocation.
     
-    check_compensated_op_nesting ccon(xct(), __LINE__);
+    check_compensated_op_nesting ccon(xct(), __LINE__, __FILE__);
     auto_release_anchor_t auto_anchor(true/*and compensate*/, __LINE__); 
     // see xct.h for auto_release_anchor_t.
 
@@ -2011,7 +2005,6 @@ io_m::_alloc_pages_with_vol_mutex(
 }
 
 
-
 /*********************************************************************
  *
  *  io_m::free_page(pid)
@@ -2180,19 +2173,22 @@ io_m::create_store(
     extnum_t                    first_ext,
     extnum_t                    num_exts)
 {
+    rc_t r; 
     { 
         auto_leave_t enter;
     
-        W_DO(_create_store(volid, eff, flags, stid, first_ext, num_exts));
+        r = _create_store(volid, eff, flags, stid, first_ext, num_exts);
         // replaced io mutex with volume mutex
     }
+
+    if(r.is_error()) return r;
 
     /* load and insert stores get converted to regular on commit */
     if (flags & st_load_file || flags & st_insert_file)  {
         xct()->AddLoadStore(stid);
     }
 
-    return RCOK;
+    return r;
 }
 
 rc_t
@@ -2297,9 +2293,7 @@ io_m::destroy_store(const stid_t& stid, bool acquire_lock)
         DBG(<<"destroy_store: BADSTID");
         return RC(eBADSTID);
     }
-    
     W_DO( v->free_store(stid.store, acquire_lock) );
-
     v->free_ext_cache().erase_all(stid.store); 
     store_latches.destroy_latches(stid); 
 

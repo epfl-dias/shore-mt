@@ -116,19 +116,19 @@ lockid_t::slot_kvl_bits() const
 }
 
 inline
-const slotid_t&         
+slotid_t
 lockid_t::slot() const 
 {
-    w_assert3((s[0]&0xff) == 0);
-    return  *(slotid_t *) &s[slotSindex];
+    w_assert9((s[0]&0xff) == 0);
+    return  slotid_t(slot_bits()) ;
 }
 
 inline
 void             
 lockid_t::set_slot(const slotid_t & e) 
 {
-    w_assert3((s[0]&0xff) == 0);
-    w_assert3(sizeof(slotid_t) == sizeof(s[slotSindex]));
+    w_assert9((s[0]&0xff) == 0);
+    w_assert9(sizeof(slotid_t) == sizeof(s[slotSindex]));
     w[slotWindex] = 0; // clear lower part
     s[slotSindex] = e;
 }
@@ -137,8 +137,8 @@ inline
 lockid_t::page_bits_t
 lockid_t::page_bits() const 
 {
-    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
-    w_assert3(sizeof(uint4_t) == sizeof(w[pageWindex]));
+    w_assert9(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    w_assert9(sizeof(uint4_t) == sizeof(w[pageWindex]));
     return w[pageWindex];
 }
 
@@ -147,8 +147,8 @@ void
 lockid_t::set_page_bits(lockid_t::page_bits_t bits) 
 {
     DBG(<<"lockid_t::set_page_bits() " << "bits= "  << bits);
-    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
-    w_assert3(sizeof(page_bits_t) == sizeof(w[pageWindex]));
+    w_assert9(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    w_assert9(sizeof(page_bits_t) == sizeof(w[pageWindex]));
     w[pageWindex] = bits;
 }
 
@@ -156,8 +156,9 @@ inline
 const shpid_t&         
 lockid_t::page() const 
 {
-    w_assert3((s[0]&0xff) == 0);
-    w_assert3(sizeof(shpid_t) == sizeof(w[pageWindex]));
+    w_assert9(lspace() != t_extent);
+    w_assert9((s[0]&0xff) == 0);
+    w_assert9(sizeof(shpid_t) == sizeof(w[pageWindex]));
     return *(shpid_t *) (&w[pageWindex]);
 
 }
@@ -166,7 +167,8 @@ inline
 void             
 lockid_t::set_page(const shpid_t & p) 
 {
-    w_assert3((s[0]&0xff) == 0);
+    w_assert9(lspace() != t_extent);
+    w_assert9((s[0]&0xff) == 0); // low byte
     set_page_bits((page_bits_t)p);
 }
 
@@ -198,7 +200,7 @@ lockid_t::store() const
 {
     w_assert9(sizeof(snum_t) == sizeof(w[1]));
     w_assert9(lspace() != t_extent);
-    w_assert9((s[0]&0xff) == 0);
+    w_assert9((s[0]&0xff) == 0); // low byte
     return *(snum_t *) (&w[1]);
 }
 
@@ -208,7 +210,7 @@ lockid_t::set_snum(const snum_t & _s)
 {
     w_assert9(sizeof(snum_t) == sizeof(w[1]));
     w_assert9(lspace() != t_extent);
-    w_assert9((this->s[0]&0xff) == 0);
+    w_assert9((this->s[0]&0xff) == 0); // low byte
     w[1] = (uint4_t) _s;
 }
 
@@ -217,7 +219,7 @@ void
 lockid_t::set_store(const stid_t & _s) 
 {
     w_assert9(lspace() != t_extent);
-    w_assert9((this->s[0]&0xff) == 0);
+    w_assert9((this->s[0]&0xff) == 0); // low byte
     set_snum(_s.store);
     set_vid(_s.vol);
 }

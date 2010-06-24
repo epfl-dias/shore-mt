@@ -218,7 +218,7 @@ log_core::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
 {
     FUNC(log_core::scavenge);
     CRITICAL_SECTION(cs, _partition_lock);
-    pthread_mutex_lock(&_scavenge_lock);
+    DO_PTHREAD(pthread_mutex_lock(&_scavenge_lock));
 
 #if W_DEBUG_LEVEL > 2
     _sanity_check();
@@ -261,27 +261,27 @@ log_core::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
         p->destroy();
     }
     if(count > 0) {
-	/* LOG_RESERVATIONS
+        /* LOG_RESERVATIONS
 
-	   reinstate the log space from the reclaimed partitions. We
-	   can put back the entire partition size because every log
-	   insert which finishes off a partition will consume whatever
-	   unused space was left at the end.
+           reinstate the log space from the reclaimed partitions. We
+           can put back the entire partition size because every log
+           insert which finishes off a partition will consume whatever
+           unused space was left at the end.
 
-	   Skim off the top of the released space whatever it takes to
-	   top up the log checkpoint reservation.
-	 */
-	fileoff_t reclaimed = recoverable_space(count);
-	fileoff_t max_chkpt = max_chkpt_size();
-	while(!verify_chkpt_reservation() && reclaimed > 0) {
-	    long skimmed = std::min(max_chkpt, reclaimed);
-	    atomic_add_long((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
-	    reclaimed -= skimmed;
-	}
-	release_space(reclaimed);
-	pthread_cond_signal(&_scavenge_cond);
+           Skim off the top of the released space whatever it takes to
+           top up the log checkpoint reservation.
+         */
+        fileoff_t reclaimed = recoverable_space(count);
+        fileoff_t max_chkpt = max_chkpt_size();
+        while(!verify_chkpt_reservation() && reclaimed > 0) {
+            long skimmed = std::min(max_chkpt, reclaimed);
+            atomic_add_long((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
+            reclaimed -= skimmed;
+        }
+        release_space(reclaimed);
+        DO_PTHREAD(pthread_cond_signal(&_scavenge_cond));
     }
-    pthread_mutex_unlock(&_scavenge_lock);
+    DO_PTHREAD(pthread_mutex_unlock(&_scavenge_lock));
 
     return RCOK;
 }
@@ -316,25 +316,24 @@ log_core::_flushX(lsn_t start_lsn,
         w_assert3(n != 0);
 
         {
-	    /* FRJ: before starting into the CS below we have to be
-	       sure an empty partition waits for us (otherwise we
-	       deadlock because partition scavenging is protected by
-	       the _partition_lock as well).
-	     */
-	    pthread_mutex_lock(&_scavenge_lock);
-	retry:
-	    bf->activate_background_flushing();
-	    smlevel_1::chkpt->wakeup_and_take();
-	    u_int oldest = log->global_min_lsn().hi();
-	    if(oldest + PARTITION_COUNT == start_lsn.file()) {
-		fprintf(stderr, "Can't open partition %d until partition %d is reclaimed\n",
-			start_lsn.file(), oldest);
-		pthread_cond_wait(&_scavenge_cond, &_scavenge_lock);
-		goto retry;
-	    }
-	    pthread_mutex_unlock(&_scavenge_lock);
-		
-
+            /* FRJ: before starting into the CS below we have to be
+               sure an empty partition waits for us (otherwise we
+               deadlock because partition scavenging is protected by
+               the _partition_lock as well).
+             */
+            DO_PTHREAD(pthread_mutex_lock(&_scavenge_lock));
+        retry:
+            bf->activate_background_flushing();
+            smlevel_1::chkpt->wakeup_and_take();
+            u_int oldest = log->global_min_lsn().hi();
+            if(oldest + PARTITION_COUNT == start_lsn.file()) {
+            fprintf(stderr, "Can't open partition %d until partition %d is reclaimed\n",
+                start_lsn.file(), oldest);
+            DO_PTHREAD(pthread_cond_wait(&_scavenge_cond, &_scavenge_lock));
+            goto retry;
+            }
+            DO_PTHREAD(pthread_mutex_unlock(&_scavenge_lock));
+            
             // grab the lock -- we're about to mess with partitions
             CRITICAL_SECTION(cs, _partition_lock);
             p->close();  
@@ -993,8 +992,9 @@ log_core::log_core(
     DO_PTHREAD(pthread_mutex_init(&_wait_flush_lock, NULL));
     DO_PTHREAD(pthread_cond_init(&_wait_cond, NULL));
     DO_PTHREAD(pthread_cond_init(&_flush_cond, NULL));
-    pthread_mutex_init(&_scavenge_lock, NULL);
-    pthread_cond_init(&_scavenge_cond, NULL);
+    DO_PTHREAD(pthread_mutex_init(&_scavenge_lock, NULL));
+    DO_PTHREAD(pthread_cond_init(&_scavenge_cond, NULL));
+
 
     /* Create thread o flush the log */
     _flush_daemon = new flush_daemon_thread_t(this);
@@ -2438,7 +2438,7 @@ rc_t log_core::wait_for_space(fileoff_t &amt, timeout_in_ms timeout)
 
     pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
     waiting_xct* wait = new waiting_xct(&amt, &cond);
-    pthread_mutex_lock(&_space_lock);
+    DO_PTHREAD(pthread_mutex_lock(&_space_lock));
     _waiting_for_space = true;
     _log_space_waiters.push_back(wait);
     while(amt) {
@@ -2462,16 +2462,18 @@ rc_t log_core::wait_for_space(fileoff_t &amt, timeout_in_ms timeout)
         }
         smlevel_1::chkpt->wakeup_and_take();
         if(timeout == WAIT_FOREVER) {
-            fprintf(stderr, "* - * - * tid %lld.%lld waiting forever for %lld bytes of log\n",
+            fprintf(stderr, 
+            "* - * - * tid %lld.%lld waiting forever for %lld bytes of log\n",
                 (long long)(xct()->tid().get_hi()), 
-        (long long)(xct()->tid().get_lo()), 
-        (long long) amt);
-            pthread_cond_wait(&cond, &_space_lock);
+                (long long)(xct()->tid().get_lo()), 
+                (long long) amt);
+            DO_PTHREAD(pthread_cond_wait(&cond, &_space_lock));
         } else {
-            fprintf(stderr, "* - * - * tid %lld.%lld waiting with timeout for %lld bytes of log\n",
+            fprintf(stderr, 
+                "* - * - * tid %lld.%lld waiting with timeout for %lld bytes of log\n",
                 (long long)(xct()->tid().get_hi()), 
-        (long long)(xct()->tid().get_lo()), 
-        (long long) amt);
+                (long long)(xct()->tid().get_lo()), 
+                (long long) amt);
                 int err = pthread_cond_timedwait(&cond, &_space_lock, &when);
                 if(err == ETIMEDOUT) 
                 break;
@@ -2482,7 +2484,7 @@ rc_t log_core::wait_for_space(fileoff_t &amt, timeout_in_ms timeout)
         (long long)(xct()->tid().get_lo()), 
         (long long) amt);
 
-    pthread_mutex_unlock(&_space_lock);
+    DO_PTHREAD(pthread_mutex_unlock(&_space_lock));
     return amt? RC(sthread_t::stTIMEOUT) : RCOK;
 }
 
@@ -2501,7 +2503,7 @@ void log_core::release_space(fileoff_t amt)
        it up.
      */
     if(_waiting_for_space) {
-        pthread_mutex_lock(&_space_lock);
+        DO_PTHREAD(pthread_mutex_lock(&_space_lock));
         while(amt > 0 && _log_space_waiters.size()) {
             bool finished_one = false;
             waiting_xct* wx = _log_space_waiters.front();
@@ -2513,7 +2515,7 @@ void log_core::release_space(fileoff_t amt)
             *wx->needed -= can_give;
             amt -= can_give;
             if(! *wx->needed) {
-                pthread_cond_signal(wx->cond);
+                DO_PTHREAD(pthread_cond_signal(wx->cond));
                 finished_one = true;
             }
             }
@@ -2526,7 +2528,7 @@ void log_core::release_space(fileoff_t amt)
         if(_log_space_waiters.empty())
             _waiting_for_space = false;
         
-        pthread_mutex_unlock(&_space_lock);
+        DO_PTHREAD(pthread_mutex_unlock(&_space_lock));
     }
     
     atomic_add_long_delta(_space_available, amt); // use templated function
@@ -2545,9 +2547,9 @@ log_core::activate_reservations()
        this point.
      */
     w_assert1(operating_mode == t_forward_processing);
-    // FRJ: not true if any logging occurred during recovery
-    //w_assert1(PARTITION_COUNT*_partition_data_size == 
-    //        _space_available + _space_rsvd_for_chkpt);
+	// FRJ: not true if any logging occurred during recovery
+    // w_assert1(PARTITION_COUNT*_partition_data_size == 
+    //       _space_available + _space_rsvd_for_chkpt);
     w_assert1(!_reservations_active);
 
     // knock off space used by full partitions

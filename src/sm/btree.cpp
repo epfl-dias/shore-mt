@@ -109,7 +109,7 @@ btree_m::create(
     )                // O-  root of new btree
 {
     FUNC(btree_m::create);
-    DBG(<<"stid " << stid);
+    DBGTHRD(<<"stid " << stid);
 #if BTREE_LOG_COMMENT_ON
     {
         w_ostrstream s;
@@ -123,9 +123,11 @@ btree_m::create(
     lsn_t anchor;
     xct_t* xd = xct();
 
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
+
     if (xd)  anchor = xd->anchor();
 
+    DBGTHRD(<<"allocating a page to store " << stid);
 
     X_DO( io->alloc_a_page(stid, 
             lpid_t::eof,  // hint
@@ -137,6 +139,7 @@ btree_m::create(
     SSMTEST("btree.create.1");
 
     {
+    DBGTHRD(<<"formatting the page for store " << stid);
         btree_p page;
         /* Format/init the page: */
         X_DO( page.fix(root, LATCH_EX, page.t_virgin), anchor );
@@ -151,6 +154,7 @@ btree_m::create(
 #endif 
     } // page is unfixed
 
+    DBGTHRD(<<"compensatng the  page create for store " << stid);
     
     if (xd)  {
         SSMTEST("btree.create.2");
@@ -161,9 +165,10 @@ btree_m::create(
     W_DO(is_empty(root,empty)); 
     check_latches(___s,___e, ___s+___e); 
     if(!empty) {
-         DBG(<<"eNDXNOTEMPTY");
+         DBGTHRD(<<"eNDXNOTEMPTY");
          return RC(eNDXNOTEMPTY);
     }
+    DBGTHRD(<<"returning from btree_create, store " << stid);
     return RCOK;
 }
 
@@ -239,16 +244,16 @@ btree_m::insert(
     w_assert1(kc && nkc > 0);
 
     if(key.size() + el.size() > btree_p::max_entry_size) {
-        DBG(<<"RECWONTFIT: key.size=" << key.size() 
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
                 << " el.size=" << el.size());
         return RC(eRECWONTFIT);
     }
     rc_t rc;
 
     cvec_t* real_key;
-    DBG(<<"");
+    DBGTHRD(<<"");
     W_DO(_scramble_key(real_key, key, nkc, kc));
-    DBG(<<"");
+    DBGTHRD(<<"");
     
     // int retries = 0; // for debugging
  retry:
@@ -260,7 +265,7 @@ btree_m::insert(
             //       retries);
             goto retry;
         }
-        DBG(<<"rc=" << rc);
+        DBGTHRD(<<"rc=" << rc);
     }
     return  rc;
 }
@@ -317,13 +322,8 @@ btree_m::remove_key(
         /*
          *  call btree_m::_remove() 
          */
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         const cvec_t cursor_vec_tmp(cursor.elem(), cursor.elen());
         W_DO( remove(root, nkc, kc, unique, cc, key, cursor_vec_tmp));
-#else
-        W_DO( remove(root, nkc, kc, unique, cc, key, 
-                     cvec_t(cursor.elem(), cursor.elen())) );
-#endif
         ++num_removed;
 
         if (unique) break;
@@ -370,10 +370,10 @@ btree_m::remove(
         ) return badcc();
 
     cvec_t* real_key;
-    DBG(<<"");
+    DBGTHRD(<<"");
     W_DO(_scramble_key(real_key, key, nkc, kc));
 
-    DBG(<<"");
+    DBGTHRD(<<"");
  retry:
     rc_t rc =  btree_impl::_remove(root, unique, cc, *real_key, el);
     if(rc.is_error() && rc.err_num() == eRETRY) {
@@ -381,7 +381,7 @@ btree_m::remove(
         goto retry;
     }
 
-    DBG(<<"rc=" << rc);
+    DBGTHRD(<<"rc=" << rc);
     return rc;
 }
 
@@ -413,10 +413,10 @@ btree_m::lookup(
 
     w_assert1(kc && nkc > 0);
     cvec_t* real_key;
-    DBG(<<"");
+    DBGTHRD(<<"");
     W_DO(_scramble_key(real_key, key, nkc, kc));
 
-    DBG(<<"");
+    DBGTHRD(<<"");
     cvec_t null;
     W_DO( btree_impl::_lookup(root, unique, cc, *real_key, 
         null, found, 0, el, elen ));
@@ -457,17 +457,17 @@ btree_m::lookup_prev(
             cc,
             keyp, cvec_t::pos_inf, 
             le, ge, cvec_t::neg_inf);
-    DBG(<<"rc=" << rc);
+    DBGTHRD(<<"rc=" << rc);
     if(rc.is_error()) return RC_AUGMENT(rc);
     
     W_DO( bt->fetch(*_btcursor) );
-    DBG(<<"");
+    DBGTHRD(<<"");
     found = (_btcursor->key() != 0);
 
     smsize_t        mn = (key_prev_len > (smsize_t)_btcursor->klen()) ? 
                             (smsize_t)_btcursor->klen() : key_prev_len;
     key_prev_len  = _btcursor->klen();
-    DBG(<<"klen = " << key_prev_len);
+    DBGTHRD(<<"klen = " << key_prev_len);
     if(found) {
         memcpy( key_prev, _btcursor->key(), mn);
     }
@@ -520,12 +520,12 @@ btree_m::fetch_init(
     cvec_t* key;
     cvec_t* bound2_key;
 
-    DBG(<<"");
+    DBGTHRD(<<"");
     W_DO(_scramble_key(bound2_key, bound2, nkc, kc));
     W_DO(cursor.set_up(root, nkc, kc, unique, cc, 
                        cond2, *bound2_key, mode));
 
-    DBG(<<"");
+    DBGTHRD(<<"");
     W_DO(_scramble_key(key, ukey, nkc, kc));
     W_DO(cursor.set_up_part_2( cond1, *key));
 
@@ -556,12 +556,12 @@ btree_m::fetch_init(
     bool         found=false;
     smsize_t         elen = elem.size();
 
-    DBG(<<"Scan is backward? " << cursor.is_backward());
+    DBGTHRD(<<"Scan is backward? " << cursor.is_backward());
 
     W_DO (btree_impl::_lookup( cursor.root(), cursor.unique(), cursor.cc(),
             *key, elem, found, &cursor, cursor.elem(), elen));
 
-    DBG(<<"found=" << found);
+    DBGTHRD(<<"found=" << found);
 
     check_latches(___s,___e, ___s+___e); 
 
@@ -598,21 +598,15 @@ btree_m::fetch_reinit(
     cursor.keep_going = true;
 
     cvec_t* real_key;
-    DBG(<<"");
+    DBGTHRD(<<"");
     cvec_t key(cursor.key(), cursor.klen());
     W_DO(_scramble_key(real_key, key, cursor.nkc(), cursor.kc()));
 
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
     const cvec_t cursor_vec_tmp(cursor.elem(), cursor.elen());
-#endif
     rc_t rc= btree_impl::_lookup(
         cursor.root(), cursor.unique(), cursor.cc(),
         *real_key,
-#ifndef CAN_CREATE_ANONYMOUS_VEC_T
         cursor_vec_tmp,
-#else
-        cvec_t(cursor.elem(), cursor.elen()),
-#endif
         found,
         &cursor, 
         cursor.elem(), elen
@@ -639,7 +633,7 @@ btree_m::fetch(cursor_t& cursor)
 
     get_latches(___s,___e); 
     check_latches(___s,___e, ___s+___e); 
-    DBG(<<"first_time=" << cursor.first_time
+    DBGTHRD(<<"first_time=" << cursor.first_time
         << " keep_going=" << cursor.keep_going);
     if (cursor.first_time)  {
         /*
@@ -794,7 +788,7 @@ btree_m::fetch(cursor_t& cursor)
                 }
                 rc = lm->lock(kvl, SH, t_long, WAIT_IMMEDIATE);
                 if (rc.is_error())  {
-                    DBG(<<"rc=" << rc);
+                    DBGTHRD(<<"rc=" << rc);
                     w_assert3((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
 
                     lpid_t pid = child->pid();
@@ -921,8 +915,8 @@ btree_m::get_du_statistics(
 #if W_DEBUG_LEVEL > 0
             fprintf(stderr, 
             "lf_cnt %lld + int_cnt %lld + unlink_cnt %lld + unalloc_cnt %lld not a mpl of ext size\n",
-			(long long) lf_cnt, (long long) int_cnt, 
-			(long long) unlink_cnt, (long long) unalloc_cnt);
+            (long long) lf_cnt, (long long) int_cnt, 
+            (long long) unlink_cnt, (long long) unalloc_cnt);
 #endif
             return RC(fcINTERNAL);
         }

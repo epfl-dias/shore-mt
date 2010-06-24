@@ -2,7 +2,7 @@
 
 # <std-header style='shell' orig-src='shore'>
 #
-#  $Id: testall,v 1.1.2.6 2010/03/19 22:20:38 nhall Exp $
+#  $Id: testall,v 1.6 2010/06/18 21:22:59 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -63,12 +63,11 @@ function execute  {
         else
             print "failed to execute $1 ( $? )"
             exit 1
-	fi
-	cat $of >> $2
-	rm $of
-
+        fi
+        cat $of >> $2
+        rm $of
     elif $1 >> $2 2>&1; then
-	print "ok"
+        print "ok"
     else
         print "failed to execute $1 ( $? )"
         exit 1
@@ -143,11 +142,13 @@ execute "sort_stream " sort_stream-out
 
 echo "---------------------------------------------------------"
 echo "running lockid_test "
-execute "lockid_test " tmp-out lockid_test-out
+execute "lockid_test " tmp-out lockid_test-out.`uname -m`
 
 echo "---------------------------------------------------------"
 echo "running lock_cache_test "
-execute "lock_cache_test" tmp-out  lock_cache_test-out
+# this cannot use a results file b/c it's hash-dependent
+# both what fits and the order in which things appear.
+execute "lock_cache_test" tmp-out  
 
 echo "---------------------------------------------------------"
 echo "running startstop"

@@ -1,7 +1,8 @@
 ## Process this file with automake to produce Makefile.in
 include $(top_srcdir)/Makefile.generic
 RESULT_COMPARISON_FILES = \
-						  lockid_test-out \
+						  lockid_test-out.x86_64 \
+						  lockid_test-out.sun4v \
 						  lock_cache_test-out \
 						  htab-n500-out \
 						  htab-n10000-R-out \

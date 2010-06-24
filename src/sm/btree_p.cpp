@@ -253,7 +253,7 @@ btree_p::unlink_and_propagate(
 
         lsn_t anchor;
         xct_t* xd = xct();
-	check_compensated_op_nesting ccon(xd, __LINE__);
+        if(xd) check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
         if (xd)  anchor = xd->anchor();
 
         /* 
@@ -428,9 +428,9 @@ btree_p::_set_flag( flag_t f, bool compensate)
 
     lsn_t anchor;
     xct_t* xd = xct();
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    if(xd) check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if(compensate) {
-    if (xd)  anchor = xd->anchor();
+        if (xd)  anchor = xd->anchor();
     }
 
     const btctrl_t& tmp = _hdr();
@@ -440,11 +440,8 @@ btree_p::_set_flag( flag_t f, bool compensate)
         w_rc_t __e = set_hdr(tmp.root, tmp.level, tmp.pid0, 
                     (uint2_t)(tmp.flags | f));
         if (__e.is_error()) {
-            if(xd && compensate) 
+            if(xd && compensate)
             {
-                //Cannot rollback or do anything graceful with eOUTOFLOGSPACE,
-                //and I want to avoid an assertion we'll hit in the releasing
-                //of the anchor.
                 xd->rollback(anchor);
                 xd->release_anchor(true LOG_COMMENT_USE("btreep1"));
             }
@@ -475,7 +472,7 @@ btree_p::_clr_flag(flag_t f, bool compensate)
 
     lsn_t anchor;
     xct_t* xd = xct();
-    check_compensated_op_nesting ccon(xd, __LINE__);
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if(compensate) {
         if (xd)  anchor = xd->anchor();
     }
@@ -848,8 +845,6 @@ btrec_t::set(const btree_p& page, slotid_t slot)
     return *this;
 }
 
-// TODO NANCY: gnats bug 86 : this computation is no longer accurate.
-// It's off by 6 for some reason
 smsize_t                        
 btree_p::overhead_requirement_per_entry =
             2 // for the key length (in btree_p)

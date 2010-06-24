@@ -94,7 +94,7 @@ class htab_tester : public smthread_t
     //    bf_core::replacement evicted it
     // Returned: got moved by an insert (we don't get told about every move)  
     // Removed: we removed it
-    bf_m *     _m;
+    bf_m *     _bfm;
     int        _tries;
     signed48_t _pagebound;
     uint2_t    _vol;
@@ -126,7 +126,7 @@ private:
 
 public:
     htab_tester(int i, signed48_t pb, uint2_t v, uint    s) : 
-         _m(NULL),
+         _bfm(NULL),
          _tries(i),
          _pagebound(pb),
          _vol(v), _store(s)
@@ -148,16 +148,16 @@ public:
                 W_COERCE(e);
             }
             w_assert1(is_aligned(shmbase));
-            bf_m *_m = new bf_m(nbufpages, shmbase, npgwriters);
+            bf_m *_bfm = new bf_m(nbufpages, shmbase, npgwriters);
 
-            if (! _m) {
+            if (! _bfm) {
                 W_FATAL(fcOUTOFMEMORY);
             }
         }
 
         _pid2info = new pidinfo[int(pb)];
         _i2pid = new lpid_t[i];
-        core = _m->_core;
+        core = _bfm->_core;
         memset(&S, '\0', sizeof(S));
     }
     ~htab_tester() 
@@ -231,7 +231,7 @@ htab_tester::printstats(ostream &o, bool final)
 #define D(x) if(S.x > 0) o << #x << " " << S.x << endl;
     else
     {
-        _m->htab_stats(S);
+        _bfm->htab_stats(S);
         S.compute();
 
         D(bf_htab_insertions);
@@ -255,8 +255,8 @@ void htab_tester::cleanup()
     delete[] _pid2info;
     delete[] _i2pid;
     // delete core;
-    delete   _m;
-    _m=0;
+    delete   _bfm;
+    _bfm=0;
 }
 
 void htab_tester::run()

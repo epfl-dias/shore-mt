@@ -276,8 +276,13 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
  *  used in xct_t::force_nonblocking, called in chkpt when an
  *  xct is long-running and is preventing the scavenging of log
  *  files.
- *  \todo TODO: NANCY: figure out what this is doing  and document in
- *  internal.h, handling of log space/long-running xcts etc.
+ *
+ *  When set, is_nonblocking() returns true; this is checked
+ *  after the thread that's waiting gets awakened, and if found
+ *  to be true, returns eDEADLOCK. We count the times this
+ *  happens with a stat.
+ *  This is how the log-is-full condition kills a blocked-on-lock
+ *  transaction that's preventing scavenging.
  *
  *********************************************************************/
 void xct_lock_info_t::set_nonblocking()
@@ -1370,12 +1375,10 @@ lock_core_m::acquire_lock(
                       << " timeout=" << timeout );
 
                 if(the_xlinfo->is_nonblocking()) {
-            // die immediately if we've been poisoned 
-            INC_TSTAT(log_full_old_xct);
-            rce = eDEADLOCK;
-        }
-        else {
-
+                    // die immediately if we've been poisoned 
+                    INC_TSTAT(log_full_old_xct);
+                    rce = eDEADLOCK;
+                } else {
                     const char* blockname = "lock";
                     // TODO: non-rc version of smthread_block
                     INC_TSTAT(lock_block_cnt);
@@ -1419,8 +1422,7 @@ lock_core_m::acquire_lock(
                 w_assert9(lock->name == name);
                 if((rce == stTIMEOUT)
                         && (req->status() != lock_m::t_granted) ) {
-#if W_DEBUG_LEVEL >= 0
-// TODO NANCY change this to W_DEBUG_LEVEL > 0
+#if W_DEBUG_LEVEL > 0
                     if(count > 1000000) {
 #if W_DEBUG_LEVEL > 1
                         fprintf(stderr, " possible deadlock : locks \n");
@@ -1448,15 +1450,14 @@ lock_core_m::acquire_lock(
         w_assert9(the_xlinfo->get_cycle() == 0);
         DBGTHRD(<<" request->status()=" << int(req->status()));
 
-        /* The lock release code doesn't do proper locking, so it's
+        /* FRJ: The lock release code doesn't do proper locking, so it's
            entirely possible to time out or get axed by DLD and also get
            the lock. Fortunately, neither error actually changes the state
            of the lock, so we can ignore it if the request was granted.
 
-           TODO NANCY clear this up - explain how this can happen.
-           It looks to me like the release code uses the lock head 
+           NEH: It looks to me like the release code uses the lock head 
            mutex to ensure exclusivity, so I don't think this should
-           happen. that comment above was, presumably, from FRJ.
+           happen.
          */
         the_xlinfo->done_waiting();
         if((req->status() != lock_m::t_granted) && rce) {
@@ -1881,8 +1882,6 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
 //
 bool
 lock_core_m::upgrade_ext_req_to_EX_if_should_free(lock_request_t* req)
-    // TODO: NANCY : couldn't this give us false negatives and leave uswith 
-    // un-freed extents?
 {
     lock_head_t* lock = req->get_lock_head();
     w_assert9(lock->name.lspace() == lockid_t::t_extent);
@@ -2508,7 +2507,7 @@ lock_core_m::assert_empty() const
     {
         chain_list_t &C(_htab[h].chain);
         if(C.is_empty()) continue;
-        // TODO : NANCY: why do we now need this check above?
+
         chain_list_i i(C);
         lock_head_t* lock;
         lock = i.next();
@@ -2823,7 +2822,6 @@ lock_core_m::collect( vtable_t& v, bool names_too)
 {
     // NOTE: This does not have to be atomic or thread-safe.
     // It yields approximate statistics and is used by ss_m.
-    // TODO NANCY document that it cannot be used in mt-world
     int n = _requests_allocated /* for names */;
     w_assert1(n>=0);
     int found = 0;
@@ -2902,7 +2900,6 @@ lock_request_t::vtable_collect(vtable_row_t & t)
 {
     // NOTE: This does not have to be atomic or thread-safe.
     // It yields approximate statistics and is used by ss_m.
-    // TODO NANCY document that it cannot be used in mt-world
     const lock_head_t                 *lh = get_lock_head();
 
     {

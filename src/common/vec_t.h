@@ -69,17 +69,11 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define MAX_SMALL_VEC_SIZE 8
 
 /*
- * Define this to use named temporaries for 'vec_t' and 'cvec_t' instead
- * of the existing anonymous temporaries.  Newer c++ compilers require
+ * Newer c++ compilers require
  * that copy constructors be available for classes which use anonymous
- * temporary variables.  However, vec_t are non-copyable.
- *
- * This is ifdef-ed so this item can be revisited in the future
- * to consider copyable vec_ts.   
- * 
- * TODO NANCY : document this issue in the vec_t man page
+ * temporary variables.  However, vec_t are non-copyable, so you
+ * must create named temporaries of these structures.
  */
-#undef CAN_CREATE_ANONYMOUS_VEC_T
 
 /**\brief A helper class for VEC_t
  */

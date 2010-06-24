@@ -585,7 +585,7 @@ scan_rt_i::xct_state_changed(
 scan_file_i::scan_file_i(
         const stid_t& stid_, const rid_t& start,
          concurrency_t cc, bool pre, 
-         lock_mode_t /*mode TODO: NANCY: is this documented?*/) 
+         lock_mode_t /*mode TODO: remove.  is documented as ignored*/) 
 : xct_dependent_t(xct()),
   stid(stid_),
   curr_rid(start),
@@ -608,7 +608,7 @@ scan_file_i::scan_file_i(
 }
 
 scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc, 
-   bool pre, lock_mode_t /*mode TODO: NANCY: is this documented?*/) 
+   bool pre, lock_mode_t /*mode TODO: remove. this documented as ignored*/) 
 : xct_dependent_t(xct()),
   stid(stid_),
   _eof(false),
@@ -1068,8 +1068,6 @@ append_file_i::~append_file_i()
 rc_t
 append_file_i::next(pin_i*&, smsize_t, bool& )
 {
-    // TODO: BUG: NANCY: Thsi used to return RCOK; document the change
-        // and the fact that you can't scan with an append_file_i
     return RC(eAPPENDFILEINOSCAN);
 }
 

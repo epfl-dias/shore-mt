@@ -154,7 +154,7 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
 
     W_DO(_create_rec(fid, hdr, len_hint, data, new_rid
 #ifdef SM_DORA
-                     , true, bIgnoreLocks
+                     , bIgnoreLocks
 #endif
                      ));
 
@@ -588,10 +588,8 @@ ss_m::_destroy_n_swap_file(const stid_t& old_fid, const stid_t& new_fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint, 
-                  const vec_t& data, rid_t& new_rid,
-                  bool  // TODO NANCY REMOVE
+                  const vec_t& data, rid_t& new_rid
 #ifdef SM_DORA
-                  /* forward_alloc */
                   , const bool bIgnoreLocks
 #endif
                  )

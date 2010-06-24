@@ -752,7 +752,6 @@ bf_core_m::grab(
             fprintf(stderr, 
                 "Unable to acquire latch %d.%d in mode %d with timeout %d\n",
                 pid.store(), pid.page, mode, timeout);
-                TODO NANCY add a statistic for this
             */
             return RC_AUGMENT(rc);
         }
@@ -894,12 +893,6 @@ bf_core_m::find(
  *  Leave the frame latched in 'mode', downgrading or releasing as
  *  required to get us there.
  *
- *\todo  TODO NANCY FIX THIS COMMENT
- *  The cuckoo hash scheme uses three hash functions, which *should*
- *  allow > 80% occupancy (we have <= 50%), but just in case, we also
- *  allow the bpool to evict particularly troublesome pages if they
- *  are good candidates for replacement anyway. Return the evicted
- *  page, if one exists.
  */
 void
 bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
@@ -1006,7 +999,6 @@ bf_core_m::publish_partial(bfcb_t* p)
 
     tb.make_not_in_transit_out(pid);
 
-    // keep the latch... caller still needs it
 }
 
 
@@ -1202,12 +1194,12 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
             // prevent this, I have inserted force_all in restart.cpp between
             // the redo_pass and the undo_pass. It should make this case
             // never happen, leaving the assert below valid again.
-	    // 
-	    // 3) Page cleaners cleared the dirty bit and rec_lsn of
-	    // an SH-latched page before writing it out. In this case
-	    // safe_rec_lsn() != curr_rec_lsn() and the former should
-	    // be used. However, either way the relationship with the
-	    // page lsn remains valid.
+            // 
+            // 3) Page cleaners cleared the dirty bit and rec_lsn of
+            // an SH-latched page before writing it out. In this case
+            // safe_rec_lsn() != curr_rec_lsn() and the former should
+            // be used. However, either way the relationship with the
+            // page lsn remains valid.
             //
             // The recovery code is about to see that it gets changed
             // and that the rec_lsn gets "repaired".
@@ -1226,6 +1218,7 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
                     << " pid " << p->pid() << endl
                     << " curr_rec_lsn " << p->curr_rec_lsn() << endl
                     << " old_rec_lsn " << p->old_rec_lsn() << endl
+                    << " safe_rec_lsn " << p->safe_rec_lsn() << endl
                     << " frame lsn " << p->frame()->lsn1 << endl
                     << " (p->rec_lsn <= p->frame->lsn1) "
                            << int(p->safe_rec_lsn() <= p->frame()->lsn1) << endl
@@ -1318,8 +1311,8 @@ bf_core_m::_remove(bfcb_t*& p)
        old_rec_lsn before releasing the mutex)
     */
     if(p->old_rec_lsn().valid()) {
-	CRITICAL_SECTION(cs, page_write_mutex_t::locate(p->pid()));
-	w_assert0(!p->old_rec_lsn().valid());
+        CRITICAL_SECTION(cs, page_write_mutex_t::locate(p->pid()));
+        w_assert0(!p->old_rec_lsn().valid());
     }
     
     // fail if the page is pinned more than once, retry if the page

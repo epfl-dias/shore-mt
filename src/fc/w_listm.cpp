@@ -39,10 +39,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 void
 w_link_t::attach(w_link_t* prev_link)
 {
-    w_assert9(_prev == this && _next == this); // not in any list
+    w_assert2(_prev == this && _next == this); // not in any list
     _list = prev_link->_list;
-    _next = prev_link->_next, _prev = prev_link;
-    prev_link->_next = prev_link->_next->_prev = this;
+    _next = prev_link->_next; 
+    _prev = prev_link;
+    prev_link->_next = this;
+    _next->_prev = this;
     ++(_list->_cnt);
 }
 
@@ -50,13 +52,13 @@ w_link_t*
 w_link_t::detach()
 {
     if (_next != this)  {
-    w_assert9(_prev != this);
-    _prev->_next = _next, _next->_prev = _prev;
-    _list->_cnt--;
-    w_assert9(_list->_cnt ||
-           (_list->_tail._prev == & _list->_tail &&
-        _list->_tail._next == & _list->_tail));
-    _next = _prev = this, _list = 0;
+        w_assert2(_prev != this);
+        _prev->_next = _next, _next->_prev = _prev;
+        _list->_cnt--;
+        w_assert2(_list->_cnt ||
+               (_list->_tail._prev == & _list->_tail &&
+                _list->_tail._next == & _list->_tail));
+            _next = _prev = this, _list = 0;
     }
     return this;
 }

@@ -158,7 +158,15 @@ prologue_rc_t::prologue_rc_t(
 {
     w_assert2(!me()->is_in_sm());
 
-	_the_xct = xct();
+    _the_xct = xct();
+
+    if(_the_xct) {
+        // We should never already hold the mutex upon entering
+        // the storage manager. This could catch some error
+        // in the handling of aborting by callback...
+        w_assert0(! _the_xct->is_1thread_log_mutex_mine());
+    }
+
     bool        check_log = true;
     bool        check_1thread = false;
 
@@ -199,7 +207,7 @@ prologue_rc_t::prologue_rc_t(
         if(error) {
             _rc = rc_t(__FILE__, __LINE__, error);
             check_log = false;
-			no_longer_in_xct(); // to avoid choking in destructor.
+            no_longer_in_xct(); // to avoid choking in destructor.
         }
         check_1thread = true;
         break;
@@ -248,7 +256,7 @@ prologue_rc_t::prologue_rc_t(
     // let the first error found prevail
     if(_rc.is_error())  {
         return;
-	}
+    }
 
     if(check_1thread) 
     {
@@ -262,15 +270,15 @@ prologue_rc_t::prologue_rc_t(
     // Now make sure we don't have multiple threads attached if
     // this is an update-method. 
     if(_the_xct && (_constraint == read_write))  {
-		_the_xct->attach_update_thread(); 
-	}
+        _the_xct->attach_update_thread(); 
+    }
     else check_log = false;
 
     if(check_log && !smlevel_0::in_recovery() ) 
     {
         _rc = xct_log_warn_check_t::check(_victim);
         if(_rc.is_error())  {
-			// TODO What?
+            // TODO What?
         }
     }
 }
@@ -279,8 +287,8 @@ prologue_rc_t::prologue_rc_t(
 prologue_rc_t::~prologue_rc_t()
 {
     if(_the_xct && (_constraint == read_write))  {
-		_the_xct->detach_update_thread();
-	}
+        _the_xct->detach_update_thread();
+    }
 
 #if W_DEBUG_LEVEL > 2
     me()->check_pin_count(_pin_cnt_change);
@@ -294,7 +302,8 @@ prologue_rc_t::~prologue_rc_t()
                 _victim->steal_stats() : 0;
         W_COERCE(_victim->abort());
         INC_TSTAT(log_warn_abort_cnt);
-        delete _victim;
+        // delete _victim;
+		xct_t::destroy_xct(_victim);
         delete stats; 
         _victim = 0;
     }
@@ -304,7 +313,7 @@ inline void
 prologue_rc_t::no_longer_in_xct()
 {
     _xct_state = not_in_xct;
-	_the_xct = NULL;
+    _the_xct = NULL;
 }
 
 #endif /* SM_C */

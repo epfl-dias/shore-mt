@@ -719,7 +719,7 @@ void    sthread_t::__start(void *arg)
     int e = pthread_attr_init(&attr);
     if(e) {
         fprintf(stderr,"Cannot init pthread_attr e=%d\n", e);
-        // TODO NANCY ::exit(1);
+        ::exit(1);
     }
     else 
     {
@@ -741,13 +741,11 @@ void    sthread_t::__start(void *arg)
     }
 #define GUARD 8192*4
     if(sz <  GUARD) {
-       // fprintf(stderr,"pthread stack size too small: %d\n", sz);
-       // TODO: NANCY ::exit(1);
+       // fprintf(stderr,"pthread stack size too small: %lld\n", (long long)sz);
 #ifndef PTHREAD_STACK_MIN_SUBSTITUTE 
 // How did I come up with this number?  It's from experimenting with
 // tests/thread1 on chianti, which seems not to be compliant in any way,
 // not giving me any way to find out what the pthreads stack size is.
-// TODO: document how to use this - define it in shore.def
 #define PTHREAD_STACK_MIN_SUBSTITUTE 0x100000
 #endif
        sz = PTHREAD_STACK_MIN_SUBSTITUTE;
@@ -1481,6 +1479,7 @@ sthread_named_base_t::~sthread_named_base_t()
 
 /**\cond skip */
 
+#if LATCH_CAN_BLOCK_LONG 
 /*********************************************************************
  *
  *  sthread_priority_list_t::sthread_priority_list_t()
@@ -1496,6 +1495,7 @@ sthread_priority_list_t::sthread_priority_list_t()
     (W_KEYED_ARG(sthread_t, _priority, _link), NOLOCK )
 {
 }
+#endif
 
 // if you really are a sthread_t return 0
 smthread_t* sthread_t::dynamic_cast_to_smthread()

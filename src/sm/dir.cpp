@@ -206,8 +206,7 @@ dir_vol_m::_destroy_temps(vid_t vid)
     // destroy the entries in the root index while we're
     // scanning the root index. Sigh.
 
-    xct_t xd;   // start a short transaction
-    xct_auto_abort_t xct_auto(&xd); // abort if not completed
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed
 
     smksize_t   qkb, qukb;
     uint4_t          ext_used;

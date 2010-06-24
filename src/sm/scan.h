@@ -176,7 +176,7 @@ public:
      * the store descriptor (see ss_m::get_store_info and sm_store_info_t))
      * in a few situations.
      * @param[in] mode  Can be used to override the mode in which the
-	 *                   store is locked. 
+     *                   store is locked. 
      *
      * The following table describes the way these two values are used.
      * The columns represent the values of this parameter, cc.
@@ -382,14 +382,14 @@ private:
     concurrency_t        _cc;
 
     rc_t            _fetch(
-		nbox_t&             key, 
-		void*                el,
-		smsize_t&            elen, 
-		bool&             eof, 
-		bool                 skip);
+    	nbox_t&             key, 
+    	void*                el,
+    	smsize_t&            elen, 
+    	bool&             eof, 
+    	bool                 skip);
     void             _init(
-		nbox_t::sob_cmp_t         c, 
-		const nbox_t&             qbox);
+    	nbox_t::sob_cmp_t         c, 
+    	const nbox_t&             qbox);
 
     void            xct_state_changed(
     xct_state_t            old_state,
@@ -615,6 +615,10 @@ public:
 
     NORET            ~append_file_i();
 
+    /**\brief Place-holder method. Returns error.
+     * 
+     * You cannot scan with an append_file_i.
+     */
     rc_t            next(
         pin_i*&         pin_ptr,
         smsize_t        start_offset, 

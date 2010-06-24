@@ -1,6 +1,6 @@
 /*<std-header orig-src='shore' incl-file-exclusion='SM_DU_STATS_H'>
 
- $Id: sm_du_stats.h,v 1.19.2.5 2010/01/28 04:54:15 nhall Exp $
+ $Id: sm_du_stats.h,v 1.21 2010/06/18 21:22:54 nhall Exp $
 
 SHORE -- Scalable Heterogeneous Object REpository
 
@@ -148,7 +148,7 @@ struct file_stats_t {
                         // In the case of non-tmp (stores in the directory)
                         // this is found by calling first-page/next-page
                         // and using the "allocated" return value
-    base_stat_t            unalloc_large_pg_cnt; // NANCY TODO
+    base_stat_t            unalloc_large_pg_cnt; 
 
     NORET           file_stats_t() {clear();}
     void            add(const file_stats_t& stats);
