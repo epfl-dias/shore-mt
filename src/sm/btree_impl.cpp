@@ -762,7 +762,8 @@ again:
                     /* First try to latch the current right sib 
                      * (soon to be cousin)
                      */
-                    if(parent.is_fixed() && parent.pid() != tree_root.pid()) {
+		    if(0) {
+			w_assert0(!parent.is_fixed());
                         lpid_t cousin_pid = leaf.pid();
                         cousin_pid.page = leaf.next();
                         btree_p cousin;
@@ -857,6 +858,8 @@ again:
                                                 if(xd) xd->compensate(anchor,false/*not undoable*/
                                                         LOG_COMMENT_USE("btree1"));
 
+						tree_root.unfix();
+						goto again;
                                             }
                                         }
                                     }
