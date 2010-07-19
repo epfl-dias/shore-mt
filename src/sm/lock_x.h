@@ -257,7 +257,7 @@ struct lock_x {                      \
     typedef queue_based_lock_t::ext_qnode qnode;   \
     queue_based_lock_t mutex;                      \
     qnode* get_me() {                \
-        return &(me()->get_me##N());\
+        return &(me()->get_me##N()); \
     }                                \
     rc_t acquire() {                 \
         mutex.acquire(get_me());     \

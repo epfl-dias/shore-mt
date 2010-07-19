@@ -137,7 +137,7 @@ bool mcs_rwlock::_attempt_write(unsigned int expected)
        If there is a writer waiting we have to get in line like everyone else.
        No need for a membar because we already hold the latch
     */
-    ext_qnode me = EXT_QNODE_INITIALIZER;
+    ext_qnode me = QUEUE_EXT_QNODE_INITIALIZER;
     if(*&_holders != expected || !attempt(&me))
         return false;
     // at this point, we've called mcs_lock::attempt(&me), and

@@ -48,9 +48,12 @@ struct mcs_lock {
         bool _waiting;
         //      qnode() : _next(NULL), _waiting(false) { }
     };
-    struct ext_qnode : qnode {
+    struct ext_qnode {
+      qnode _node;
+      operator qnode*() { return &_node; }
         mcs_lock* _held;
     };
+#define MCS_EXT_QNODE_INITIALIZER {{0,false},0}
     qnode_ptr volatile _tail;
     mcs_lock() : _tail(NULL) { }
 
@@ -129,7 +132,7 @@ struct mcs_lock {
         }
         next->_waiting = false;
     }
-    bool is_mine(qnode_ptr me) { return me._held == this; }
+  //bool is_mine(qnode_ptr me) { return me->_held == this; }
     bool is_mine(ext_qnode* me) { return me->_held == this; }
 };
 /**\endcond skip */

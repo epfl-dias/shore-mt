@@ -407,7 +407,9 @@ struct w_pthread_lock_t
     struct ext_qnode {
         w_pthread_lock_t* _held;
     };
-#define EXT_QNODE_INITIALIZER { NULL }
+
+    //#define EXT_QNODE_INITIALIZER { NULL }
+#define PTHREAD_EXT_QNODE_INITIALIZER { 0 }
 
     typedef ext_qnode volatile* ext_qnode_ptr;
     /**\endcond skip */
@@ -512,7 +514,8 @@ public:
  * alternatives is distributed for further experimentation, but it is not
  * not compiled in.  
  */
-#define USE_PTHREAD_MUTEX
+//#define USE_PTHREAD_MUTEX
+#undef USE_PTHREAD_MUTEX
 
 /**\defgroup SYNCPRIM Synchronization Primitives
  *\ingroup UNUSED 
@@ -534,13 +537,19 @@ public:
  */
 
 typedef w_pthread_lock_t queue_based_block_lock_t; // blocking impl always ok
+#define QUEUE_BLOCK_EXT_QNODE_INITIALIZER PTHREAD_EXT_QNODE_INITIALIZER
+
 #ifdef USE_PTHREAD_MUTEX
 typedef w_pthread_lock_t queue_based_spin_lock_t; // spin impl preferred
+#define QUEUE_SPIN_EXT_QNODE_INITIALIZER PTHREAD_EXT_QNODE_INITIALIZER
 typedef w_pthread_lock_t queue_based_lock_t; // might want to use spin impl
+#define QUEUE_EXT_QNODE_INITIALIZER PTHREAD_EXT_QNODE_INITIALIZER
 #else
 #include <mcs_lock.h>
 typedef mcs_lock queue_based_spin_lock_t; // spin preferred
+#define QUEUE_SPIN_EXT_QNODE_INITIALIZER MCS_EXT_QNODE_INITIALIZER
 typedef mcs_lock queue_based_lock_t;
+#define QUEUE_EXT_QNODE_INITIALIZER MCS_EXT_QNODE_INITIALIZER
 #endif
 
 #ifndef SRWLOCK_H
@@ -1070,8 +1079,14 @@ SPECIALIZE_CS(tatas_lock, int _dummy, (_dummy=0),
     _mutex->acquire(), _mutex->release());
 
 // queue_based_lock_t asserts is_mine() in release()
-SPECIALIZE_CS(queue_based_lock_t, queue_based_lock_t::ext_qnode _me, (_me._held=0), 
+// SPECIALIZE_CS(queue_based_lock_t, queue_based_lock_t::ext_qnode _me, (_me._held=0), 
+SPECIALIZE_CS(w_pthread_lock_t, w_pthread_lock_t::ext_qnode _me, (_me._held=0), 
     _mutex->acquire(&_me), _mutex->release(&_me));
+
+#ifndef USE_PTHREAD_MUTEX
+SPECIALIZE_CS(mcs_lock, mcs_lock::ext_qnode _me, (_me._held=0), 
+    _mutex->acquire(&_me), _mutex->release(&_me));
+#endif
 
 SPECIALIZE_CS(occ_rwlock::occ_rlock, int _dummy, (_dummy=0), 
     _mutex->acquire(), _mutex->release());

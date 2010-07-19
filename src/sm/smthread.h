@@ -313,6 +313,7 @@ class smthread_t : public sthread_t {
             _me1._held = NULL; /*EXT_QNODE_INITIALIZER*/;
             _me2._held = NULL; /*EXT_QNODE_INITIALIZER*/;
             _me3._held = NULL; /*EXT_QNODE_INITIALIZER*/;
+
             _1thread_xct_me._held = NULL; /*EXT_QNODE_INITIALIZER*/;
             _1thread_log_me._held = NULL; /*EXT_QNODE_INITIALIZER*/;
             _xct_t_me_node._held = NULL; /*EXT_QNODE_INITIALIZER*/;
@@ -604,7 +605,7 @@ public:
     queue_based_lock_t::ext_qnode& get_me3() { return tcb()._me3; }
     queue_based_lock_t::ext_qnode& get_me2() { return tcb()._me2; }
     queue_based_lock_t::ext_qnode& get_me1() { return tcb()._me1; }
-    queue_based_lock_t::ext_qnode& get_log_me_node() { 
+    queue_based_block_lock_t::ext_qnode& get_log_me_node() { 
                                                return tcb()._log_me_node;}
     queue_based_lock_t::ext_qnode& get_xlist_mutex_node() { 
                                                return tcb()._xlist_mutex_node;}
