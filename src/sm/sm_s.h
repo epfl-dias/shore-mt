@@ -283,6 +283,11 @@ inline bool lpid_t::operator!=(const lpid_t& p) const
     return !(*this == p);
 }
 
+inline bool lpid_t::operator<(const lpid_t& p) const
+{
+    return _stid == p._stid && page < p.page;
+}
+
 inline bool lpid_t::operator<=(const lpid_t& p) const
 {
     return _stid == p._stid && page <= p.page;
