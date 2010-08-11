@@ -114,13 +114,13 @@ struct mcs_lock {
         return next;
     }
     void release(ext_qnode *me) { 
-        w_assert1(is_mine(me));
+      //w_assert1(is_mine(me));
         me->_held = 0; release((qnode*) me); 
     }
     void release(ext_qnode &me) { release(&me); }
     void release(qnode &me) { release(&me); }
     void release(qnode_ptr me) {
-        w_assert1(is_mine(me));
+      //w_assert1(is_mine(me));
         membar_exit();
 
         qnode_ptr next;
