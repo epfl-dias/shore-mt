@@ -453,7 +453,7 @@ dir_m::insert(const stid_t& stid, const sinfo_s& sinfo)
     if (xct()) {
         w_assert3(xct()->sdesc_cache());
         sdesc_t *sd = xct()->sdesc_cache()->add(stid, sinfo);
-        sd->set_last_pid(sinfo.root);
+        sd->set_last_pid(sd->root().page);
     }
 
     return RCOK;
@@ -826,3 +826,18 @@ sdesc_t::operator=(const sdesc_t& other)
     }
     return *this;
 } 
+
+// -- mrbt
+key_ranges_map& sdesc_t::partitions()
+{
+    if(!_partitions_filled) {
+	vector<shpid_t>::iterator pagesIter = _sinfo.roots.begin();
+	for(; pagesIter != _sinfo.roots.end(); pagesIter++) {
+	    lpid_t r(_stid.vol, _stid.store, *pagesIter);
+	    // TODO: get the startKey of the partition from the root page
+	}
+	_partitions_filled = true;
+    }
+    return _partitions;
+}
+// --

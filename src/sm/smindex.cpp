@@ -372,6 +372,110 @@ ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat,
     return RCOK;
 }
 
+// -- mrbt
+
+rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
+				 cvec_t& maxKey, uint numParts)
+{
+    SM_PROLOGUE_RC(ss_m::make_equal_partitions, in_xct, read_write, 0);
+    W_DO(_make_equal_partitions(stid, minKey, maxKey, numParts));
+    return RCOK;
+}
+
+rc_t ss_m::add_partition(stid_t stid, cvec_t& key)
+{
+    SM_PROLOGUE_RC(ss_m::add_partition, in_xct, read_write, 0);
+    W_DO(_add_partition(stid, key));
+    return RCOK;
+}
+
+rc_t ss_m::delete_partition(stid_t stid, cvec_t& key)
+{
+    SM_PROLOGUE_RC(ss_m::delete_partition, in_xct, read_write, 0);
+    W_DO(_delete_partition(stid, key));
+    return RCOK;
+}
+
+rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
+				 cvec_t& maxKey, uint numParts)
+{
+    FUNC(ss_m::_make_equal_partitions);
+
+    DBG(<<" stid " << stid);
+    vector<lpid_t> roots;
+
+    // TODO: determine how to make thread-safe
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    // TODO: might give an error here if some partitions already exists
+  
+    bool isCompressed = sinfo.kc[0].compressed != 0;
+    for(uint i=0; i<numParts; i++) {
+	lpid_t root;
+	W_DO(bt->create(stid, root, isCompressed));
+	roots.push_back(root);
+	sinfo.roots.push_back(root.page);
+    }
+
+    sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
+
+    return RCOK;    
+}
+
+rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
+{
+    FUNC(ss_m::_add_partition);
+
+    DBG(<<" stid " << stid);
+    lpid_t root;
+
+    // TODO: determine how to make thread-safe
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
+    sinfo.roots.push_back(root.page); 
+    sd->partitions().addPartition(key, root);
+
+    return RCOK;    
+}
+
+rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
+{
+    FUNC(ss_m::_delete_partition);
+
+    DBG(<<" stid " << stid);
+    lpid_t root;
+
+    // TODO: determine how to make thread-safe
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
+    sd->partitions().deletePartitionByKey(key, root);
+    // TODO: decide how to handle the tree
+    //       a function for deletition from the roots list in sinfo
+    
+    return RCOK;    
+}
+
+// --
 
 /*--------------------------------------------------------------*
  *  ss_m::_create_index()                                        *
@@ -397,7 +501,7 @@ ss_m::_create_index(
     {
         DBG(<<"vid " << vid);
         W_DO( io->create_store(vid, 100/*unused*/, _make_store_flag(property), stid) );
-    DBG(<<" stid " << stid);
+	DBG(<<" stid " << stid);
     }
 
     // Note: theoretically, some other thread could destroy
@@ -1145,7 +1249,7 @@ ss_m::_get_store_info(
     info.cc    = s.cc;
     info.eff   = s.eff;
     info.large_store   = s.large_store;
-    info.root   = s.root;
+    info.root   = s.roots[0]; // TODO: you might have to change this one
     info.nkc   = s.nkc;
 
     switch (sd->sinfo().ntype) {

@@ -2426,6 +2426,42 @@ public:
 #endif
     );
 
+    // -- mrbt
+
+    /**\brief Partition the space between the given minKey and maxKey equally depending on the given
+     * partition count.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] minKey   The lower bound on the keys in the index.
+     * @param[in] maxKey   The upper bound on the keys in the index.
+     * @param[in] numParts The number of partitions wanted.
+     */
+    static rc_t make_equal_partitions(stid_t stid,
+				      cvec_t& minKey,
+				      cvec_t& maxKey,
+				      uint numParts);
+
+    /**\brief Add a new partition starting from the given key
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The startKey of the new partition.
+     */
+    static rc_t add_partition(stid_t stid,
+			      cvec_t& key);
+
+    /**\brief Delete the partition that contains the given key and add it to its previous partition
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The key whose partition is going to be deleted.
+     */
+    static rc_t delete_partition(stid_t stid,
+				 cvec_t& key);
+
+    // --
+
     //
     // Functions for R*tree (multi-dimensional(MD), spatial) Indexes
     //
@@ -3257,6 +3293,21 @@ private:
 #endif
     );
 
+    // -- mrbt
+    
+    static rc_t _make_equal_partitions(stid_t stid,
+				       cvec_t& minKey,
+				       cvec_t& maxKey,
+				       uint numParts);
+
+    static rc_t _add_partition(stid_t stid,
+			       cvec_t& key);
+    
+    static rc_t _delete_partition(stid_t stid,
+				  cvec_t& key);
+
+    // --
+
     // below method overloaded for rtree
     static rc_t            _create_md_index(
         vid_t                 vid, 
@@ -3479,7 +3530,7 @@ public:
 
     /// Store number for associated large-page store, if there is one.
     snum_t    large_store; 
-    /// Root page if this is an index.
+    /// Root pages if this is an index.
     shpid_t    root;        
     /// Number of key components if this is an index.
     w_base_t::uint4_t    nkc;  

@@ -54,6 +54,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SDESC_H
 
 #include "w_defines.h"
+#include "key_ranges_map.h"
+
+#include <vector>
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
@@ -114,7 +117,12 @@ public:
      *          following snum_t must be located after pff,eff.
      */
     snum_t        large_store;        // store for large record pages
-    shpid_t        root;                // root page (of main index)
+    
+    // -- mrbt; this is turned to a list of pages now because we might have multiple btree-roots for an index
+    // for rtree and files this will be a list with size 1
+    vector<shpid_t>        roots;                // root pages (of main index)
+    // --
+    
     w_base_t::uint4_t        nkc;                // # components in key
     key_type_s        kc[smlevel_0::max_keycomp];
 
@@ -128,7 +136,7 @@ public:
         cc(cc_), eff(eff_),
         isf(50),
         large_store(0),
-        root(root_),
+        // --mrbt root(root_), // --
         nkc(nkc_)
     {
         w_assert1(nkc < (sizeof(kc) / sizeof(kc[0])));
@@ -136,6 +144,10 @@ public:
         if (nkc < sizeof(kc)) {
             memset(kc+nkc, 0, sizeof(kc)-nkc);
         }
+
+	// -- mrbt
+	roots.push_back(root_);
+	// --
     }
 
     sinfo_s& operator=(const sinfo_s& other) {
@@ -146,8 +158,8 @@ public:
         // pff = other.pff; 
         eff = other.eff;
         isf = other.isf;
-        root = other.root; 
-        nkc = other.nkc;
+	roots = other.roots;
+	nkc = other.nkc;
         memcpy(kc, other.kc, sizeof(kc));
         large_store = other.large_store;
         return *this;
@@ -167,7 +179,7 @@ class sdesc_t {
 public:
     typedef smlevel_0::store_t store_t;
 
-    NORET sdesc_t() : _histoid(0), _last_pid(0) {};
+    NORET sdesc_t() : _partitions_filled(false), _histoid(0), _last_pid(0) {};
     NORET ~sdesc_t() { invalidate(); }
 
     void                init(const stid_t& stid, const sinfo_s& s)
@@ -183,11 +195,20 @@ public:
     void                free_last_pid() const {} // DEAD
     void                set_last_pid(shpid_t p);
 
+    // -- mrbt
     inline
     const lpid_t        root() const {
-        lpid_t r(_stid.vol, _stid.store, _sinfo.root);
+        lpid_t r(_stid.vol, _stid.store, *(_sinfo.roots.begin()));
         return r;
     }
+
+    inline 
+    const lpid_t        root(cvec_t& key) {
+	lpid_t r;
+        _partitions(key, r);
+	return r;
+    }
+    // --
 
     // store id for large object pages
     inline
@@ -206,12 +227,22 @@ public:
                             return _histoid;
                         }
     void                invalidate_sdesc() { invalidate(); }
+
+    // -- mrbt
+    inline key_ranges_map& partitions();
+    // --
+
 protected:
     sdesc_t&            operator=(const sdesc_t& other);
     void                invalidate(); 
 
 private:
     NORET sdesc_t(const sdesc_t&) {}; // disabled
+
+    // -- mrbt
+    key_ranges_map _partitions;
+    bool _partitions_filled;
+    // --
 
     // _sinfo is a cache of persistent info stored in directory index
     sinfo_s                _sinfo;
