@@ -54,11 +54,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SDESC_H
 
 #include "w_defines.h"
-#include "key_ranges_map.h"
-
-#include <vector>
 
 /*  -- do not edit anything above this line --   </std-header>*/
+
+#include "key_ranges_map.h"
 
 /*
  * This file describes Store Descriptors (sdesc_t).  Store
@@ -118,10 +117,7 @@ public:
      */
     snum_t        large_store;        // store for large record pages
     
-    // -- mrbt; this is turned to a list of pages now because we might have multiple btree-roots for an index
-    // for rtree and files this will be a list with size 1
-    vector<shpid_t>        roots;                // root pages (of main index)
-    // --
+    shpid_t        root;                // root page (of main index)
     
     w_base_t::uint4_t        nkc;                // # components in key
     key_type_s        kc[smlevel_0::max_keycomp];
@@ -136,7 +132,7 @@ public:
         cc(cc_), eff(eff_),
         isf(50),
         large_store(0),
-        // --mrbt root(root_), // --
+        root(root_),
         nkc(nkc_)
     {
         w_assert1(nkc < (sizeof(kc) / sizeof(kc[0])));
@@ -144,10 +140,6 @@ public:
         if (nkc < sizeof(kc)) {
             memset(kc+nkc, 0, sizeof(kc)-nkc);
         }
-
-	// -- mrbt
-	roots.push_back(root_);
-	// --
     }
 
     sinfo_s& operator=(const sinfo_s& other) {
@@ -158,7 +150,7 @@ public:
         // pff = other.pff; 
         eff = other.eff;
         isf = other.isf;
-	roots = other.roots;
+	root = other.root;
 	nkc = other.nkc;
         memcpy(kc, other.kc, sizeof(kc));
         large_store = other.large_store;
@@ -195,16 +187,19 @@ public:
     void                free_last_pid() const {} // DEAD
     void                set_last_pid(shpid_t p);
 
-    // -- mrbt
     inline
     const lpid_t        root() const {
-        lpid_t r(_stid.vol, _stid.store, *(_sinfo.roots.begin()));
+        lpid_t r(_stid.vol, _stid.store, _sinfo.root);
         return r;
     }
 
+    // -- mrbt
     inline 
     const lpid_t        root(cvec_t& key) {
 	lpid_t r;
+	// TODO: here if _partitions aren't filled, fill it first
+	//       actually if _partitions aren't filled when this function is called
+	//       it means that no partitions from outside is made so we only have one subroot
         _partitions(key, r);
 	return r;
     }
@@ -229,7 +224,10 @@ public:
     void                invalidate_sdesc() { invalidate(); }
 
     // -- mrbt
-    inline key_ranges_map& partitions();
+    inline bool has_partitions() { return _partitions_filled; } 
+    key_ranges_map& partitions();
+    rc_t fill_partitions_map();
+    rc_t store_partitions();
     // --
 
 protected:

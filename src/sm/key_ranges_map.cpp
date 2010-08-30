@@ -558,6 +558,10 @@ char* key_ranges_map::getMaxKey() const
     return (_maxKey);
 }
 
+map<cvec_t, lpid_t> key_ranges_map::getMap() const
+{
+    return (_keyRangesMap);
+}
 
 #if 0
 int main(void)

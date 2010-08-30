@@ -374,6 +374,149 @@ ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat,
 
 // -- mrbt
 
+/*********************************************************************
+ *  ss_m::create_mr_index(vid, ntype, property, key_desc, cc, stid)  *
+ *********************************************************************/
+rc_t ss_m::create_mr_index(vid_t                 vid, 
+			   ndx_t                 ntype, 
+			   store_property_t      property,
+			   const char*           key_desc,
+			   concurrency_t         cc, 
+			   stid_t&               stid
+			   )
+{
+    SM_PROLOGUE_RC(ss_m::create_mr_index, in_xct, read_write, 0);
+    if(property == t_temporary) {
+	return RC(eBADSTOREFLAGS);
+    }
+    W_DO(_create_mr_index(vid, ntype, property, key_desc, cc, stid));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::destroy_mr_index()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::destroy_mr_index(const stid_t& iid)
+{
+    SM_PROLOGUE_RC(ss_m::destroy_mr_index, in_xct, read_write, 0);
+    W_DO(_destroy_mr_index(iid));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::bulkld_mr_index()                                     *
+ *--------------------------------------------------------------*/
+rc_t ss_m::bulkld_mr_index(const stid_t&         stid, 
+			   int                   nsrcs,
+			   const stid_t*         source,
+			   sm_du_stats_t&        _stats,
+			   bool                  sort_duplicates, // = true
+			   bool                  lexify_keys // = true
+			   )
+{
+    SM_PROLOGUE_RC(ss_m::bulkld_mr_index, in_xct, read_write, 0);
+    W_DO(_bulkld_mr_index(stid, nsrcs, source, _stats, sort_duplicates, lexify_keys));
+    return RCOK;
+}
+
+w_rc_t ss_m::bulkld_mr_index(const  stid_t        &stid,
+			     const  stid_t        &source,
+			     sm_du_stats_t        &_stats,
+			     bool                 sort_duplicates,
+			     bool                 lexify_keys
+			     )
+{
+    return bulkld_mr_index(stid, 1, &source, _stats, sort_duplicates, lexify_keys);
+}
+
+rc_t ss_m::bulkld_mr_index(const stid_t&         stid, 
+			   sort_stream_i&         sorted_stream,
+			   sm_du_stats_t&         _stats)
+{
+    SM_PROLOGUE_RC(ss_m::bulkld_mr_index, in_xct, read_write, 0);
+    W_DO(_bulkld_mr_index(stid, sorted_stream, _stats));
+    DBG(<<"bulkld_mr_index " <<stid<<" returning RCOK");
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::print_mr_index()                                      *
+ *--------------------------------------------------------------*/
+rc_t ss_m::print_mr_index(stid_t stid)
+{
+    SM_PROLOGUE_RC(ss_m::print_mr_index, in_xct, read_only, 0);
+    W_DO(_print_mr_index(stid));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::create_mr_assoc()                                     *
+ *--------------------------------------------------------------*/
+rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, const vec_t& el
+#ifdef SM_DORA
+			   , const bool bIgnoreLocks
+#endif
+			   )
+{
+    SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
+    W_DO(_create_mr_assoc(stid, key, el
+#ifdef SM_DORA
+                       , bIgnoreLocks
+#endif
+                       ));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::destroy_mr_assoc()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::destroy_mr_assoc(stid_t stid, cvec_t& key, const vec_t& el
+#ifdef SM_DORA
+			    , const bool bIgnoreLocks
+#endif
+			    )
+{
+    SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
+    W_DO(_destroy_mr_assoc(stid, key, el
+#ifdef SM_DORA
+			   , bIgnoreLocks
+#endif
+			   ));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::destroy_mr_all_assoc()                                *
+ *--------------------------------------------------------------*/
+rc_t ss_m::destroy_mr_all_assoc(stid_t stid, cvec_t& key, int& num)
+{
+    SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
+    W_DO(_destroy_mr_all_assoc(stid, key, num));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::find_mr_assoc()                                       *
+ *--------------------------------------------------------------*/
+rc_t ss_m::find_mr_assoc(stid_t stid, cvec_t& key, 
+			 void* el, smsize_t& elen, bool& found
+#ifdef SM_DORA
+			 , const bool bIgnoreLocks
+#endif
+			 )
+{
+    SM_PROLOGUE_RC(ss_m::find_mr_assoc, in_xct, read_only, 0);
+    W_DO(_find_mr_assoc(stid, key, el, elen, found
+#ifdef SM_DORA
+			, bIgnoreLocks
+#endif
+			));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::make_equal_partitions()                               *
+ *--------------------------------------------------------------*/
 rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
 				 cvec_t& maxKey, uint numParts)
 {
@@ -382,6 +525,9 @@ rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
     return RCOK;
 }
 
+/*--------------------------------------------------------------*
+ *  ss_m::add_partition()                                       *
+ *--------------------------------------------------------------*/
 rc_t ss_m::add_partition(stid_t stid, cvec_t& key)
 {
     SM_PROLOGUE_RC(ss_m::add_partition, in_xct, read_write, 0);
@@ -389,6 +535,9 @@ rc_t ss_m::add_partition(stid_t stid, cvec_t& key)
     return RCOK;
 }
 
+/*--------------------------------------------------------------*
+ *  ss_m::delete_partition()                                    *
+ *--------------------------------------------------------------*/
 rc_t ss_m::delete_partition(stid_t stid, cvec_t& key)
 {
     SM_PROLOGUE_RC(ss_m::delete_partition, in_xct, read_write, 0);
@@ -396,6 +545,467 @@ rc_t ss_m::delete_partition(stid_t stid, cvec_t& key)
     return RCOK;
 }
 
+/*--------------------------------------------------------------*
+ *  ss_m::_create_mr_index()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_create_mr_index(vid_t                   vid, 
+			    ndx_t                   ntype, 
+			    store_property_t        property,
+			    const char*             key_desc,
+			    concurrency_t           cc,
+			    stid_t&                 stid
+			    )
+{
+    FUNC(ss_m::_create_mr_index);
+
+    DBG(<<" vid " << vid);
+    uint4_t count = max_keycomp;
+    key_type_s kcomp[max_keycomp];
+    lpid_t root;
+
+    W_DO(key_type_s::parse_key_type(key_desc, count, kcomp));
+    {
+        DBG(<<"vid " << vid);
+        W_DO(io->create_store(vid, 100/*unused*/, _make_store_flag(property), stid));
+	DBG(<<" stid " << stid);
+    }
+
+    // Note: theoretically, some other thread could destroy
+    //       the above store before the following lock request
+    //       is granted.  The only forseable way for this to
+    //       happen would be due to a bug in a vas causing
+    //       it to destroy the wrong store.  We make no attempt
+    //       to prevent this.
+    W_DO(lm->lock(stid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+
+    if( (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im)
+        ) return RC(eBADCCLEVEL);
+
+    switch (ntype)  {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+        // compress prefixes only if the first part is compressed
+	// create one subtree initially
+        W_DO(bt->create(stid, root, kcomp[0].compressed != 0));
+        break;
+    default:
+        return RC(eBADNDXTYPE);
+    }
+    // TODO: create a page to keep key_ranges_map info, and give it instead of root.page
+    //       you can either eliminate the creation of the initiall root above or 
+    //       add it to the ranges_p page.
+    sinfo_s sinfo(stid.store, t_index, 100/*unused*/, 
+                  ntype,
+                  cc,
+                  root.page, 
+                  count, kcomp);
+    W_DO(dir->insert(stid, sinfo));
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_destroy_mr_index()                                   *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_destroy_mr_index(const stid_t& iid)
+{
+    sdesc_t* sd;
+    W_DO(dir->access(iid, sd, EX));
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    switch (sd->sinfo().ntype)  {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+        W_DO(io->destroy_store(iid));
+        break;
+    default:
+        return RC(eBADNDXTYPE);
+    }
+    
+    W_DO(dir->remove(iid));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_bulkld_mr_index()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
+			    int                   nsrcs,
+			    const stid_t*         source,
+			    sm_du_stats_t&        _stats,
+			    bool                  sort_duplicates, //  = true
+			    bool                  lexify_keys //  = true
+			    )
+{
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+        DBG(<<"bulk loading multi-rooted btree " << sd->root());
+	// TODO: here instead of giving the root page, you might want to give the map
+	//       look at btree to see how bulk loading works
+	//       then try to adapt to your design
+	//       _stats.btree, you might want to add mrbtree here too but this is not a priority
+	//       or add another layer to handle which btree you should do the bulk loading
+        W_DO(bt->bulk_load(sd->root(), 
+			   nsrcs,
+			   source,
+			   sd->sinfo().nkc, sd->sinfo().kc,
+			   sd->sinfo().ntype == t_uni_mrbtree, 
+			   (concurrency_t)sd->sinfo().cc,
+			   _stats.btree,
+			   sort_duplicates,
+			   lexify_keys
+			   ));
+        break;
+    default:
+        return RC(eBADNDXTYPE);
+    }
+    {
+        store_flag_t st;
+        W_DO(io->get_store_flags(stid, st));
+        w_assert3(st != st_bad);
+        if(st & (st_tmp|st_insert_file|st_load_file)) {
+            DBG(<<"converting stid " << stid <<
+                " from " << st << " to st_regular " );
+            // After bulk load, it MUST be re-converted
+            // to regular to prevent unlogged arbitrary inserts
+            // Invalidate the pages so the store flags get reset
+            // when the pages are read back in
+            W_DO(io->set_store_flags(stid, st_regular));
+        }
+    }
+    return RCOK;
+}
+
+rc_t ss_m::_bulkld_mr_index(const stid_t&         stid, 
+			    sort_stream_i&         sorted_stream, 
+			    sm_du_stats_t&         _stats
+			    )
+{
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+	// TODO: here instead of giving the root page, you might want to give the map
+	//       look at btree to see how bulk loading works
+	//       then try to adapt to your design
+	//       _stats.btree, you might want to add mrbtree here too but this is not a priority
+	//       or add another layer to handle which btree you should do the bulk loading
+        W_DO(bt->bulk_load(sd->root(), sorted_stream,
+			   sd->sinfo().nkc, sd->sinfo().kc,
+			   sd->sinfo().ntype == t_uni_mrbtree, 
+			   (concurrency_t)sd->sinfo().cc, _stats.btree));
+        break;
+    default:
+        return RC(eBADNDXTYPE);
+    }
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_print_mr_index()                                     *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_print_mr_index(const stid_t& stid)
+{
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, IS));
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (sd->sinfo().nkc > 1) {
+        //can't handle multi-part keys
+        fprintf(stderr, "multi-part keys are not supported");
+        return RC(eNOTIMPLEMENTED);
+    }
+    sortorder::keytype k = sortorder::convert(sd->sinfo().kc);
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+	// TODO: print subroots maybe here, not primary importance now
+        bt->print(sd->root(), k);
+        break;
+    default:
+        return RC(eBADNDXTYPE);
+    }
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_create_mr_assoc()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_create_mr_assoc(const stid_t&        stid, 
+			    cvec_t&         key, 
+			    const vec_t&         el
+#ifdef SM_DORA
+			    , const bool bIgnoreLocks
+#endif
+			    )
+{
+    // TODO: decide on lock modes here!!!!
+
+    // usually we will do kvl locking and already have an IX lock
+    // on the index
+    lock_mode_t                index_mode = NL;// lock mode needed on index
+
+    // determine if we need to change the settins of cc and index_mode
+    concurrency_t cc = t_cc_bad;
+
+#ifdef SM_DORA
+    // IP: DORA inserts using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    } else {
+#endif
+
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode == EX) {
+		cc = t_cc_none;
+	    } else if (lock_mode == IX || lock_mode >= SIX) {
+		// no changes needed
+	    } else {
+		index_mode = IX;
+	    }
+	}
+	
+#ifdef SM_DORA
+    }
+#endif
+
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, index_mode));
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
+
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+    case t_mrbtree:
+    case t_uni_mrbtree:
+       W_DO(bt->insert(sd->root(key), 
+			sd->sinfo().nkc, sd->sinfo().kc,
+			sd->sinfo().ntype == t_uni_mrbtree, 
+			cc,
+			key, el, 50));
+        break;
+    case t_rtree:
+        fprintf(stderr, "rtrees indexes do not support this function");
+        return RC(eNOTIMPLEMENTED);
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_destroy_mr_assoc()                                   *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid, 
+			     cvec_t&         key, 
+			     const vec_t&         el
+#ifdef SM_DORA
+			     , const bool bIgnoreLocks
+#endif
+			     )
+{
+    // TODO: decide on lock modes here!!!!
+
+    concurrency_t cc = t_cc_bad;
+    // usually we will to kvl locking and already have an IX lock
+    // on the index
+    lock_mode_t                index_mode = NL;// lock mode needed on index
+
+#ifdef SM_DORA
+    // IP: DORA deletes using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+	cc = t_cc_none;
+	index_mode = NL;
+    }
+    else {
+#endif
+
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO(lm->query(stid, lock_mode, xd->tid(), true));
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode == EX) {
+		cc = t_cc_none;
+	    } else if (lock_mode == IX || lock_mode >= SIX) {
+		// no changes needed
+	    } else {
+		index_mode = IX;
+	    }
+	}
+	
+#ifdef SM_DORA
+    }
+#endif
+    
+    DBG(<<"");
+
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, index_mode));
+    DBG(<<"");
+
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
+
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+    case t_mrbtree:
+    case t_uni_mrbtree:
+        W_DO(bt->remove(sd->root(key), 
+			sd->sinfo().nkc, sd->sinfo().kc,
+			sd->sinfo().ntype == t_uni_mrbtree,
+			cc, key, el) );
+        break;
+    case t_rtree:
+        fprintf(stderr, "rtree indexes do not support this function");
+        return RC(eNOTIMPLEMENTED);
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    DBG(<<"");
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_destroy_mr_all_assoc()                               *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
+{
+    // TODO: decide on lock modes here!!!!
+
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, IX));
+    
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    concurrency_t cc = (concurrency_t)sd->sinfo().cc;
+
+    xct_t* xd = xct();
+    if (xd)  {
+        lock_mode_t lock_mode;
+        W_DO(lm->query(stid, lock_mode, xd->tid(), true));
+        // cc is off if file is EX locked
+        if (lock_mode == EX) cc = t_cc_none;
+    }
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+    case t_mrbtree:
+    case t_uni_mrbtree:
+        W_DO(bt->remove_key(sd->root(key), 
+			    sd->sinfo().nkc, sd->sinfo().kc,
+			    sd->sinfo().ntype == t_uni_mrbtree,
+			    cc, key, num));
+        break;
+    case t_rtree:
+        fprintf(stderr, "rtree indexes do not support this function");
+        return RC(eNOTIMPLEMENTED);
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_find_mr_assoc()                                      *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_find_mr_assoc(const stid_t&         stid, 
+			  cvec_t&          key, 
+			  void*                 el, 
+			  smsize_t&             elen, 
+			  bool&                 found
+#ifdef SM_DORA
+			  , const bool bIgnoreLocks
+#endif
+			  )
+{
+    // TODO: decide on lock modes here!!!!
+
+    concurrency_t cc = t_cc_bad;
+    // usually we will to kvl locking and already have an IS lock
+    // on the index
+    lock_mode_t                index_mode = NL;// lock mode needed on index
+
+#ifdef SM_DORA
+    // IP: DORA does the dir access and the index lookup 
+    //     using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    }
+    else {
+#endif
+
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO(lm->query(stid, lock_mode, xd->tid(), true, true));
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode >= SH) {
+		cc = t_cc_none;
+	    } else if (lock_mode >= IS) {
+		// no changes needed
+	    } else {
+		// Index isn't already locked; have to grab IS lock
+		// on it below, via access()
+		index_mode = IS;
+	    }
+	}
+
+#ifdef SM_DORA
+    }
+#endif
+
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, index_mode));
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
+
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+    case t_uni_mrbtree:
+    case t_mrbtree:
+        W_DO(bt->lookup(sd->root(key), 
+			sd->sinfo().nkc, sd->sinfo().kc,
+			sd->sinfo().ntype == t_uni_btree,
+			cc,
+			key, el, elen, found) );
+        break;
+    case t_rtree:
+        fprintf(stderr, "rtree indexes do not support this function");
+        return RC(eNOTIMPLEMENTED);
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    
+    return RCOK;
+}
+
+// TODO: check this functions with the new implementations
 rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 				 cvec_t& maxKey, uint numParts)
 {
@@ -420,7 +1030,6 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 	lpid_t root;
 	W_DO(bt->create(stid, root, isCompressed));
 	roots.push_back(root);
-	sinfo.roots.push_back(root.page);
     }
 
     sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
@@ -445,7 +1054,6 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
-    sinfo.roots.push_back(root.page); 
     sd->partitions().addPartition(key, root);
 
     return RCOK;    
@@ -1249,15 +1857,19 @@ ss_m::_get_store_info(
     info.cc    = s.cc;
     info.eff   = s.eff;
     info.large_store   = s.large_store;
-    info.root   = s.roots[0]; // TODO: you might have to change this one
+    info.root   = s.root; 
     info.nkc   = s.nkc;
 
     switch (sd->sinfo().ntype) {
     case t_btree:
     case t_uni_btree:
+	// --mrbt
+    case t_mrbtree:
+    case t_uni_mrbtree:
+	// --
         W_DO( key_type_s::get_key_type(info.keydescr, 
-                info.keydescrlen,
-                sd->sinfo().nkc, sd->sinfo().kc ));
+				       info.keydescrlen,
+				       sd->sinfo().nkc, sd->sinfo().kc ));
         break;
     default:
         break;

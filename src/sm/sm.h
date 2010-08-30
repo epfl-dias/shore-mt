@@ -2427,9 +2427,189 @@ public:
     );
 
     // -- mrbt
+    
+    // TODO: add explaination for MRBT (SSMMRBTREE :)
+
+    /**\brief Create a MR-B+-Tree index.
+     * \ingroup SSMBTREE
+     * @param[in] vid   Volume on which to create the index.
+     * @param[in] ntype   Type of index. Legitimate values are: 
+     *  - t_mrbtree : Multi-rooted B+-Tree with duplicate keys allowed
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys 
+     * @param[in] property Logging level of store. Legitimate values are:
+     *  - t_regular
+     *  - t_load_file
+     *  - t_insert_file
+     *  See sm_store_property_t for details.
+     * @param[in] key_desc Description of key type.
+     *  See \ref key_description for details.
+     * @param[in] cc The locking protocol to use with this index. See
+     * smlevel_0::concurrency_t and \ref SSMBTREE.
+     * @param[out] stid New store ID will be returned here.
+     */
+    static rc_t            create_mr_index(
+                vid_t                 vid, 
+                ndx_t                 ntype, 
+                store_property_t      property,
+                const char*           key_desc,
+                concurrency_t         cc, 
+                stid_t&               stid
+    );
+
+    /**\brief Destroy a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] iid  ID of the index to be destroyed.
+     */
+    static rc_t            destroy_mr_index(const stid_t& iid); 
+
+    /**\brief Bulk-load a Multi-rooted B+-Tree index from multiple data sources.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] nsrcs  Number of files used for data sources.
+     * @param[in] source  Array of IDs of files used for data sources.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     * @param[in] sort_duplicates  If "true" the bulk-load will sort
+     * duplicates by value.
+     * @param[in] lexify_keys  If "true" the keys are assumed not to
+     * be in 
+     * lexicographic format, and the bulk-load will reformat the key before
+     * storing it in the index,
+     * otherwise they are assumed already to be in lexicographic format.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        int                       nsrcs,
+        const stid_t*             source,
+        sm_du_stats_t&            stats,
+        bool                      sort_duplicates = true,
+        bool                      lexify_keys = true
+    );
+
+    /**\brief Bulk-load a  Multi-rooted B+-Tree index from a single data source.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] source  IDs of file used for data source.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     * @param[in] sort_duplicates  If "true" the bulk-load will sort
+     * duplicates by value.
+     * @param[in] lexify_keys  If "true" the keys are assumed not to
+     * be in 
+     * lexicographic format, and the bulk-load will reformat the key before
+     * storing it in the index,
+     * otherwise they are assumed already to be in lexicographic format.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        const stid_t&             source,
+        sm_du_stats_t&            stats,
+        bool                      sort_duplicates = true,
+        bool                      lexify_keys = true
+    );
+
+    /**\brief Bulk-load a Multi-rooted B+-Tree index from a single data stream.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] sorted_stream  Iterator that serves as the data source.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     *
+     * See sort_stream_i.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        sort_stream_i&            sorted_stream,
+        sm_du_stats_t&            stats);
+
+    /**\cond skip */
+    static rc_t            print_mr_index(stid_t stid);
+    /**\endcond skip */
+
+    /**\brief Create an entry in a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key  Key for the association to be created.
+     * @param[in] el  Element for the association to be created.
+     *
+     * The combined sizes of the key and element vectors must
+     * be less than or equal to \ref max_entry_size.
+     */
+    static rc_t            create_mr_assoc(
+        stid_t                   stid, 
+        cvec_t&             key, 
+        const vec_t&             el
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    );
+
+    /**\brief Remove an entry from a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entry to be removed.
+     * @param[in] el   Element (value) of the entry to be removed.
+     */
+    static rc_t            destroy_mr_assoc(
+        stid_t                   stid, 
+        cvec_t&             key,
+        const vec_t&             el
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    );
+
+    /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entries to be removed.
+     * @param[out] num_removed   The number of entries removed is returned here.
+     */
+    static rc_t            destroy_mr_all_assoc(
+        stid_t                  stid, 
+        cvec_t&            key,
+        int&                    num_removed
+    );
+
+    /**\brief Find an entry associated with a key in a Multi-rooted B+-Tree index. 
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entries to be removed.
+     * @param[out] el   Element associated with the given key will be copied into this buffer.
+     * @param[in] elen Length of buffer into which the 
+     *                  result will be written. If too small, eRECWONTFIT will
+     *                  be returned.
+     *                 Length of result will be returned here.
+     * @param[out] found   True if an entry is found.
+     *
+     * If the index is not unique (allows duplicates), the first
+     * element found with the given key will be returned.
+     *
+     * To locate all entries associated with a non-unique key, you must
+     * use scan_index_i, q.v.. 
+     */
+    static rc_t            find_mr_assoc(
+				      stid_t                  stid, 
+				      cvec_t&            key, 
+				      void*                   el, 
+				      smsize_t&               elen, 
+				      bool&                   found
+#ifdef SM_DORA
+				      , const bool             bIgnoreLocks = false
+#endif
+				      );
+    
 
     /**\brief Partition the space between the given minKey and maxKey equally depending on the given
-     * partition count.
+     * partition count in a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
      * @param[in] stid     ID of the index.
@@ -2442,7 +2622,7 @@ public:
 				      cvec_t& maxKey,
 				      uint numParts);
 
-    /**\brief Add a new partition starting from the given key
+    /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
      * @param[in] stid     ID of the index.
@@ -2452,6 +2632,7 @@ public:
 			      cvec_t& key);
 
     /**\brief Delete the partition that contains the given key and add it to its previous partition
+     * in a Multi-rooted B+-Tree index.  
      * \ingroup SSMBTREE
      *
      * @param[in] stid     ID of the index.
@@ -3294,6 +3475,68 @@ private:
     );
 
     // -- mrbt
+
+    static rc_t            _create_mr_index(
+        vid_t                 vid, 
+        ndx_t                 ntype, 
+        store_property_t      property,
+        const char*           key_desc,
+        concurrency_t         cc,
+        stid_t&               stid
+    );
+
+    static rc_t            _destroy_mr_index(const stid_t& iid); 
+
+    static rc_t            _bulkld_mr_index(
+        const stid_t&         stid,
+        int                   nsrcs,
+        const stid_t*         source,
+        sm_du_stats_t&        stats,
+        bool                  sort_duplicates = true,
+        bool                  lexify_keys = true
+    );
+
+    static rc_t            _bulkld_mr_index(
+        const stid_t&          stid, 
+        sort_stream_i&         sorted_stream,
+        sm_du_stats_t&         stats
+    );
+
+    static rc_t            _print_mr_index(const stid_t &iid);
+
+    static rc_t            _create_mr_assoc(
+        const stid_t  &        stid, 
+        cvec_t&           key, 
+        const vec_t&           el
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    );
+
+    static rc_t            _destroy_mr_assoc(
+        const stid_t &        stid, 
+        cvec_t&          key,
+        const vec_t&          el
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    );
+
+    static rc_t            _destroy_mr_all_assoc(
+        const stid_t&        stid, 
+        cvec_t&         key,
+        int&                 num_removed
+    );
+    static rc_t            _find_mr_assoc(
+        const stid_t&        stid, 
+        cvec_t&         key, 
+        void*                el, 
+        smsize_t&            elen, 
+        bool&                found
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    );
     
     static rc_t _make_equal_partitions(stid_t stid,
 				       cvec_t& minKey,

@@ -72,6 +72,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_p.h"  
 #include "btcursor.h"  
 
+// -- mrbt
+#include "ranges_p.h"
+// --
+
 #ifdef EXPLICIT_TEMPLATE
 // template class w_auto_delete_array_t<snum_t>;
 template class w_auto_delete_array_t<sinfo_s>;
@@ -715,6 +719,11 @@ sdesc_cache_t::remove(const stid_t& stid)
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             if (_sdescsBuckets[i][j].stid() == stid) {
+		// -- mrbt
+		//if(_sdescsBuckets[i][j].has_partitions()) {
+		//    _sdescsBuckets[i][j].store_partitions();
+		//}
+		// --
                 DBG(<<"");
                 _sdescsBuckets[i][j].invalidate();
                 if (i < _minFreeBucket && j < _minFreeBucketIndex)  {
@@ -736,6 +745,11 @@ sdesc_cache_t::remove_all()
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             DBG(<<"");
+	    // -- mrbt
+	    //if(_sdescsBuckets[i][j].has_partitions()) {
+	    //_sdescsBuckets[i][j].store_partitions();
+	    //}
+	    // --
             _sdescsBuckets[i][j].invalidate();
         }
     }
@@ -828,16 +842,32 @@ sdesc_t::operator=(const sdesc_t& other)
 } 
 
 // -- mrbt
-key_ranges_map& sdesc_t::partitions()
+inline key_ranges_map& sdesc_t::partitions()
 {
     if(!_partitions_filled) {
-	vector<shpid_t>::iterator pagesIter = _sinfo.roots.begin();
-	for(; pagesIter != _sinfo.roots.end(); pagesIter++) {
-	    lpid_t r(_stid.vol, _stid.store, *pagesIter);
-	    // TODO: get the startKey of the partition from the root page
-	}
+	fill_partitions_map();
 	_partitions_filled = true;
     }
     return _partitions;
+}
+
+rc_t sdesc_t::fill_partitions_map() 
+{
+    ranges_p p;
+    // TODO: check latching
+    W_DO(p.fix(root(), LATCH_EX));
+    p.fill_ranges_map(_partitions);
+
+    return RCOK;
+}
+
+rc_t sdesc_t::store_partitions()
+{
+    ranges_p p;
+    // TODO: check latching
+    W_DO(p.fix(root(), LATCH_EX));
+    p.fill_page(_partitions);
+    
+    return RCOK;
 }
 // --

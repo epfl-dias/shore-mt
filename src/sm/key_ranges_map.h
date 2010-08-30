@@ -97,7 +97,6 @@ class key_ranges_map
 {
 private:
 
-    typedef map<char*, lpid_t>::iterator keysIter;
     typedef cvec_t Key;
 
     // range_init_key -> root of the corresponding subtree
@@ -121,6 +120,8 @@ protected:
 
 public:
 
+    typedef map<char*, lpid_t>::iterator keysIter;
+   
     //// Construction ////
     // Calls one of the initialization functions
     key_ranges_map();
@@ -182,6 +183,7 @@ public:
     uint getNumPartitions() const;
     char* getMinKey() const;
     char* getMaxKey() const;
+    map<char*, lpid_t, cmp_str_greater> getMap() const;
 
     // for debugging
     void printPartitions(); 

@@ -40,29 +40,67 @@
 
 class ranges_p : public page_p {
 
-private:
-    
 public:
-    // to be kept in data array
-    struct partition_pair {
-	cvec_t key;       // start key of a partition
-	lpid_t root;     // the subtree root that corresponds the partition
-    };
+
+    MAKEPAGE(ranges_p, page_p, 1); 
 
     // forms the key_ranges_map from the partitions_pairs kept in this page
-    void fill_ranges_map(key_ranges_map& partitions);
+    rc_t fill_ranges_map(key_ranges_map& partitions);
     
     // stores the partitions' info from key_ranges_map in this page
-    void fill_page(key_ranges_map& partitions);
-    
+    rc_t fill_page(key_ranges_map& partitions);    
 };
 
-void ranges_p::fill_ranges_map(key_ranges_map& partitions)
+rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 {
-    // TODO: implement
+    // get the contents of the header
+    char* hdr_ptr = (char*) page_p::tuple_addr(0);
+    char* hdr = (char*) malloc(sizeof(int));
+    memcpy(hdr_ptr, hdr, sizeof(int));
+    uint4_t num_pairs = *((uint4_t*)hdr);
+    free(hdr);
+    //
+    for(uint4_t i=1; i < num_pairs; i++) {
+	// get the contents of the slot
+	char* pair = (char*) page_p::tuple_addr(i);
+	cvec_t pair_vec;
+	pair_vec.put(pair, page_p::tuple_size(i));
+	// split it to its key-root parts
+	cvec_t root_vec;
+	cvec_t key;
+	pair_vec.split(sizeof(lpid_t), root_vec, key);
+	char* root = (char*) malloc(sizeof(lpid_t));
+	root_vec.copy_to(root);
+	lpid_t root_id = *((lpid_t*)root);
+	free(root);
+	// add this pair to the partitions map
+	partitions.addPartition(key, root_id);
+    }
+
+    return RCOK;
 }
 
-void ranges_p::fill_page(key_ranges_map& partitions)
+rc_t ranges_p::fill_page(key_ranges_map& partitions)
 {
-    // TODO: implement
+    key_ranges_map::keysIter iter;
+    map<char*, lpid_t, cmp_str_greater> partitions_map = partitions.getMap();
+    uint4_t i = 1;
+    for(iter = partitions_map.begin(); iter != partitions_map.end(); iter++, i++) {
+	cvec_t v;
+	// put subroot
+	char* subroot = (char*)(&(iter->second));
+	v.put(subroot, sizeof(lpid_t));
+	// put key
+	v.put(iter->first, sizeof(iter->first));
+	// add this key-subroot pair to page's data
+	W_DO(page_p::splice(i, 0, v.size(), v));
+    }
+    // header of the page keeps how many startKey-root pairs are stored
+    cvec_t hdr;
+    hdr.put((char*)(&i), sizeof(uint4_t));
+    W_DO(page_p::overwrite(0, 0, hdr));
+
+    return RCOK;
 }
+
+#endif

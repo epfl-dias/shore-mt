@@ -349,7 +349,11 @@ public:
         t_bad_ndx_t,             // illegal value
         t_btree,                 // B+tree with duplicates
         t_uni_btree,             // Unique-key btree
-        t_rtree                  // R*tree
+        t_rtree,                 // R*tree
+	// -- mrbt                 
+	t_mrbtree,              // Multi-rooted B+tree with duplicates   
+	t_uni_mrbtree           // Unique-key multi-rooted btree
+	// --
     };
 
     /**\enum concurrency_t 
