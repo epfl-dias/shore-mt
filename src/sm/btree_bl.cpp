@@ -114,9 +114,15 @@ elm_cmp(const void *_r1, const void *_r2)
  *********************************************************************/
 class btsink_t : private btree_m {
 public:
+    // -- mrbt
+                 btsink_t() {};
+    // --
     NORET        btsink_t(const lpid_t& root, rc_t& rc);
     NORET        ~btsink_t() {};
-    
+
+    // -- mrbt
+    rc_t        set(const lpid_t& root);
+    // --
     rc_t        put(const cvec_t& key, const cvec_t& el);
     rc_t        map_to_root();
 
@@ -720,6 +726,410 @@ btree_m::bulk_load(
     return RCOK;
 }
 
+// -- mrbt
+/*********************************************************************
+ *
+ *  btree_m::mr_bulk_load(root, ...)
+ *
+ *  Bulk load a mrbtree at root using records from store src.
+ *
+ *  The key and element of each entry is stored in the header and
+ *  body part, respectively, of records from src store. 
+ *
+ *  NOTE: src records must be sorted in ascending key order.
+ *  and keys must already have been converted to lexicographic
+ *  order (internal format).
+ *
+ *  Statistics regarding the bulkload is returned in stats.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_bulk_load(
+    key_ranges_map&      partitions,          // I-  mrbtree partitions
+    int                  nsrcs,                // I- # stores in array above
+    const stid_t*        src,                // I-  stores containing new records
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,                // I-  true if btree is unique
+    concurrency_t        cc_unused,        // I-  concurrency control mechanism
+    btree_stats_t&       _stats,                 // O-  index stats
+    bool                 sort_duplicates, // I - default is true
+    bool                 lexify_keys   // I - default is true
+    )                
+{
+
+    // keep compiler quiet about unused parameters
+    if (cc_unused) {}
+
+    w_assert1(kc && nkc > 0);
+    DBG(<<"mr_bulk_load "
+        << nsrcs << " sources, first=" << src[0]
+        << " sort_dups=" << sort_duplicates
+        << " lexify_keys=" << lexify_keys
+        );
+
+    // set up statistics gathering
+    _stats.clear();
+    base_stat_t uni_cnt = 0;
+    base_stat_t cnt = 0;
+
+
+    rc_t rc;
+    btsink_t sink;
+
+    // go thru the src file page by page
+    int i = 0;                // toggle
+    file_p page[2];           // page[i] is current page
+
+    const record_t*         pr = 0;        // previous record
+    int                     src_index = 0;
+    bool                    skip_last = false;
+    
+    // current subroot to insert
+    lpid_t current_root;
+    // current start&end key
+    cvec_t startKey;
+    cvec_t endKey;
+    // to mark the root change
+    bool root_change = false;
+
+    for(src_index = 0; src_index < nsrcs; src_index++) {
+        lpid_t               pid;
+        bool                 eof = false;
+        skip_last = false;
+
+        for (rc = fi->first_page(src[src_index], pid, NULL /* allocated only*/);
+             !rc.is_error() && !eof;
+              rc = fi->next_page(pid, eof, NULL /* allocated only*/))     {
+            
+	    // for each page ...
+            W_DO( page[i].fix(pid, LATCH_SH) );
+            w_assert3(page[i].pid() == pid);
+
+            slotid_t s = page[i].next_slot(0);
+            if (! s)  {
+		//  do nothing. skip over empty page, so do not toggle
+                continue;
+            } 
+
+            for ( ; s; s = page[i].next_slot(s))  {
+                // for each slot in page ...
+                record_t* r;
+                W_COERCE( page[i].get_rec(s, r) );
+
+                if(!sort_duplicates) {
+                    // free up page asap
+                    if (page[1-i].is_fixed())  page[1-i].unfix();
+                }
+
+                if (pr) {
+                    bool insert_one = false;
+                    cvec_t key(pr->hdr(), pr->hdr_size());
+                    cvec_t el(pr->body(), (int)pr->body_size());
+
+		    // check for change of the root
+		    cvec_t* real_key = 0;
+		    if(lexify_keys) {
+			DBG(<<"lexify, before getting the right root with the key = " << key);
+			W_DO(_scramble_key(real_key, key, nkc, kc));
+			if(startKey.size() == 0 || 
+			   !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+			    partitions.getPartitionByKey(*real_key, current_root);
+			    root_change = true;
+			}
+		    }
+		    else {
+			DBG(<<"no lexify before getting the root, key = " << key);
+			if(startKey.size() == 0 || 
+			   !(startKey <= key && key < endKey)) {  
+			    partitions.getPartitionByKey(key, current_root);
+			    root_change = true;
+			}
+		    }
+		    if(root_change) {
+			W_DO( sink.map_to_root() );
+			// TODO: stats of the old root
+
+			// change to new root
+			partitions.getBoundaries(current_root, startKey, endKey);
+			DBG(<< "index->sub_root =" << current_root 
+			    << "startKey =" << startKey
+			    << "endKey =" << endKey);
+		     
+			// Btree must be empty for bulkload.
+			W_DO( purge(current_root, true, true) );
+
+			W_DO(sink.set(current_root));
+			root_change = false;
+		    }
+		    
+                    DBG(<<"pr->hdr_size " << pr->hdr_size());
+                    DBG(<<"pr->body_size " << pr->body_size());
+
+                    /*
+                     *  check uniqueness and sort order
+                     *  key is prev, r is curr
+                     *  key.cmp(r) tests key cmp r, so 
+                     *  <0 means key < r, >0 means key > r
+                     */
+                    int res = key.cmp(r->hdr(), r->hdr_size());
+                    if (res==0) {
+                        /*
+                         *  key of r is equal to the previous key
+                         */
+                        if (unique) {
+                            return RC(eDUPLICATE);
+                        }
+                        if(sort_duplicates) {
+                            /*
+                             * temporary hack for duplicated keys:
+                             *  sort the elem in order before loading
+                             */
+                            int dup_cnt;
+                            W_DO( btree_impl::_handle_dup_keys(&sink, s, &page[1-i],
+                                                   &page[i], dup_cnt, r, pid,
+                                                   nkc, kc,
+                                                   lexify_keys) );
+                            cnt += dup_cnt;
+                            eof = (pid==lpid_t::null);
+                            skip_last = eof;
+                        } else {
+                            /*
+                             * The input file was sorted on key/elem
+                             * pairs, so go ahead and insert it
+                             */
+                            insert_one = true;
+                        }
+                    } else {
+                        /*
+                         *  key of r is < or > the previous key
+                         *  but not a dup.  NB: we can't distinguish
+                         *  < or > because we haven't scrambled the 
+                         *  keys yet.  We just have to take it that
+                         *  the caller indeed sorted the file.
+                         */
+                        insert_one = true;
+                    }
+                    if(insert_one) {
+                        ++cnt;
+                        if(lexify_keys) {
+			    W_DO( sink.put(*real_key, el) );
+                        } else {
+			    W_DO( sink.put(key, el) );
+                        }
+                        skip_last = false;
+                    } 
+
+                    ++uni_cnt;
+                }
+
+                if (page[1-i].is_fixed())  page[1-i].unfix();
+                pr = r;
+
+                if (!s) break;
+            }
+            i = 1 - i;        // toggle i
+            if (eof) break;
+        }
+        if (rc.is_error())  {
+            return rc.reset();
+        }
+    }
+
+
+    if (!skip_last && pr) {
+        cvec_t key(pr->hdr(), pr->hdr_size());
+        cvec_t el(pr->body(), (int)pr->body_size());
+        cvec_t* real_key = 0;
+
+	if(lexify_keys) {    
+            W_DO(_scramble_key(real_key, key, nkc, kc));
+            DBG(<<"");
+	    if(startKey.size() == 0 || 
+	       !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+		partitions.getPartitionByKey(*real_key, current_root);
+		root_change = true;
+	    }
+        } else {
+            DBG(<<"");
+	     if(startKey.size() == 0 || 
+	       !(startKey <= key && key < endKey)) {  
+		partitions.getPartitionByKey(key, current_root);
+		root_change = true;
+	    }
+        }
+
+	if(root_change) {
+	    W_DO( sink.map_to_root() );
+	    
+	    // TODO: stats of the old root
+	    
+	    // Btree must be empty for bulkload.
+	    W_DO( purge(current_root, true, true) );
+
+	    // change to new root
+	    W_DO(sink.set(current_root));
+	    root_change = false;
+	}
+
+	if(lexify_keys) {
+	    W_DO( sink.put(*real_key, el) );
+	} else {
+	    W_DO( sink.put(key, el) );
+	}
+
+        ++uni_cnt;
+        ++cnt;
+    }
+
+    if (pr) {
+        W_DO( sink.map_to_root() );
+    }
+
+    // TODO: handle stats as indicated above
+    _stats.level_cnt = sink.height();
+    _stats.leaf_pg_cnt = sink.leaf_pages();
+    _stats.int_pg_cnt = sink.num_pages() - _stats.leaf_pg_cnt;
+    
+    _stats.leaf_pg.unique_cnt = uni_cnt;
+    _stats.leaf_pg.entry_cnt = cnt;
+
+    DBG(<<"end bulk load OK");
+    return RCOK;
+}
+
+
+/*********************************************************************
+ *
+ *  btree_m::mr_bulk_load(root, sorted_stream, unique, cc, stats)
+ *
+ *  Bulk load a btree at root using records from sorted_stream.
+ *  Statistics regarding the bulkload is returned in stats.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_bulk_load(
+    key_ranges_map&      partitions,          // I-  mrbtree partitions
+    sort_stream_i&       sorted_stream,        // IO - sorted stream        
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,                // I-  true if btree is unique
+    concurrency_t        cc_unused,        // I-  concurrency control
+    btree_stats_t&       _stats)                // O-  index stats
+{
+    w_assert1(kc && nkc > 0);
+    DBG(<<"bulk_load from sorted stream");
+
+    // keep compiler quiet about unused parameters
+    if (cc_unused) {}
+
+    // Set up statistics gathering
+    _stats.clear();
+    base_stat_t uni_cnt = 0;
+    base_stat_t cnt = 0;
+
+    // current subroot to insert
+    lpid_t current_root;
+    // current start&end key
+    cvec_t startKey;
+    cvec_t endKey;
+
+    rc_t rc;
+    btsink_t sink;
+
+    // Allocate space for storing prev keys
+    char* tmp = new char[page_s::data_sz];
+    if (! tmp)  {
+        return RC(eOUTOFMEMORY);
+    }
+    w_auto_delete_array_t<char> auto_del_tmp(tmp);
+    vec_t prev_key(tmp, page_s::data_sz);
+
+    // Go thru the sorted stream
+    bool pr = false;        // flag for prev key
+    bool eof = false;
+
+    vec_t key, el;
+    W_DO ( sorted_stream.get_next(key, el, eof) );
+
+    while (!eof) {
+        ++cnt;
+
+        if (! pr) {
+            ++uni_cnt;
+            pr = true;
+            prev_key.copy_from(key);
+            prev_key.reset().put(tmp, key.size());
+        } else {
+            // check unique
+            if (key.cmp(prev_key))  {
+                ++uni_cnt;
+                prev_key.reset().put(tmp, page_s::data_sz);
+                prev_key.copy_from(key);
+                prev_key.reset().put(tmp, key.size());
+            } else {
+                if (unique) {
+                    DBG(<<"");
+                    return RC(eDUPLICATE);
+                }
+                // GNATS 116 BUGBUG: need to sort elems for duplicate keys
+                DBG(<<"not unique uni_cnt " << uni_cnt
+                        << " pr=" << pr 
+                        <<  " matches prev key "
+
+                        );
+                fprintf(stderr, 
+                "bulk-loading duplicate key into non-unique btree %s\n",
+                "requires sorting elements: not implemented");
+                return RC(eNOTIMPLEMENTED);
+            }
+        }
+
+        cvec_t* real_key;
+        DBG(<<"");
+        W_DO(_scramble_key(real_key, key, nkc, kc));
+	
+	// check for root change
+	if(startKey.size() == 0 || 
+	   !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+	    partitions.getPartitionByKey(*real_key, current_root);
+	    // finish with old root
+	    W_DO( sink.map_to_root() );
+	    // TODO: stats of the old root
+
+	    // change to new root
+	    partitions.getBoundaries(current_root, startKey, endKey);
+	    DBG(<< "index->sub_root =" << current_root 
+		<< "startKey =" << startKey
+		<< "endKey =" << endKey);
+	    // Btree must be empty for bulkload.
+	    W_DO( purge(current_root, true, true) );
+	    // update sink
+	    W_DO(sink.set(current_root));
+	}
+
+        W_DO( sink.put(*real_key, el) ); 
+        key.reset();
+        el.reset();
+        W_DO ( sorted_stream.get_next(key, el, eof) );
+    }
+
+    DBG(<<"");
+    W_DO( sink.map_to_root() );
+        
+    _stats.level_cnt = sink.height();
+    _stats.leaf_pg_cnt = sink.leaf_pages();
+    _stats.int_pg_cnt = sink.num_pages() - _stats.leaf_pg_cnt;
+
+    sorted_stream.finish();
+
+    _stats.leaf_pg.unique_cnt = uni_cnt;
+    _stats.leaf_pg.entry_cnt = cnt;
+
+    DBG(<<" return OK from bulk load");
+    return RCOK;
+}
+// --
 
 /*********************************************************************
  *
@@ -742,7 +1152,35 @@ btsink_t::btsink_t(const lpid_t& root, rc_t& rc)
     _left_most[0] = _page[0].pid().page;
 }
 
+// -- mrbt
+/*********************************************************************
+ *
+ *  btsink_t::set(root_pid)
+ *
+ *  To update the sink for bulk loading as roots change in mrbtrees.
+ *  Resets the sink.
+ *
+ *********************************************************************/
+rc_t btsink_t::set(const lpid_t& root)
+{ 
+    _is_compressed = false;
+    _height = 0;
+    _num_pages = 0;
+    _leaf_pages = 0;
+    _root = root;
+    _top = 0;
 
+    rc_t rc;
+    btree_p rp;
+    rc = rp.fix(root, LATCH_SH);
+    if (!rc.is_error()) {
+	_is_compressed = rp.is_compressed();
+	rc = _add_page(0, 0);
+	_left_most[0] = _page[0].pid().page;
+    }
+    return rc;
+}
+// --
 
 /*********************************************************************
  *

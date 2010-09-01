@@ -119,6 +119,28 @@ public:
         bool                              unique,
         concurrency_t                      cc,
         btree_stats_t&                    stats);
+    // -- mrbt
+    static rc_t                        mr_bulk_load(
+        key_ranges_map&                   partitions,
+        int                               nsrcs,
+        const stid_t*                     src,
+        int                               nkc,
+        const key_type_s*                 kc,
+        bool                              unique,
+        concurrency_t                     cc,
+        btree_stats_t&                    stats,
+        bool                              sort_duplicates = true,
+        bool                              lexify_keys   = true
+        );
+    static rc_t                        mr_bulk_load(
+        key_ranges_map&                   partitions,
+        sort_stream_i&                    sorted_stream,
+        int                               nkc,
+        const key_type_s*                 kc,
+        bool                              unique,
+        concurrency_t                      cc,
+        btree_stats_t&                    stats);
+    // --
     static rc_t                        insert(
         const lpid_t&                     root,
         int                               nkc,

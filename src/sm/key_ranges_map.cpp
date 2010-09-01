@@ -434,7 +434,7 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
  *
  * @fn:    getBoundaries()
  *
- * @brief: Returns the range boundaries of a partition
+ * @brief: Returns the range boundaries of a partition in a pair
  *
  ******************************************************************/
 
@@ -471,6 +471,46 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange)
     return (RCOK);
 }
 
+/****************************************************************** 
+ *
+ * @fn:    getBoundaries()
+ *
+ * @brief: Returns the range boundaries of a partition in start&end key
+ *
+ ******************************************************************/
+
+w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey) 
+{
+    keysIter iter;
+    bool bFound = false;
+    
+    _rwlock.acquire_read();
+    for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter) {
+        if (iter->second == pid) {
+            bFound = true;
+	    break;
+        }
+    }
+    _rwlock.release_read();
+    
+    if(!bFound) {
+	// the pid is not in the map, returns error.
+	return (RC(_mrb_PARTITION_NOT_FOUND));
+    }
+
+    // TODO: Not sure whether this is correct, should check
+    startKey.set(iter->first, sizeof(iter->first));
+    iter++;
+    if(iter == _keyRangesMap.end()) { 
+        // check whether it is the last range
+	endKey.set(_maxKey, sizeof(_maxKey));
+    }
+    else {
+        endKey.set(iter->first, sizeof(iter->first));
+    }
+
+    return (RCOK);
+}
 
 /****************************************************************** 
  *

@@ -59,6 +59,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_int_4.h"
 #include "sm_du_stats.h"
 #include "sm.h"
+// -- mrbt
+#include "ranges_p.h"
+// --
 
 /*==============================================================*
  *  Physical ID version of all the index operations                *
@@ -586,16 +589,23 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
     switch (ntype)  {
     case t_mrbtree:
     case t_uni_mrbtree:
-        // compress prefixes only if the first part is compressed
-	// create one subtree initially
-        W_DO(bt->create(stid, root, kcomp[0].compressed != 0));
-        break;
+	{
+	    // create the ranges_p TODO: needs a check
+	    W_DO(io->alloc_a_page(stid, lpid_t::eof, root, true, IX, true));
+	    ranges_p page;
+	    W_DO(page.fix(root, LATCH_EX, page.t_virgin));
+	    // create one subtree initially
+	    lpid_t subroot;
+	    //compress prefixes only if the first part is compressed
+	    W_DO(bt->create(stid, subroot, kcomp[0].compressed != 0));
+	    // add subtree to ranges 
+	    cvec_t startKey("    ", 5);
+	    page.add_partition(startKey, subroot);
+	    break;
+	}
     default:
         return RC(eBADNDXTYPE);
     }
-    // TODO: create a page to keep key_ranges_map info, and give it instead of root.page
-    //       you can either eliminate the creation of the initiall root above or 
-    //       add it to the ranges_p page.
     sinfo_s sinfo(stid.store, t_index, 100/*unused*/, 
                   ntype,
                   cc,
@@ -647,21 +657,17 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
     case t_mrbtree:
     case t_uni_mrbtree:
         DBG(<<"bulk loading multi-rooted btree " << sd->root());
-	// TODO: here instead of giving the root page, you might want to give the map
-	//       look at btree to see how bulk loading works
-	//       then try to adapt to your design
-	//       _stats.btree, you might want to add mrbtree here too but this is not a priority
-	//       or add another layer to handle which btree you should do the bulk loading
-        W_DO(bt->bulk_load(sd->root(), 
-			   nsrcs,
-			   source,
-			   sd->sinfo().nkc, sd->sinfo().kc,
-			   sd->sinfo().ntype == t_uni_mrbtree, 
-			   (concurrency_t)sd->sinfo().cc,
-			   _stats.btree,
-			   sort_duplicates,
-			   lexify_keys
-			   ));
+	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
+        W_DO(bt->mr_bulk_load(sd->partitions(), 
+			      nsrcs,
+			      source,
+			      sd->sinfo().nkc, sd->sinfo().kc,
+			      sd->sinfo().ntype == t_uni_mrbtree, 
+			      (concurrency_t)sd->sinfo().cc,
+			      _stats.btree,
+			      sort_duplicates,
+			      lexify_keys
+			      ));
         break;
     default:
         return RC(eBADNDXTYPE);
@@ -695,15 +701,11 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
     case t_uni_mrbtree:
-	// TODO: here instead of giving the root page, you might want to give the map
-	//       look at btree to see how bulk loading works
-	//       then try to adapt to your design
-	//       _stats.btree, you might want to add mrbtree here too but this is not a priority
-	//       or add another layer to handle which btree you should do the bulk loading
-        W_DO(bt->bulk_load(sd->root(), sorted_stream,
-			   sd->sinfo().nkc, sd->sinfo().kc,
-			   sd->sinfo().ntype == t_uni_mrbtree, 
-			   (concurrency_t)sd->sinfo().cc, _stats.btree));
+	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
+	W_DO(bt->mr_bulk_load(sd->partitions(), sorted_stream,
+			      sd->sinfo().nkc, sd->sinfo().kc,
+			      sd->sinfo().ntype == t_uni_mrbtree, 
+			      (concurrency_t)sd->sinfo().cc, _stats.btree));
         break;
     default:
         return RC(eBADNDXTYPE);

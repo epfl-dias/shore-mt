@@ -165,8 +165,11 @@ public:
                          const Key& key2, bool key2Included,                         
                          vector<lpid_t>& pidVec);
 
-    // Returns the range boundaries of a partition
+    // Returns the range boundaries of a partition in a pair
     w_rc_t getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange);
+    // Returns the range boundaries of a partition in start&end key
+    w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey);
+
 
     // Returns a vector with the key boundaries for all the partitions
     w_rc_t getBoundariesVec(vector< pair<char*,char*> >& keyBoundariesVec);

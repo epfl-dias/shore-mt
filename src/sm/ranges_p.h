@@ -49,6 +49,13 @@ public:
     
     // stores the partitions' info from key_ranges_map in this page
     rc_t fill_page(key_ranges_map& partitions);    
+
+    // stores the newly added partition info
+    rc_t add_partition(cvec_t& key, lpid_t root);
+
+    // deletes the newly deleted partition
+    rc_t delete_partition(cvec_t& key, lpid_t root);
+
 };
 
 rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
@@ -103,4 +110,39 @@ rc_t ranges_p::fill_page(key_ranges_map& partitions)
     return RCOK;
 }
 
+rc_t ranges_p::add_partition(cvec_t& key, lpid_t root) 
+{    
+    // TODO: you can perform header related stuff as seperate private functions
+    // get the contents of the header
+    char* hdr_ptr = (char*) page_p::tuple_addr(0);
+    char* old_hdr = (char*) malloc(sizeof(int));
+    memcpy(hdr_ptr, old_hdr, sizeof(int));
+    uint4_t num_pairs = *((uint4_t*)old_hdr);
+    free(old_hdr);
+
+    // update header
+    num_pairs++;
+
+    // add the partition
+    cvec_t v;
+    // put subroot
+    char* subroot = (char*)(&root);
+    v.put(subroot, sizeof(lpid_t));
+    // put key
+    v.put(key);
+    // add this key-subroot pair to page's data
+    W_DO(page_p::splice(num_pairs, 0, v.size(), v));
+
+    cvec_t hdr;
+    hdr.put((char*)(&num_pairs), sizeof(uint4_t));
+    W_DO(page_p::overwrite(0, 0, hdr));
+
+    return RCOK;
+}
+
+rc_t ranges_p::delete_partition(cvec_t& key, lpid_t root)
+{
+    // TODO: implement
+    return RCOK;
+}
 #endif
