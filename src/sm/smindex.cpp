@@ -377,6 +377,22 @@ ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat,
 
 // -- mrbt
 
+#if VOLUME_OPS_USE_OCC
+typedef occ_rwlock sm_vol_rwlock_t;
+typedef occ_rwlock::occ_rlock sm_vol_rlock_t;
+typedef occ_rwlock::occ_wlock sm_vol_wlock_t;
+#define SM_VOL_WLOCK(base) (base).write_lock()
+#define SM_VOL_RLOCK(base) (base).read_lock()
+#else
+typedef queue_based_lock_t sm_vol_rwlock_t;
+typedef queue_based_lock_t sm_vol_rlock_t;
+typedef queue_based_lock_t sm_vol_wlock_t;
+#define SM_VOL_WLOCK(base) &(base)
+#define SM_VOL_RLOCK(base) &(base)
+#endif
+// Certain operations have to exclude xcts
+static sm_vol_rwlock_t          _begin_xct_mutex;
+
 /*********************************************************************
  *  ss_m::create_mr_index(vid, ntype, property, key_desc, cc, stid)  *
  *********************************************************************/
@@ -590,17 +606,21 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
     case t_mrbtree:
     case t_uni_mrbtree:
 	{
-	    // create the ranges_p TODO: needs a check
-	    W_DO(io->alloc_a_page(stid, lpid_t::eof, root, true, IX, true));
+	    // create the ranges_p
+	    SM_PROLOGUE_RC(ss_m::mount_dev, not_in_xct, read_only, 0);
+	    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+	    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+ 	    W_DO(io->alloc_a_page(stid, lpid_t::eof, root, true, IX, true));
 	    ranges_p page;
 	    W_DO(page.fix(root, LATCH_EX, page.t_virgin));
 	    // create one subtree initially
 	    lpid_t subroot;
 	    //compress prefixes only if the first part is compressed
 	    W_DO(bt->create(stid, subroot, kcomp[0].compressed != 0));
-	    // add subtree to ranges 
+	    // add subtree to ranges // TODO: might do the initialization in another way 
 	    cvec_t startKey("    ", 5);
 	    page.add_partition(startKey, subroot);
+	    W_DO(xct_auto.commit());
 	    break;
 	}
     default:
@@ -753,7 +773,6 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 #endif
 			    )
 {
-    // TODO: decide on lock modes here!!!!
 
     // usually we will do kvl locking and already have an IX lock
     // on the index
@@ -826,7 +845,6 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 #endif
 			     )
 {
-    // TODO: decide on lock modes here!!!!
 
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -895,7 +913,6 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
  *--------------------------------------------------------------*/
 rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
 {
-    // TODO: decide on lock modes here!!!!
 
     sdesc_t* sd;
     W_DO(dir->access(stid, sd, IX));
@@ -943,7 +960,6 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 #endif
 			  )
 {
-    // TODO: decide on lock modes here!!!!
 
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IS lock
@@ -1007,7 +1023,6 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     return RCOK;
 }
 
-// TODO: check this functions with the new implementations
 rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 				 cvec_t& maxKey, uint numParts)
 {
@@ -1015,8 +1030,6 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 
     DBG(<<" stid " << stid);
     vector<lpid_t> roots;
-
-    // TODO: determine how to make thread-safe
 
     // get the sinfo from sdesc
     sdesc_t* sd;
@@ -1035,6 +1048,17 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     }
 
     sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
+
+    // update the ranges page which keeps the partition info
+    SM_PROLOGUE_RC(ss_m::mount_dev, not_in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+    ranges_p page;
+    W_DO(page.fix(sd->root(), LATCH_EX));
+    page.fill_page(sd->partitions());
+    W_DO(xct_auto.commit());	     
+
+    // TODO: btree update
 
     return RCOK;    
 }
@@ -1056,7 +1080,18 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
+
+    SM_PROLOGUE_RC(ss_m::mount_dev, not_in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
     sd->partitions().addPartition(key, root);
+    // update the ranges page which keeps the partition info
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+    ranges_p page;
+    W_DO(page.fix(sd->root(), LATCH_EX));
+    page.add_partition(key, root);
+    W_DO(xct_auto.commit());	     
+
+    // TODO: handle btree
 
     return RCOK;    
 }
@@ -1068,8 +1103,6 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
     DBG(<<" stid " << stid);
     lpid_t root;
 
-    // TODO: determine how to make thread-safe
-
     // get the sinfo from sdesc
     sdesc_t* sd;
     W_DO(dir->access(stid, sd, EX));
@@ -1078,9 +1111,20 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
+
+    SM_PROLOGUE_RC(ss_m::mount_dev, not_in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    // TODO: since you protect this by a lock from above do you actually need to use one insede
+    //       keyranges map?
     sd->partitions().deletePartitionByKey(key, root);
-    // TODO: decide how to handle the tree
-    //       a function for deletition from the roots list in sinfo
+    // update the ranges page which keeps the partition info
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+    ranges_p page;
+    W_DO(page.fix(sd->root(), LATCH_EX));
+    page.delete_partition(key, root);
+    W_DO(xct_auto.commit());	     
+
+    // TODO: decide how to handle the tree  
     
     return RCOK;    
 }

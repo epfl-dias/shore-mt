@@ -126,7 +126,7 @@ public:
     // Calls one of the initialization functions
     key_ranges_map();
     key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts);
-    ~key_ranges_map();
+    virtual ~key_ranges_map();
 
 
     ////  Initialization ////

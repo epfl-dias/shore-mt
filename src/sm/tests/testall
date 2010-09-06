@@ -189,4 +189,7 @@ execute "htab -n 100000 -R" tmp-out
 ## /bin/rm -f ./log/* ./volumes/* tmp-out
 ## execute "log_exceed " log_exceed-out
 
+echo "---------------------------------------------------------"
+echo "running multi-rooted btrees tests"
+execute "multi_rooted_btrees_test" multi-rooted-out
 
