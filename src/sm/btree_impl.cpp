@@ -464,6 +464,154 @@ tree_latch::get_for_smo(
     return smlevel_0::eOK;
 }
 
+// -- mrbt
+/******************************************************************
+ *
+ *  btree_impl::_split_tree(root_old, root_new, unique, cc, key)
+ *  Mrbtree modification after adding a new partition
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_split_tree(
+    const lpid_t&       root_old,            // I-  root of the old btree
+    const lpid_t&       root_new,           // I - root of the new btree
+    bool                unique,             // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key)                // I-  which key
+{
+    FUNC(btree_impl::_split_tree);
+
+    DBGTHRD(<<"_split_tree: unique = " << unique << " cc=" << int(cc)
+        << " key=" << key );
+
+    get_latches(___s,___e);
+
+    btree_p         root_page_old;
+    btree_p         root_page_new;
+    rc_t            rc;
+   
+    w_assert9( !root_page_old.is_fixed() );
+    w_assert9( !root_page_new.is_fixed() );
+
+    W_DO( root_page_old.fix(root_old, LATCH_EX) );
+    W_DO( root_page_new.fix(root_new, LATCH_EX) );
+    
+    w_assert9( root_page_old.is_fixed() );
+    w_assert9( root_page_new.is_fixed() );
+
+    w_assert9( !root_old.is_leaf() ); // don't let tree split when root is a leaf page
+
+    // find the key on the old root page
+    cvec_t dummy_el; // not important since we're only interested in the key now
+    bool found;
+    bool found_elem;
+    slotid_t ret_slot;
+    root_page_old.search(key, dummy_el, found, found_elem, ret_slot);
+
+    W_DO( root_page_new.set_hdr(root_new.page, 
+				root_page_old.child(ret_slot), 
+				root_page_old.level(), 
+				(uint2_t) (root_page_old.is_compressed() ? 
+					   btree_p::t_compressed : btree_p::t_none)) );
+
+    W_DO( root_page_old.shift(ret_slot, root_page_new) );
+    /* TODO: check with ryan about the above lines, if this is ok then no need the blow lines.
+    int current_slot_old;
+    int current_slot_new;
+    btrec_t current_rec;
+    int copy_slot;
+    for(current_slot_new = 0, current_slot_old = ret_slot; 
+	current_slot_old < root_old.nrecs(); 
+	current_slot++, curren_slot_new++) {
+	current_rec.set(root_page_old, current_slot_old);
+	W_DO( root_page_new.insert(current_rec.key(), current_rec.elem(), current_slot_new, current_rec.child()) );
+    }
+    */
+
+    root_page_old.unfix();
+    root_page_new.unfix();
+    
+    w_assert9( !root_page_old.is_fixed() );
+    w_assert9( !root_page_new.is_fixed() );
+
+    // TODO: check_latches
+
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_merge_trees(root1, root2, unique, cc)
+ *  Mrbtree modification after deleting a new partition
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_merge_trees(
+    const lpid_t&       root1,            // I-  root of the btree
+    const lpid_t&       root2,           // I - root of the btree
+    bool                unique,             // I-  true if tree is unique
+    concurrency_t        cc)                // I-  concurrency control
+{
+    FUNC(btree_impl::_merge_trees);
+
+    DBGTHRD(<<"_merge_trees: unique = " << unique << " cc=" << int(cc));
+
+    get_latches(___s,___e);
+
+    btree_p         root_page_1;
+    btree_p         root_page_2;
+    rc_t            rc;
+   
+    w_assert9( !root_page_1.is_fixed() );
+    w_assert9( !root_page_2.is_fixed() );
+
+    W_DO( root_page_1.fix(root1, LATCH_EX) );
+    W_DO( root_page_2.fix(root2, LATCH_EX) );
+    
+    w_assert9( root_page_1.is_fixed() );
+    w_assert9( root_page_2.is_fixed() );
+
+    int level_1 = root_page_1.level();
+    int level_2 = root_page_2.level();
+    if( level_1 == 1 ) { // root1 is leaf, insert one-by-one to root2
+	for(int current_slot = 0; current_slot < root_page_1.nrecs(); current_slot++) {
+	    btrec_t rec(root_page_1, current_slot);
+	    // TODO: how to check when recs finish on the page
+	    W_DO( _insert(root2, unique, cc, rec.key(), rec.elem()) );
+	}
+    }
+    else if ( level_2 == 1 ) { // root2 is leaf, insert one-by-one to root1
+	for(int current_slot = 0; current_slot < root_page_2.nrecs(); current_slot++) {
+	    btrec_t rec(root_page_2, current_slot);
+	    // TODO: how to check when recs finish on the page
+	    W_DO( _insert(root1, unique, cc, rec.key(), rec.elem()) );
+	}
+    }
+    else if ( level_1 < level_2 ) { // root2 has a higher level than root1
+ 	                            // put root1 into appropriate slot in btree with root2
+	
+    }
+    else if ( level_2 < level_1 ) { // root1 has a higher level than root2
+	                            // put root2 into appropriate slot in btree with root1
+    }
+    else { // both btrees have the same height
+    }
+
+
+    root_page_1.unfix();
+    root_page_2.unfix();
+    
+    w_assert9( !root_page_1.is_fixed() );
+    w_assert9( !root_page_2.is_fixed() );
+
+    // TODO: check_latches
+
+    return RCOK;
+}
+// --
+
 /*********************************************************************
  *
  *  btree_impl::_alloc_page(root, level, near, ret_page, pid0,

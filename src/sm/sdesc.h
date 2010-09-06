@@ -57,7 +57,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#include "key_ranges_map.h"
+#include "ranges_p.h"
 
 /*
  * This file describes Store Descriptors (sdesc_t).  Store
@@ -200,7 +200,7 @@ public:
 	// TODO: here if _partitions aren't filled, fill it first
 	//       actually if _partitions aren't filled when this function is called
 	//       it means that no partitions from outside is made so we only have one subroot
-        _partitions(key, r);
+        _partitions.getPartitionByKey(key, r);
 	return r;
     }
     // --

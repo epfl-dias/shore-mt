@@ -698,7 +698,6 @@ btree_p::child(slotid_t slot) const
     return child;
 }
 
-
 // Stats on btree leaf pages
 rc_t
 btree_p::leaf_stats(btree_lf_stats_t& _stats)

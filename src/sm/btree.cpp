@@ -270,6 +270,87 @@ btree_m::insert(
     return  rc;
 }
 
+// -- mrbt
+/*********************************************************************
+ *
+ *  btree_m::split_tree(root_old, root_new, unique, cc, key)
+ *
+ *  Split from the root starting from the given key.
+ *  Just copy the slots from root_old that has a key value greater 
+ *  than the given key to the tree with root_new. 
+ *
+ *********************************************************************/
+rc_t
+btree_m::split_tree(
+    const lpid_t&        root_old,          // I-  root of btree
+    const lpid_t&        root_new,           // I- root of the new btree    
+    int                  nkc,
+    const key_type_s*    kc,
+    bool                 unique,            // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key)                // I-  which key
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree split " << root_old;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+    w_assert1(kc && nkc > 0);
+
+    rc_t rc;
+
+    cvec_t* real_key;
+    DBGTHRD(<<"");
+    // TODO: resolve this issue in ranges-map
+    W_DO(_scramble_key(real_key, key, nkc, kc));
+    DBGTHRD(<<"");
+    
+    rc = btree_impl::_split_tree(root_old, root_new, unique, cc, *real_key);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::merge_trees(root1, root2, unique, cc, key)
+ *
+ *  Merge two trees 
+ *
+ *********************************************************************/
+rc_t
+btree_m::merge_trees(
+    const lpid_t&        root1,          // I-  root of btree
+    const lpid_t&        root2,           // I- root of btree
+    bool                 unique,            // I-  true if tree is unique
+    concurrency_t        cc)                // I-  concurrency control 
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree merge roots " << root1 << " and " << root2;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    rc_t rc;
+    rc = btree_impl::_merge_trees(root1, root2, unique, cc);
+    
+    return  rc;
+}
+// --
+
 /*********************************************************************
  *
  *  btree_m::remove_key(root, unique, cc, key, num_removed)

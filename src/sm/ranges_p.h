@@ -21,7 +21,7 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
-/** @file:   key_ranges_map.h
+/** @file:   ranges_p.h
  *
  *  @brief:  Definition of the page type which is used to store the key ranges partitions
  *           used by baseline MRBTrees.
@@ -37,6 +37,12 @@
 #define RANGES_P_H
 
 #include "w_defines.h"
+
+#ifdef __GNUG__
+#pragma interface
+#endif
+
+#include "key_ranges_map.h"
 
 class ranges_p : public page_p {
 
@@ -80,8 +86,10 @@ rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 	root_vec.copy_to(root);
 	lpid_t root_id = *((lpid_t*)root);
 	free(root);
+	// TODO: this is not nice, make this proper
+	lpid_t dummy;
 	// add this pair to the partitions map
-	partitions.addPartition(key, root_id);
+	partitions.addPartition(key, root_id, dummy);
     }
 
     return RCOK;

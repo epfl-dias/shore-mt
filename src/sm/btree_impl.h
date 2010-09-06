@@ -82,6 +82,20 @@ class btree_impl : protected btree_m  {
 
 protected:
 
+    // -- mrbt
+    static rc_t                        _split_tree(
+        const lpid_t&                   root_old,
+	const lpid_t&                   root_new,
+        bool                            unique,
+        concurrency_t                   cc,
+        const cvec_t&                   key);
+    static rc_t                        _merge_trees(
+        const lpid_t&                   root1,
+	const lpid_t&                   root2,
+        bool                            unique,
+        concurrency_t                   cc);
+    // --
+
     static rc_t                        _alloc_page(
         const lpid_t&                     root,
         int2_t                             level,

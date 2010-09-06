@@ -61,7 +61,7 @@ function execute  {
                 exit 1
             fi
         else
-            print "failed to execute $1 ( $? )"
+	    print "failed to execute $1 ( $? )"
             exit 1
         fi
         cat $of >> $2
@@ -137,43 +137,43 @@ echo "---------------------------------------------------------"
 ## sort_stream test cannot diff with -out file because
 ## numbers will differ each time.  We just stuff the results
 ## into sort_stream-out
-execute "sort_stream -i " sort_stream-i-out
-execute "sort_stream " sort_stream-out
+#execute "sort_stream -i " sort_stream-i-out
+#execute "sort_stream " sort_stream-out
 
 echo "---------------------------------------------------------"
 echo "running lockid_test "
-execute "lockid_test " tmp-out lockid_test-out.`uname -m`
+#execute "lockid_test " tmp-out lockid_test-out.`uname -m`
 
 echo "---------------------------------------------------------"
 echo "running lock_cache_test "
 # this cannot use a results file b/c it's hash-dependent
 # both what fits and the order in which things appear.
-execute "lock_cache_test" tmp-out  
+#execute "lock_cache_test" tmp-out  
 
 echo "---------------------------------------------------------"
 echo "running startstop"
-execute "startstop" tmp-out
+#execute "startstop" tmp-out
 
 echo "---------------------------------------------------------"
 echo "running file_scan test"
-file_scan_test file_scan "-n $numrecs" "-n $numrecs"
+#file_scan_test file_scan "-n $numrecs" "-n $numrecs"
 echo "---------------------------------------------------------"
 echo "running file_scan_many test"
-file_scan_test file_scan_many "-t $numthreads -A -n $numrecs" "-t $numthreads"
+#file_scan_test file_scan_many "-t $numthreads -A -n $numrecs" "-t $numthreads"
 
 echo "---------------------------------------------------------"
 echo "running hash table tests"
 echo "NOTE : These hash table test can fail with diffs in"
 echo "       counters (based on build optimization level)"
 echo "---------------------------------------------------------"
-execute "htab -n 500 " tmp-out htab-n500-out
+#execute "htab -n 500 " tmp-out htab-n500-out
 # We are seeing slightly different performance statistics
 # here so we will remove the comparison with output file
 # for the moment.
 # execute "htab -n 10000 -R" tmp-out htab-n10000-R-out
 # execute "htab -n 100000 -R" tmp-out htab-n100000-R-out
-execute "htab -n 10000 -R" tmp-out  
-execute "htab -n 100000 -R" tmp-out 
+#execute "htab -n 10000 -R" tmp-out  
+#execute "htab -n 100000 -R" tmp-out 
 
 
 ##

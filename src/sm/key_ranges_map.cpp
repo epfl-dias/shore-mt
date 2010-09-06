@@ -246,16 +246,15 @@ uint key_ranges_map::_distributeSpace(const char* A,
  *
  ******************************************************************/
 
-w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& root)
+w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& oldRoot, lpid_t& newRoot)
 {
     w_rc_t r = RCOK;
 
     _rwlock.acquire_write();
     keysIter iter = _keyRangesMap.lower_bound(keyS);
     if (iter != _keyRangesMap.end()) {
-	root = lpid_t();
-	// TODO: call a function from shore to initialize lpid_t
-        _keyRangesMap[keyS] = root;
+	oldRoot = iter->second;
+	_keyRangesMap[keyS] = newRoot;
         _numPartitions++;
     }
     else {
@@ -266,11 +265,11 @@ w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& root)
     return (r);
 }
 
-w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& root)
+w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& oldRoot, lpid_t& newRoot)
 {
     char* keyS = (char*) malloc(key.size());
     key.copy_to(keyS);
-    return (_addPartition(keyS,root));
+    return (_addPartition(keyS, oldRoot, newRoot));
 }
 
 
