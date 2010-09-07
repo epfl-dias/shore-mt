@@ -77,10 +77,12 @@ include_HEADERS = \
 	lgrec.h lid.h \
 	lock.h lock_cache.h lock_core.h lock_s.h lock_s_inline.h lock_x.h \
 	log.h log_core.h partition.h logrec.h \
+	key_ranges_map.h \
 	page.h page_alias.h page_h.h page_s.h \
 	pin.h \
 	pmap.h \
 	prologue.h \
+	ranges_p.h \
 	restart.h restart_s.h \
 	rtree.h rtree_p.h \
 	scan.h sdesc.h \
@@ -108,7 +110,7 @@ libsm_a_SOURCES      =  \
 	dir.cpp \
 	file.cpp \
 	histo.cpp \
-	keyed.cpp zkeyed.cpp \
+	key_ranges_map.cpp keyed.cpp zkeyed.cpp \
 	lexify.cpp \
 	lgrec.cpp \
 	lid.cpp \
@@ -119,6 +121,7 @@ libsm_a_SOURCES      =  \
 	page.cpp \
 	pin.cpp \
 	pmap.cpp \
+	ranges_p.cpp \
 	restart.cpp \
 	rtree.cpp \
 	scan.cpp \

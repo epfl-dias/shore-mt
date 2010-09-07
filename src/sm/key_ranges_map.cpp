@@ -35,6 +35,15 @@
  *  @author: Ryan Johnson (ryanjohn)
  */
 
+//#include "w_defines.h"
+
+//#define SM_SOURCE
+//#define RANGESMAP_C
+
+//#ifdef __GNUG__
+//#           pragma implementation "key_ranges_map.h"
+//#endif
+
 
 #include "key_ranges_map.h"
 
@@ -72,7 +81,7 @@ key_ranges_map::~key_ranges_map()
     uint i=0;
     _rwlock.acquire_write();
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, ++i) {
-        TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
+        // TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
         free (iter->first);
     }
 
@@ -246,30 +255,29 @@ uint key_ranges_map::_distributeSpace(const char* A,
  *
  ******************************************************************/
 
-w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& oldRoot, lpid_t& newRoot)
+w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& newRoot)
 {
     w_rc_t r = RCOK;
 
     _rwlock.acquire_write();
     keysIter iter = _keyRangesMap.lower_bound(keyS);
     if (iter != _keyRangesMap.end()) {
-	oldRoot = iter->second;
 	_keyRangesMap[keyS] = newRoot;
         _numPartitions++;
     }
     else {
-        r = RC(_mrb_PARTITION_NOT_FOUND);
+        r = RC(mrb_PARTITION_NOT_FOUND);
     }
     _rwlock.release_write();
 
     return (r);
 }
 
-w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& oldRoot, lpid_t& newRoot)
+w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
 {
     char* keyS = (char*) malloc(key.size());
     key.copy_to(keyS);
-    return (_addPartition(keyS, oldRoot, newRoot));
+    return (_addPartition(keyS, newRoot));
 }
 
 
@@ -292,7 +300,7 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
 
     if(iter == _keyRangesMap.end()) {
 	// partition not found, return an error
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
     lpid_t root1 = iter->second;
     ++iter;
@@ -300,7 +308,7 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
 	--iter;
 	if(iter == _keyRangesMap.begin()) {
 	    // partition is the last partition, cannot be deleted
-	    return (RC(_mrb_LAST_PARTITION));
+	    return (RC(mrb_LAST_PARTITION));
 	}
 	lpid_t root2 = root1;
 	--iter;
@@ -318,12 +326,12 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
     return (r);
 }
 
-w_rc_t key_ranges_map::deletePartitionByKey(const Key& key)
+w_rc_t key_ranges_map::deletePartitionByKey(const Key& key, lpid_t& root)
 {
     w_rc_t r = RCOK;
     char* keyS = (char*) malloc(key.size());
     key.copy_to(keyS);
-    r = _deletePartitionByKey(keyS);
+    r = _deletePartitionByKey(keyS, root);
     free (keyS);
     return (r);
 }
@@ -344,9 +352,9 @@ w_rc_t key_ranges_map::deletePartition(lpid_t pid)
     _rwlock.release_read();
 
     if (bFound) {
-        r = _deletePartitionByKey(iter->first);
+        r = _deletePartitionByKey(iter->first, pid);
     } else {
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
 
     return (r);
@@ -371,17 +379,17 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
     free (keyS);
     if(iter == _keyRangesMap.end()) {
 	// the key is not in the map, returns error.
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
     pid = iter->second;
     _rwlock.release_read();
     return (RCOK);    
 }
 
-w_rc_t key_ranges_map::operator()(const Key& key, lpid_t& pid)
-{
-    return (getPartitionByKey(key,pid));
-}
+//w_rc_t key_ranges_map::operator()(const Key& key, lpid_t& pid)
+//{
+//    return (getPartitionByKey(key,pid));
+//}
 
 
 
@@ -402,7 +410,7 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
     
     if(key2 < key1) {
 	// return error if the bounds are not given correctly
-	return (RC(_mrb_KEY_BOUNDARIES_NOT_ORDERED));
+	return (RC(mrb_KEY_BOUNDARIES_NOT_ORDERED));
     }  
     char* key1S = (char*) malloc(key1.size());
     key1.copy_to(key1S);
@@ -414,7 +422,7 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
     keysIter iter2 = _keyRangesMap.lower_bound(key2S);
     if (iter1 == _keyRangesMap.end() || iter2 == _keyRangesMap.end()) {
 	// at least one of the keys is not in the map, returns error.
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
     while (iter1 != iter2) {
 	pidVec.push_back(iter1->second);
@@ -453,7 +461,7 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange)
     
     if(!bFound) {
 	// the pid is not in the map, returns error.
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
 
     // TODO: Not sure whether this is correct, should check
@@ -494,7 +502,7 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKe
     
     if(!bFound) {
 	// the pid is not in the map, returns error.
-	return (RC(_mrb_PARTITION_NOT_FOUND));
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
 
     // TODO: Not sure whether this is correct, should check
@@ -552,7 +560,7 @@ void key_ranges_map::printPartitions()
     uint i = 0;
     _rwlock.acquire_read();
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, i++) {
-        TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
+        // TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
     }
     _rwlock.release_read();
 }
@@ -597,7 +605,7 @@ char* key_ranges_map::getMaxKey() const
     return (_maxKey);
 }
 
-map<cvec_t, lpid_t> key_ranges_map::getMap() const
+map<char*, lpid_t, cmp_str_greater> key_ranges_map::getMap() const
 {
     return (_keyRangesMap);
 }
@@ -673,6 +681,8 @@ int main(void)
       cout << "[" << p.first << ", " << p.second << ")" << endl;
       cout << endl;
     */
+
     return 0;
 }
 #endif
+

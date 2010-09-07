@@ -60,7 +60,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_du_stats.h"
 #include "sm.h"
 // -- mrbt
-//#include "ranges_p.h"
+#include "ranges_p.h"
 // --
 
 /*==============================================================*
@@ -585,47 +585,39 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
     uint4_t count = max_keycomp;
     key_type_s kcomp[max_keycomp];
     lpid_t root;
+    lpid_t subroot;
 
     W_DO(key_type_s::parse_key_type(key_desc, count, kcomp));
-    {
-        DBG(<<"vid " << vid);
-        W_DO(io->create_store(vid, 100/*unused*/, _make_store_flag(property), stid));
-	DBG(<<" stid " << stid);
-    }
+     {
+	 DBG(<<"vid " << vid);
+	 W_DO(io->create_store(vid, 100/*unused*/, _make_store_flag(property), stid));
+	 DBG(<<" stid " << stid);
+     }
 
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
- 	   
-    // Note: theoretically, some other thread could destroy
-    //       the above store before the following lock request
-    //       is granted.  The only forseable way for this to
-    //       happen would be due to a bug in a vas causing
-    //       it to destroy the wrong store.  We make no attempt
-    //       to prevent this.
-    W_DO(lm->lock(stid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
-    if( (cc != t_cc_none) && (cc != t_cc_file) &&
-        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
-        (cc != t_cc_im)
-        ) return RC(eBADCCLEVEL);
+     // Note: theoretically, some other thread could destroy
+     //       the above store before the following lock request
+     //       is granted.  The only forseable way for this to
+     //       happen would be due to a bug in a vas causing
+     //       it to destroy the wrong store.  We make no attempt
+     //       to prevent this.
+     W_DO(lm->lock(stid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
 
-    switch (ntype)  {
-    case t_mrbtree:
-    case t_uni_mrbtree:
-	{
-	    // create the ranges_p
-	    W_DO(io->alloc_a_page(stid, lpid_t::eof, root, true, IX, true));
-	    ranges_p page;
-	    W_DO(page.fix(root, LATCH_EX, page.t_virgin));
-	    // create one subtree initially
-	    lpid_t subroot;
-	    //compress prefixes only if the first part is compressed
-	    W_DO(bt->create(stid, subroot, kcomp[0].compressed != 0));
-	    // add subtree to ranges 
-	    int i = 0;
-	    cvec_t startKey(&i, sizeof(i));
-	    page.add_partition(startKey, subroot);
-	    break;
-	}
+     if( (cc != t_cc_none) && (cc != t_cc_file) &&
+	 (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+	 (cc != t_cc_im)
+	 ) return RC(eBADCCLEVEL);
+
+     switch (ntype)  {
+     case t_mrbtree:
+     case t_uni_mrbtree:
+	 // create one subtree initially
+	 //compress prefixes only if the first part is compressed
+	 W_DO( bt->create(stid, subroot, kcomp[0].compressed != 0) );
+	 // create the ranges_p
+	 W_DO( ra->create(stid, root, subroot) );
+	 break;
     default:
         return RC(eBADNDXTYPE);
     }
@@ -1011,11 +1003,11 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         return RC(eBADNDXTYPE);
     case t_uni_mrbtree:
     case t_mrbtree:
-        W_DO(bt->lookup(sd->root(key), 
-			sd->sinfo().nkc, sd->sinfo().kc,
-			sd->sinfo().ntype == t_uni_btree,
-			cc,
-			key, el, elen, found) );
+        //W_DO(bt->lookup(sd->root(key), 
+	//		sd->sinfo().nkc, sd->sinfo().kc,
+	//		sd->sinfo().ntype == t_uni_btree,
+	//		cc,
+	//		key, el, elen, found) );
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -1046,6 +1038,7 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     // TODO: might give an error here if some partitions already exists
+    //       this should only be called initially, no assocs in the index yet
   
     bool isCompressed = sinfo.kc[0].compressed != 0;
     for(uint i=0; i<numParts; i++) {
@@ -1057,13 +1050,9 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
 
     // update the ranges page which keeps the partition info
-    ranges_p page;
-    W_DO(page.fix(sd->root(), LATCH_EX));
-    page.fill_page(sd->partitions());
-    
-    W_DO(xct_auto.commit());	     
+    W_DO( ra->fill_page(sd->root(), sd->partitions()) );
 
-    // TODO: btree update
+    W_DO(xct_auto.commit());
 
     return RCOK;    
 }
@@ -1087,20 +1076,17 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
-
-    sd->partitions().addPartition(key, root_old, root_new);
-
-    // update the ranges page which keeps the partition info
-    ranges_p page;
-    W_DO(page.fix(sd->root(), LATCH_EX));
-    page.add_partition(key, root_new);
     
-    // split the btree TODO: decide on concurrency_t (none or like in create_assoc?)
-    W_DO(bt->split_tree(root_old, root_new, 
+    // split the btree TODO: decide on concurrency_t (should be like in create_assoc for dora?)
+    W_DO(bt->split_tree(sd->root(key), root_new, 
 			sinfo.nkc, sinfo.kc, 
 			sinfo.ntype == t_uni_mrbtree, 
-			t_cc_none, key));
+			(concurrency_t)sinfo.cc, key));
 
+    // update the ranges page & key_ranges_map which keeps the partition info
+    W_DO( sd->partitions().addPartition(key, root_new) );    
+    W_DO( ra->add_partition(sd->root(), key, root_new) );
+    
     W_DO(xct_auto.commit());	     
 
     return RCOK;    
@@ -1123,20 +1109,13 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    W_DO(bt->create(stid, root, sinfo.kc[0].compressed != 0));
+    // TODO: update the tree  
 
-    // TODO: since you protect this by a lock from above do you actually need to use one insede
-    //       keyranges map?
-    sd->partitions().deletePartitionByKey(key, root);
-    // update the ranges page which keeps the partition info
-    ranges_p page;
-    W_DO(page.fix(sd->root(), LATCH_EX));
-    page.delete_partition(key, root);
+    // update the ranges page & key_ranges_map which keeps the partition info
+    W_DO( sd->partitions().deletePartitionByKey(key, root) );
+    W_DO( ra->delete_partition(sd->root(), key, root) );
     
-
     W_DO(xct_auto.commit());	     
-
-    // TODO: decide how to handle the tree  
     
     return RCOK;    
 }

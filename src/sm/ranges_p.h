@@ -44,6 +44,21 @@
 
 #include "key_ranges_map.h"
 
+class ranges_m : public smlevel_2 {
+
+public:
+  
+    NORET                        ranges_m()   {};
+    NORET                        ~ranges_m()  {};
+
+    static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
+    static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
+    static rc_t delete_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
+    static rc_t fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions);
+    static rc_t fill_page(const lpid_t& pid, key_ranges_map& partitions);
+
+};
+
 class ranges_p : public page_p {
 
 public:
@@ -57,100 +72,11 @@ public:
     rc_t fill_page(key_ranges_map& partitions);    
 
     // stores the newly added partition info
-    rc_t add_partition(cvec_t& key, lpid_t root);
+    rc_t add_partition(cvec_t& key, const lpid_t& root);
 
     // deletes the newly deleted partition
-    rc_t delete_partition(cvec_t& key, lpid_t root);
+    rc_t delete_partition(cvec_t& key, const lpid_t& root);
 
 };
 
-rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
-{
-    // get the contents of the header
-    char* hdr_ptr = (char*) page_p::tuple_addr(0);
-    char* hdr = (char*) malloc(sizeof(int));
-    memcpy(hdr_ptr, hdr, sizeof(int));
-    uint4_t num_pairs = *((uint4_t*)hdr);
-    free(hdr);
-    //
-    for(uint4_t i=1; i < num_pairs; i++) {
-	// get the contents of the slot
-	char* pair = (char*) page_p::tuple_addr(i);
-	cvec_t pair_vec;
-	pair_vec.put(pair, page_p::tuple_size(i));
-	// split it to its key-root parts
-	cvec_t root_vec;
-	cvec_t key;
-	pair_vec.split(sizeof(lpid_t), root_vec, key);
-	char* root = (char*) malloc(sizeof(lpid_t));
-	root_vec.copy_to(root);
-	lpid_t root_id = *((lpid_t*)root);
-	free(root);
-	// TODO: this is not nice, make this proper
-	lpid_t dummy;
-	// add this pair to the partitions map
-	partitions.addPartition(key, root_id, dummy);
-    }
-
-    return RCOK;
-}
-
-rc_t ranges_p::fill_page(key_ranges_map& partitions)
-{
-    key_ranges_map::keysIter iter;
-    map<char*, lpid_t, cmp_str_greater> partitions_map = partitions.getMap();
-    uint4_t i = 1;
-    for(iter = partitions_map.begin(); iter != partitions_map.end(); iter++, i++) {
-	cvec_t v;
-	// put subroot
-	char* subroot = (char*)(&(iter->second));
-	v.put(subroot, sizeof(lpid_t));
-	// put key
-	v.put(iter->first, sizeof(iter->first));
-	// add this key-subroot pair to page's data
-	W_DO(page_p::splice(i, 0, v.size(), v));
-    }
-    // header of the page keeps how many startKey-root pairs are stored
-    cvec_t hdr;
-    hdr.put((char*)(&i), sizeof(uint4_t));
-    W_DO(page_p::overwrite(0, 0, hdr));
-
-    return RCOK;
-}
-
-rc_t ranges_p::add_partition(cvec_t& key, lpid_t root) 
-{    
-    // TODO: you can perform header related stuff as seperate private functions
-    // get the contents of the header
-    char* hdr_ptr = (char*) page_p::tuple_addr(0);
-    char* old_hdr = (char*) malloc(sizeof(int));
-    memcpy(hdr_ptr, old_hdr, sizeof(int));
-    uint4_t num_pairs = *((uint4_t*)old_hdr);
-    free(old_hdr);
-
-    // update header
-    num_pairs++;
-
-    // add the partition
-    cvec_t v;
-    // put subroot
-    char* subroot = (char*)(&root);
-    v.put(subroot, sizeof(lpid_t));
-    // put key
-    v.put(key);
-    // add this key-subroot pair to page's data
-    W_DO(page_p::splice(num_pairs, 0, v.size(), v));
-
-    cvec_t hdr;
-    hdr.put((char*)(&num_pairs), sizeof(uint4_t));
-    W_DO(page_p::overwrite(0, 0, hdr));
-
-    return RCOK;
-}
-
-rc_t ranges_p::delete_partition(cvec_t& key, lpid_t root)
-{
-    // TODO: implement
-    return RCOK;
-}
 #endif

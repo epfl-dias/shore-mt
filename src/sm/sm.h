@@ -460,6 +460,9 @@ class option_t;
 class prologue_rc_t;
 class rtree_m;
 class sort_stream_i;
+// -- mrbt
+class ranges_m;
+// --
 
 /**\addtogroup SSMSP  
  * A transaction may perform a partial rollback using savepoints.

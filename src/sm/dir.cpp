@@ -73,7 +73,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btcursor.h"  
 
 // -- mrbt
-//#include "ranges_p.h"
+#include "ranges_p.h"
 // --
 
 #ifdef EXPLICIT_TEMPLATE
@@ -838,11 +838,12 @@ sdesc_t::operator=(const sdesc_t& other)
         DBGTHRD(<<"copying sdesc_t");
         add_store_utilization(other._histoid->copy());
     }
+
     return *this;
 } 
 
 // -- mrbt
-inline key_ranges_map& sdesc_t::partitions()
+key_ranges_map& sdesc_t::partitions()
 {
     if(!_partitions_filled) {
 	fill_partitions_map();
@@ -853,21 +854,14 @@ inline key_ranges_map& sdesc_t::partitions()
 
 rc_t sdesc_t::fill_partitions_map() 
 {
-    ranges_p p;
-    // TODO: check latching
-    W_DO(p.fix(root(), LATCH_EX));
-    p.fill_ranges_map(_partitions);
-
+    W_DO( ranges_m::fill_ranges_map(root(), _partitions) );
     return RCOK;
 }
 
 rc_t sdesc_t::store_partitions()
 {
-    ranges_p p;
-    // TODO: check latching
-    W_DO(p.fix(root(), LATCH_EX));
-    p.fill_page(_partitions);
-    
+    W_DO( ranges_m::fill_page(root(), _partitions) );
     return RCOK;
 }
+
 // --

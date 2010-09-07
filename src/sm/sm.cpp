@@ -222,6 +222,10 @@ chkpt_m* smlevel_1::chkpt = 0;
 btree_m* smlevel_2::bt = 0;
 file_m* smlevel_2::fi = 0;
 rtree_m* smlevel_2::rt = 0;
+// -- mrbt
+ranges_m* smlevel_2::ra = 0;
+// --
+
 
 dir_m* smlevel_3::dir = 0;
 
@@ -873,6 +877,13 @@ ss_m::_construct_once(
         W_FATAL(eOUTOFMEMORY);
     }
 
+    // -- mrbt
+    ra = new ranges_m;
+    if (! ra) {
+        W_FATAL(eOUTOFMEMORY);
+    }
+    // --
+
     DBG(<<"Level 3");
     /*
      *  Level 3
@@ -1126,6 +1137,9 @@ ss_m::_destruct_once()
     /*
      *  Level 2
      */
+    // -- mrbt
+    delete ra; ra = 0; // partitions manager
+    // --
     delete rt; rt = 0; // rtree manager
     delete fi; fi = 0; // file manager : log is still running
     delete bt; bt = 0; // btree manager

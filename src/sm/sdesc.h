@@ -57,7 +57,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
-#include "ranges_p.h"
+#include "key_ranges_map.h"
 
 /*
  * This file describes Store Descriptors (sdesc_t).  Store
@@ -168,6 +168,12 @@ class sdesc_t {
     friend class append_file_i;
     friend class sdesc_cache_t;
 
+    // -- mrbt
+private:
+    key_ranges_map _partitions;
+    bool _partitions_filled;
+    // --
+
 public:
     typedef smlevel_0::store_t store_t;
 
@@ -194,13 +200,10 @@ public:
     }
 
     // -- mrbt
-    inline 
+    inline
     const lpid_t        root(cvec_t& key) {
 	lpid_t r;
-	// TODO: here if _partitions aren't filled, fill it first
-	//       actually if _partitions aren't filled when this function is called
-	//       it means that no partitions from outside is made so we only have one subroot
-        _partitions.getPartitionByKey(key, r);
+	_partitions.getPartitionByKey(key, r);
 	return r;
     }
     // --
@@ -236,11 +239,6 @@ protected:
 
 private:
     NORET sdesc_t(const sdesc_t&) {}; // disabled
-
-    // -- mrbt
-    key_ranges_map _partitions;
-    bool _partitions_filled;
-    // --
 
     // _sinfo is a cache of persistent info stored in directory index
     sinfo_s                _sinfo;

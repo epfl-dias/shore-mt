@@ -39,6 +39,8 @@
 #ifndef _KEY_RANGES_MAP_H
 #define _KEY_RANGES_MAP_H
 
+#include "w_defines.h"
+
 #include <iostream>
 #include <cstring> 
 #include <map>
@@ -47,11 +49,15 @@
 
 #include <math.h>
 
-//#include "util.h"
+#include <sm_int_2.h>
 
-//#include "sm_vas.h"
+#ifndef SM_S_H
+#include <sm_s.h> // for lpid_t
+#endif
 
-#include "w_defines.h"
+#ifdef __GNUG__  
+#pragma interface
+#endif 
 
 using namespace std;
 
@@ -93,6 +99,10 @@ struct cmp_str_greater
  *
  ********************************************************************/
 
+//class lpid_t;
+class cvec_t;
+class w_rc_t;
+
 class key_ranges_map
 {
 private:
@@ -112,7 +122,7 @@ protected:
 
     // Splits the partition where "key" belongs to two partitions. The start of 
     // the second partition is the "key".
-    virtual w_rc_t _addPartition(char* keyS, lpid_t& oldRoot, lpid_t& newRoot);
+    virtual w_rc_t _addPartition(char* keyS, lpid_t& newRoot);
 
     // Delete the partition where "key" belongs, by merging it with the 
     // previous partition
@@ -126,7 +136,7 @@ public:
     // Calls one of the initialization functions
     key_ranges_map();
     key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts);
-    virtual ~key_ranges_map();
+    virtual~key_ranges_map();
 
 
     ////  Initialization ////
@@ -141,7 +151,7 @@ public:
 
     // Splits the partition where "key" belongs to two partitions. The start of 
     // the second partition is the "key".
-    w_rc_t addPartition(const Key& key, lpid_t& oldRoot, lpid_t& newRoot);
+    w_rc_t addPartition(const Key& key, lpid_t& newRoot);
 
     // Deletes the partition where "key" belongs by merging it with the previous 
     // partition
@@ -157,7 +167,7 @@ public:
     //        by the lpid_t of the root of the corresponding sub-tree. In the 
     //        DORA version each partition can also be identified by a partition-id 
     w_rc_t getPartitionByKey(const Key& key, lpid_t& pid);
-    w_rc_t operator()(const Key& key, lpid_t& pid);
+    // w_rc_t operator()(const Key& key, lpid_t& pid);
 
     // Returns the list of partitions that cover: 
     // [key1, key2], (key1, key2], [key1, key2), or (key1, key2) ranges
