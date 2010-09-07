@@ -44,21 +44,6 @@
 
 #include "key_ranges_map.h"
 
-class ranges_m : public smlevel_2 {
-
-public:
-  
-    NORET                        ranges_m()   {};
-    NORET                        ~ranges_m()  {};
-
-    static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
-    static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
-    static rc_t delete_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
-    static rc_t fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions);
-    static rc_t fill_page(const lpid_t& pid, key_ranges_map& partitions);
-
-};
-
 class ranges_p : public page_p {
 
 public:
@@ -76,6 +61,21 @@ public:
 
     // deletes the newly deleted partition
     rc_t delete_partition(cvec_t& key, const lpid_t& root);
+
+};
+
+class ranges_m : public smlevel_2 {
+
+public:
+  
+    NORET                        ranges_m()   {};
+    NORET                        ~ranges_m()  {};
+
+    static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
+    static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
+    static rc_t delete_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
+    static rc_t fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions);
+    static rc_t fill_page(const lpid_t& pid, key_ranges_map& partitions);
 
 };
 

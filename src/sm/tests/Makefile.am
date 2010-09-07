@@ -36,7 +36,8 @@ check_PROGRAMS     = file_scan$(EXEEXT) \
 		    lock_cache_test$(EXEEXT) \
 		    vtable_example$(EXEEXT) \
 		    rtree_example$(EXEEXT) \
-		    htab$(EXEEXT) 
+		    htab$(EXEEXT) \
+		    multi_rooted_btrees_test$(EXEEXT)
 
 TESTS = testall
 
@@ -50,7 +51,7 @@ sort_stream_SOURCES      = sort_stream.cpp init_config_options.cpp
 log_exceed_SOURCES      = log_exceed.cpp init_config_options.cpp 
 vtable_example_SOURCES      = vtable_example.cpp init_config_options.cpp 
 rtree_example_SOURCES      = rtree_example.cpp init_config_options.cpp 
-
+multi_rooted_btrees_test_SOURCES      = multi_rooted_btrees_test.cpp init_config_options.cpp 
 htab_SOURCES      = htab.cpp
 
 LDADD      = \

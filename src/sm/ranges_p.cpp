@@ -96,6 +96,8 @@ rc_t ranges_m::fill_page(const lpid_t& pid, key_ranges_map& partitions)
     return RCOK;
 }
 
+MAKEPAGECODE(ranges_p, page_p)
+
 rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 {
     // get the contents of the header
@@ -183,3 +185,25 @@ rc_t ranges_p::delete_partition(cvec_t& key, const lpid_t& root)
     // TODO: implement
     return RCOK;
 }
+
+rc_t ranges_p::format(const lpid_t& pid, tag_t tag, uint4_t flags, 
+		      store_flag_t store_flags)
+{
+    // TODO: determine what this function should do
+
+    w_assert3(tag == t_ranges_p);
+
+    /* first, don't log it */
+    W_DO( page_p::_format(pid, tag, flags, store_flags) );
+
+    // always set the store_flag here -- see comments 
+    // in bf::fix(), which sets the store flags to st_regular
+    // for all pages, and lets the type-specific store manager
+    // override (because only file pages can be insert_file)
+    //
+    // persistent_part().set_page_storeflags(store_flags);
+    this->set_store_flags(store_flags); // through the page_p, through the bfcb_t
+
+    return RCOK;
+}
+
