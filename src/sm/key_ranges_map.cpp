@@ -37,12 +37,9 @@
 
 //#include "w_defines.h"
 
-//#define SM_SOURCE
-//#define RANGESMAP_C
-
-//#ifdef __GNUG__
-//#           pragma implementation "key_ranges_map.h"
-//#endif
+#ifdef __GNUG__
+#           pragma implementation "key_ranges_map.h"
+#endif
 
 
 #include "key_ranges_map.h"
@@ -63,13 +60,20 @@ key_ranges_map::key_ranges_map()
 
 key_ranges_map::key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts)
 {
-    // TODO: call a function that makes sure that no such store exists 
-    
-    // TODO: create a store
+    // IP: call a function that makes sure that no such store exists
+    //     create a store
+    // pin: this is only called due to a request to an existing store so we don't
+    //      have to check for this
     
     // Calls the default initialization. 
-    //TODO: this shouldn't be how we do this
+    // pin: this shouldn't be how we do this, the map should be initialized by a
+    //      default key value and the request to makeEqualPartitions should be made
+    //      explicitly and for only initialization
+    //      the checks that would control these constraints should be in SM-API call
+    //      make_equal_partitions
+    //      so i actually want to completely remove this constructor. =)
     // _numPartitions = makeEqualPartitions(minKey,maxKey,numParts);
+
     fprintf (stdout, "%d partitions created", _numPartitions);
 }
 
@@ -79,15 +83,21 @@ key_ranges_map::~key_ranges_map()
     // Delete the allocated keys in the map
     keysIter iter;
     uint i=0;
+
     _rwlock.acquire_write();
+
+    DBG(<<"Destroying the ranges map: ");
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, ++i) {
-        // TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
+        DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << lpid_t << ")");
         free (iter->first);
     }
 
     // Delete the boundary keys
-    free (_minKey);
-    free (_maxKey);
+    if(_minKey != NULL)
+	free (_minKey);
+    if(_maxKey != NULL)
+	free (_maxKey);
+
     _rwlock.release_write();    
 }
 
@@ -107,13 +117,9 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
 {
     assert (minKey<=maxKey);
 
-    // TODO: make sure that the store does not have any entries (isClean())
-    // pinar: i thought this function can be called when we want to have equal partitions from
-    //        scratch without caring about already existing partitions. it will be like restart.
-    //        first delete all the partitions and recreate them.
-    //        otherwise, we can turn this into a private function that is called by the constructor
-    //        so the store will be clean.
-
+    // IP: make sure that the store does not have any entries (isClean())
+    // pin: the check for this should be in SM-API call make_equal_partitions
+    
     _rwlock.acquire_write();
 
     // Set min/max keys
@@ -260,14 +266,16 @@ w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& newRoot)
     w_rc_t r = RCOK;
 
     _rwlock.acquire_write();
-    keysIter iter = _keyRangesMap.lower_bound(keyS);
-    if (iter != _keyRangesMap.end()) {
+
+    if ( (_minKey == NULL || strcmp(_minKey, keyS) <= 0) &&
+	 (_maxKey == NULL || strcmp(keyS, _maxKey) <= 0) ) {
 	_keyRangesMap[keyS] = newRoot;
         _numPartitions++;
     }
     else {
-        r = RC(mrb_PARTITION_NOT_FOUND);
+        r = RC(mrb_OUT_OF_BOUNDS);
     }
+
     _rwlock.release_write();
 
     return (r);
@@ -296,6 +304,7 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
     w_rc_t r = RCOK;
 
     _rwlock.acquire_write();
+
     keysIter iter = _keyRangesMap.lower_bound(keyS);
 
     if(iter == _keyRangesMap.end()) {
@@ -321,6 +330,7 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
     root = iter->second;
     _keyRangesMap.erase(iter);
     _numPartitions--;
+
     _rwlock.release_write();
 
     return (r);
@@ -385,12 +395,6 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
     _rwlock.release_read();
     return (RCOK);    
 }
-
-//w_rc_t key_ranges_map::operator()(const Key& key, lpid_t& pid)
-//{
-//    return (getPartitionByKey(key,pid));
-//}
-
 
 
 /****************************************************************** 
@@ -464,10 +468,9 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange)
 	return (RC(mrb_PARTITION_NOT_FOUND));
     }
 
-    // TODO: Not sure whether this is correct, should check
     keyRange.first.put(iter->first, sizeof(iter->first));
     iter++;
-    if(iter == _keyRangesMap.end()) { 
+    if(iter == _keyRangesMap.end() && _maxKey != NULL) { 
         // check whether it is the last range
 	keyRange.second.put(_maxKey, sizeof(_maxKey));
     }
@@ -505,10 +508,9 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKe
 	return (RC(mrb_PARTITION_NOT_FOUND));
     }
 
-    // TODO: Not sure whether this is correct, should check
     startKey.set(iter->first, sizeof(iter->first));
     iter++;
-    if(iter == _keyRangesMap.end()) { 
+    if(iter == _keyRangesMap.end() && _maxKey != NULL) { 
         // check whether it is the last range
 	endKey.set(_maxKey, sizeof(_maxKey));
     }
@@ -559,14 +561,17 @@ void key_ranges_map::printPartitions()
     keysIter iter;
     uint i = 0;
     _rwlock.acquire_read();
+    DBG(<<"Printing ranges map: ");
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, i++) {
-        // TRACE( TRACE_DEBUG, "Partition %d\tStart (%s)\n", i, iter->first);
+	DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << lpid_t << ")");
     }
     _rwlock.release_read();
 }
 
 void key_ranges_map::setNumPartitions(uint numPartitions)
 {
+    // pin: we do not actually need this function
+    //      how to adjust the partitions is ambiguous
     _rwlock.acquire_write();
     _numPartitions = numPartitions;
     _rwlock.release_write();
@@ -574,19 +579,45 @@ void key_ranges_map::setNumPartitions(uint numPartitions)
 
 void key_ranges_map::setMinKey(const Key& minKey)
 {  
+    // pin: not sure who is going to use this function
+    
     _rwlock.acquire_write();
+
+    // update the minKey
+    if(_minKey == NULL) {
+	_minKey = (char*) malloc(minKey.size()); 
+    }
     minKey.copy_to(_minKey);
-    keysIter iter = _keyRangesMap.end();
-    iter--;
+
+    // insert the new minKey
+    keysIter iter = _keyRangesMap.lower_bound(_minKey);
+    if(iter == _keyRangesMap.end()) {
+	iter--;
+    }
     _keyRangesMap[_minKey] = iter->second;
-    _keyRangesMap.erase(iter);
+
+    // delete the partitions that has lower key values than the new minKey
+    _keyRangesMap.erase(iter, _keyRangesMap.end());
+
     _rwlock.release_write();
 }
 
 void key_ranges_map::setMaxKey(const Key& maxKey)
 {
+    // pin: not sure who is going to use this function
+
     _rwlock.acquire_write();
+
+    // update the maxKey
+    if(_maxKey == NULL) {
+	_maxKey = (char*) malloc(maxKey.size()); 
+    }
     maxKey.copy_to(_maxKey);
+
+    // delete the partitions that has higher key values than the new maxKey
+    keysIter iter = _keyRangesMap.lower_bound(_maxKey);
+    _keyRangesMap.erase(_keyRangesMap.begin(), iter);
+
     _rwlock.release_write();
 }
 
@@ -597,11 +628,13 @@ uint key_ranges_map::getNumPartitions() const
 
 char* key_ranges_map::getMinKey() const
 {
+    assert(_minKey);
     return (_minKey);
 }
 
 char* key_ranges_map::getMaxKey() const
 {
+    assert(_maxKey);
     return (_maxKey);
 }
 
@@ -613,7 +646,6 @@ map<char*, lpid_t, cmp_str_greater> key_ranges_map::getMap() const
 #if 0
 int main(void)
 {
-    // TODO: update the test
     /*
       cout << "key_ranges_map(10, 100, 10)" << endl;
       key_ranges_map* KeyMap = new key_ranges_map(10, 100, 10);

@@ -130,7 +130,7 @@ echo blowing away log and volumes
 ## create_rec tests cannot diff with -out file because
 ## numbers will differ each time.  We just stuff the results
 ## into create_rec-out
-execute "create_rec -i " create_rec-out
+#execute "create_rec -i " create_rec-out
 
 echo "---------------------------------------------------------"
 ##
@@ -191,5 +191,5 @@ echo "---------------------------------------------------------"
 
 echo "---------------------------------------------------------"
 echo "running multi-rooted btrees tests"
-execute "multi_rooted_btrees_test" multi-rooted-out
+execute "multi_rooted_btrees_test -i " multi-rooted-out
 

@@ -71,7 +71,8 @@ using namespace std;
 enum {
     mrb_PARTITION_NOT_FOUND    = 0x830001,
     mrb_LAST_PARTITION    = 0x830002,
-    mrb_KEY_BOUNDARIES_NOT_ORDERED    = 0x830003
+    mrb_KEY_BOUNDARIES_NOT_ORDERED    = 0x830003,
+    mrb_OUT_OF_BOUNDS    = 0x830004
 };
 
 
@@ -98,10 +99,6 @@ struct cmp_str_greater
  *         this implementation is for the Baseline MRBTree (non-DORA).
  *
  ********************************************************************/
-
-//class lpid_t;
-class cvec_t;
-class w_rc_t;
 
 class key_ranges_map
 {
@@ -136,7 +133,7 @@ public:
     // Calls one of the initialization functions
     key_ranges_map();
     key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts);
-    virtual~key_ranges_map();
+    virtual ~key_ranges_map();
 
 
     ////  Initialization ////
@@ -167,8 +164,7 @@ public:
     //        by the lpid_t of the root of the corresponding sub-tree. In the 
     //        DORA version each partition can also be identified by a partition-id 
     w_rc_t getPartitionByKey(const Key& key, lpid_t& pid);
-    // w_rc_t operator()(const Key& key, lpid_t& pid);
-
+    
     // Returns the list of partitions that cover: 
     // [key1, key2], (key1, key2], [key1, key2), or (key1, key2) ranges
     w_rc_t getPartitions(const Key& key1, bool key1Included,
@@ -185,9 +181,6 @@ public:
     w_rc_t getBoundariesVec(vector< pair<char*,char*> >& keyBoundariesVec);
 
     // Setters
-    // TODO: decide what to do after you set these values, what seems reasonable to me
-    // is change the partition structure as less as possible because later with dynamic load
-    // balancing things should adjust properly, also check the corner cases for min&max kes
     void setNumPartitions(uint numPartitions);
     void setMinKey(const Key& minKey);
     void setMaxKey(const Key& maxKey);

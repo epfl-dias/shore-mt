@@ -1113,7 +1113,7 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 
     // update the ranges page & key_ranges_map which keeps the partition info
     W_DO( sd->partitions().deletePartitionByKey(key, root) );
-    W_DO( ra->delete_partition(sd->root(), key, root) );
+    W_DO( ra->delete_partition(sd->root(), root) );
     
     W_DO(xct_auto.commit());	     
     

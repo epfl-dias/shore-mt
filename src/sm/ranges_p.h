@@ -50,7 +50,7 @@ public:
 
     MAKEPAGE(ranges_p, page_p, 1); 
 
-    // forms the key_ranges_map from the partitions_pairs kept in this page
+    // forms the key_ranges_map from the partitions' info kept in this page
     rc_t fill_ranges_map(key_ranges_map& partitions);
     
     // stores the partitions' info from key_ranges_map in this page
@@ -60,10 +60,16 @@ public:
     rc_t add_partition(cvec_t& key, const lpid_t& root);
 
     // deletes the newly deleted partition
-    rc_t delete_partition(cvec_t& key, const lpid_t& root);
+    rc_t delete_partition(const lpid_t& root);
 
+    // pin: the header of this page keeps the info about how many slots this
+    //      page used up to know. some of these slots might be empty
+    //      because when a delete call is made it just marks the slot as free
+    //      and the new slots are always reclaimed.
+    //      so the header of this page shouldn't be taken as number of partitions
 };
 
+// calls to ranges_p are made through ranges_m
 class ranges_m : public smlevel_2 {
 
 public:
@@ -73,7 +79,7 @@ public:
 
     static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
     static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
-    static rc_t delete_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
+    static rc_t delete_partition(const lpid_t& pid, const lpid_t& root);
     static rc_t fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions);
     static rc_t fill_page(const lpid_t& pid, key_ranges_map& partitions);
 
