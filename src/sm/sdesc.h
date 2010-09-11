@@ -203,7 +203,7 @@ public:
     inline
     const lpid_t        root(cvec_t& key) {
 	lpid_t r;
-	_partitions.getPartitionByKey(key, r);
+	partitions().getPartitionByKey(key, r);
 	return r;
     }
     // --
