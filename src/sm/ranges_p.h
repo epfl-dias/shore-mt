@@ -62,6 +62,9 @@ public:
     // deletes the newly deleted partition
     rc_t delete_partition(const lpid_t& root);
 
+    // for the first partition, to initialize the header properly to 1
+    rc_t add_default_partition(cvec_t& key, const lpid_t& root);
+
     // pin: the header of this page keeps the info about how many slots this
     //      page used up to know. some of these slots might be empty
     //      because when a delete call is made it just marks the slot as free
