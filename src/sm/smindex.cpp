@@ -579,6 +579,8 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 			    stid_t&                 stid
 			    )
 {
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
     FUNC(ss_m::_create_mr_index);
 
     DBG(<<" vid " << vid);
@@ -587,6 +589,7 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
     lpid_t root;
     lpid_t subroot;
 
+    
     W_DO(key_type_s::parse_key_type(key_desc, count, kcomp));
      {
 	 DBG(<<"vid " << vid);
@@ -594,7 +597,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 DBG(<<" stid " << stid);
      }
 
-     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
      // Note: theoretically, some other thread could destroy
      //       the above store before the following lock request
@@ -612,11 +614,14 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
      switch (ntype)  {
      case t_mrbtree:
      case t_uni_mrbtree:
+	    
 	 // create one subtree initially
 	 //compress prefixes only if the first part is compressed
 	 W_DO( bt->create(stid, subroot, kcomp[0].compressed != 0) );
+
 	 // create the ranges_p
 	 W_DO( ra->create(stid, root, subroot) );
+
 	 break;
     default:
         return RC(eBADNDXTYPE);
@@ -1022,6 +1027,8 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 				 cvec_t& maxKey, uint numParts)
 {
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
     FUNC(ss_m::_make_equal_partitions);
 
     DBG(<<" stid " << stid);
@@ -1029,8 +1036,6 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
    
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
@@ -1059,6 +1064,8 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 
 rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
 {
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
     FUNC(ss_m::_add_partition);
 
     DBG(<<" stid " << stid);
@@ -1067,9 +1074,7 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-    
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-    
+        
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
@@ -1094,6 +1099,8 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
 
 rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 {
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
     FUNC(ss_m::_delete_partition);
 
     DBG(<<" stid " << stid);
@@ -1101,9 +1108,7 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-    
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-   
+       
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
