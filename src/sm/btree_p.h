@@ -140,6 +140,7 @@ public:
     int                    level,
     shpid_t                pid0,
     uint2_t                flags);
+    rc_t             set_root(shpid_t root);
     rc_t             set_pid0(shpid_t pid);
 
     rc_t             set_delete();

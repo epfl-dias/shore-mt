@@ -599,6 +599,7 @@ btree_impl::_merge_trees(
 	}
 	else W_DO( root_page_2.insert(startKey1, elem_to_insert, 0, root1.page) );
 	root = root2;
+	root_page_1.set_root(root.page);
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
@@ -619,6 +620,7 @@ btree_impl::_merge_trees(
 	}
 	else W_DO( root_page_1.insert(startKey2, elem_to_insert, root_page_1.nrecs(), root2.page) );
 	root = root1;
+	root_page_2.set_root(root.page);
     }
     else { // both btrees have the same height
 	   // create new root
@@ -627,7 +629,8 @@ btree_impl::_merge_trees(
 	W_DO( new_root_page.fix(root, LATCH_EX) );
 	W_DO( new_root_page.insert(startKey1, elem_to_insert, 0, root1.page) );
 	W_DO( new_root_page.insert(startKey2, elem_to_insert, 1, root2.page) );
-	// TODO: update the root for root_page1&2
+	root_page_1.set_root(root.page);
+	root_page_2.set_root(root.page);
     }
 
     root_page_1.unfix();

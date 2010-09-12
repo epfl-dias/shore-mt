@@ -394,8 +394,20 @@ btree_p::set_hdr(shpid_t root, int l, shpid_t pid0, uint2_t flags)
     return RCOK;
 }
 
-
-
+/*********************************************************************
+ *
+ *  btree_p::set_root(root)
+ *
+ *  Set the root field in header to "root".
+ *
+ ********************************************************************/
+rc_t
+btree_p::set_root(shpid_t root)
+{
+    const btctrl_t& tmp = _hdr();
+    W_DO( set_hdr(root, tmp.level, tmp.pid0, tmp.flags) );
+    return RCOK;
+}
 
 /*********************************************************************
  *
