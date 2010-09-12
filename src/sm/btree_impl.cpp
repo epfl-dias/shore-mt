@@ -542,17 +542,19 @@ btree_impl::_split_tree(
 
 /******************************************************************
  *
- *  btree_impl::_merge_trees(root1, root2, unique, cc)
+ *  btree_impl::_merge_trees()
  *  Mrbtree modification after deleting a new partition
  *
  ******************************************************************/
 
 rc_t
 btree_impl::_merge_trees(
-    const lpid_t&       root1,            // I-  root of the btree
-    const lpid_t&       root2,           // I - root of the btree
-    bool                unique,             // I-  true if tree is unique
-    concurrency_t        cc)                // I-  concurrency control
+    lpid_t&             root,         // O- the root after merge
+    const lpid_t&       root1,        // I- roots of the btrees to be merged
+    const lpid_t&       root2,           
+    cvec_t&             startKey1,    // I- initial keys
+    cvec_t&             startKey2,
+    bool                is_compressed) // I- info for creating the new root page if required
 {
     FUNC(btree_impl::_merge_trees);
 
@@ -573,32 +575,60 @@ btree_impl::_merge_trees(
     w_assert9( root_page_1.is_fixed() );
     w_assert9( root_page_2.is_fixed() );
 
+    // TODO: polish
     int level_1 = root_page_1.level();
     int level_2 = root_page_2.level();
-    if( level_1 == 1 ) { // root1 is leaf, insert one-by-one to root2
-	for(int current_slot = 0; current_slot < root_page_1.nrecs(); current_slot++) {
-	    btrec_t rec(root_page_1, current_slot);
-	    // TODO: how to check when recs finish on the page
-	    W_DO( _insert(root2, unique, cc, rec.key(), rec.elem()) );
-	}
-    }
-    else if ( level_2 == 1 ) { // root2 is leaf, insert one-by-one to root1
-	for(int current_slot = 0; current_slot < root_page_2.nrecs(); current_slot++) {
-	    btrec_t rec(root_page_2, current_slot);
-	    // TODO: how to check when recs finish on the page
-	    W_DO( _insert(root1, unique, cc, rec.key(), rec.elem()) );
-	}
-    }
-    else if ( level_1 < level_2 ) { // root2 has a higher level than root1
+    cvec_t elem_to_insert; // dummy
+    if ( level_1 < level_2 ) { // root2 has a higher level than root1
  	                            // put root1 into appropriate slot in btree with root2
-	
+	cvec_t elem_to_insert; // dummy
+	// find the page to insert the other tree
+	if(level_2 > level_1+1) {
+	    btrec_t rec(root_page_2, 0);
+	    lpid_t pid(root2._stid, rec.child());
+	    btree_p page_to_insert;
+	    W_DO( page_to_insert.fix(pid, LATCH_EX) );
+	    while(page_to_insert.level() > level_1+1) {
+		page_to_insert.unfix();
+		rec.set(page_to_insert, 0);
+		pid.page = rec.child();
+		W_DO( page_to_insert.fix(pid, LATCH_EX) );
+	    }
+	    W_DO( page_to_insert.insert(startKey1, elem_to_insert, 0, root1.page) );
+	    page_to_insert.unfix();
+	}
+	else W_DO( root_page_2.insert(startKey1, elem_to_insert, 0, root1.page) );
+	root = root2;
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
+	// find the page to insert the other tree
+	if(level_1 > level_2+1) {
+	    btrec_t rec(root_page_1, root_page_1.nrecs() - 1);
+	    lpid_t pid(root1._stid, rec.child());
+	    btree_p page_to_insert;
+	    W_DO( page_to_insert.fix(pid, LATCH_EX) );
+	    while(page_to_insert.level() > level_2+1) {
+		page_to_insert.unfix();
+		rec.set(page_to_insert, page_to_insert.nrecs() - 1);
+		pid.page = rec.child();
+		W_DO( page_to_insert.fix(pid, LATCH_EX) );
+	    }
+	    W_DO( page_to_insert.insert(startKey2, elem_to_insert, page_to_insert.nrecs(), root2.page) );
+	    page_to_insert.unfix();
+	}
+	else W_DO( root_page_1.insert(startKey2, elem_to_insert, root_page_1.nrecs(), root2.page) );
+	root = root1;
     }
     else { // both btrees have the same height
+	   // create new root
+	W_DO( create(root1._stid, root, is_compressed) );
+	btree_p new_root_page;
+	W_DO( new_root_page.fix(root, LATCH_EX) );
+	W_DO( new_root_page.insert(startKey1, elem_to_insert, 0, root1.page) );
+	W_DO( new_root_page.insert(startKey2, elem_to_insert, 1, root2.page) );
+	// TODO: update the root for root_page1&2
     }
-
 
     root_page_1.unfix();
     root_page_2.unfix();

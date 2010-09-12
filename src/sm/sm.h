@@ -2644,6 +2644,16 @@ public:
     static rc_t delete_partition(stid_t stid,
 				 cvec_t& key);
 
+    /**\brief Delete the partition that is kept by the tree with the root and add it to its previous partition
+     * in a Multi-rooted B+-Tree index.  
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] root     The root of the tree which keeps the partition to be deleted.
+     */
+    static rc_t delete_partition(stid_t stid,
+				 lpid_t& root);
+
     // --
 
     //
@@ -3552,6 +3562,8 @@ private:
     static rc_t _delete_partition(stid_t stid,
 				  cvec_t& key);
 
+    static rc_t _delete_partition(stid_t stid,
+				  lpid_t& root);
     // --
 
     // below method overloaded for rtree

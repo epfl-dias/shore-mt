@@ -60,7 +60,9 @@ public:
     rc_t add_partition(cvec_t& key, const lpid_t& root);
 
     // deletes the newly deleted partition
-    rc_t delete_partition(const lpid_t& root);
+    rc_t delete_partition(const lpid_t& root_to_delete,
+			  const lpid_t& root_to_update_old,
+			  const lpid_t& root_to_update_new);
 
     // for the first partition, to initialize the header properly to 1
     rc_t add_default_partition(cvec_t& key, const lpid_t& root);
@@ -82,7 +84,8 @@ public:
 
     static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
     static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
-    static rc_t delete_partition(const lpid_t& pid, const lpid_t& root);
+    static rc_t delete_partition(const lpid_t& pid, const lpid_t& root_to_delete,
+				const lpid_t& root_to_update_old, const lpid_t& root_to_update_new);
     static rc_t fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions);
     static rc_t fill_page(const lpid_t& pid, key_ranges_map& partitions);
 

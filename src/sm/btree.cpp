@@ -319,17 +319,19 @@ btree_m::split_tree(
 
 /*********************************************************************
  *
- *  btree_m::merge_trees(root1, root2, unique, cc, key)
+ *  btree_m::merge_trees()
  *
  *  Merge two trees 
  *
  *********************************************************************/
 rc_t
 btree_m::merge_trees(
-    const lpid_t&        root1,          // I-  root of btree
-    const lpid_t&        root2,           // I- root of btree
-    bool                 unique,            // I-  true if tree is unique
-    concurrency_t        cc)                // I-  concurrency control 
+    lpid_t&             root,         // O- the root after merge
+    const lpid_t&       root1,        // I- roots of the btrees to be merged
+    const lpid_t&       root2,           
+    cvec_t&             startKey1,    // I- initial keys
+    cvec_t&             startKey2,
+    bool                is_compressed) // I- info for creating the new root page if required
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -338,14 +340,9 @@ btree_m::merge_trees(
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    if(
-        (cc != t_cc_none) && (cc != t_cc_file) &&
-        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
-        (cc != t_cc_im) 
-        ) return badcc();
-
+    
     rc_t rc;
-    rc = btree_impl::_merge_trees(root1, root2, unique, cc);
+    rc = btree_impl::_merge_trees(root, root1, root2, startKey1, startKey2, is_compressed);
     
     return  rc;
 }

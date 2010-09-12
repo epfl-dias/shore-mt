@@ -297,9 +297,13 @@ w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
  *         is before that, based either on a partition identified or
  *         a key.
  *
+ * @note:  Here the startKey1 < startKey2 but in the map they startKey2
+ *         comes before startKey1.
  ******************************************************************/
 
-w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
+w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS,
+					     lpid_t& root1, lpid_t& root2,
+					     Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
 
@@ -311,7 +315,7 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
 	// partition not found, return an error
 	return (RC(mrb_PARTITION_NOT_FOUND));
     }
-    lpid_t root1 = iter->second;
+    root2 = iter->second;
     ++iter;
     if(iter == _keyRangesMap.end()) {
 	--iter;
@@ -319,15 +323,16 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
 	    // partition is the last partition, cannot be deleted
 	    return (RC(mrb_LAST_PARTITION));
 	}
-	lpid_t root2 = root1;
-	--iter;
-	root1 = iter->second;
+	root1 = root2;
+	startKey1.put(iter->first, sizeof(iter->first));
     }
     else {
-	lpid_t root2 = iter->second;
-	--iter;
+	startKey1.put(iter->first, sizeof(iter->first));
+	root1 = iter->second;
     }
-    root = iter->second;
+    --iter;
+    startKey2.put(iter->first, sizeof(iter->first));
+    root2 = iter->second;
     _keyRangesMap.erase(iter);
     _numPartitions--;
 
@@ -336,17 +341,20 @@ w_rc_t key_ranges_map::_deletePartitionByKey(char* keyS, lpid_t& root)
     return (r);
 }
 
-w_rc_t key_ranges_map::deletePartitionByKey(const Key& key, lpid_t& root)
+w_rc_t key_ranges_map::deletePartitionByKey(const Key& key,
+					    lpid_t& root1, lpid_t& root2,
+					    Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
     char* keyS = (char*) malloc(key.size());
     key.copy_to(keyS);
-    r = _deletePartitionByKey(keyS, root);
+    r = _deletePartitionByKey(keyS, root1, root2, startKey1, startKey2);
     free (keyS);
     return (r);
 }
 
-w_rc_t key_ranges_map::deletePartition(lpid_t pid)
+w_rc_t key_ranges_map::deletePartition(lpid_t& root1, lpid_t& root2,
+				       Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
     bool bFound = false;
@@ -354,7 +362,7 @@ w_rc_t key_ranges_map::deletePartition(lpid_t pid)
     keysIter iter;
     _rwlock.acquire_read();
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter) {
-        if (iter->second == pid) {
+        if (iter->second == root2) {
             bFound = true;
 	    break;
         }
@@ -362,7 +370,7 @@ w_rc_t key_ranges_map::deletePartition(lpid_t pid)
     _rwlock.release_read();
 
     if (bFound) {
-        r = _deletePartitionByKey(iter->first, pid);
+        r = _deletePartitionByKey(iter->first, root1, root2, startKey1, startKey2);
     } else {
 	return (RC(mrb_PARTITION_NOT_FOUND));
     }
@@ -440,6 +448,26 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
     return (r);
 }
 
+/****************************************************************** 
+ *
+ * @fn:    getAllPartitions()
+ *
+ * @brief: Returns the list of all root ids in partitions 
+ *
+ ******************************************************************/
+
+w_rc_t key_ranges_map::getAllPartitions(vector<lpid_t>& pidVec) 
+{
+    w_rc_t r = RCOK;
+    
+    _rwlock.acquire_read();
+    for(keysIter iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); iter++) {
+	pidVec.push_back(iter->second);
+    }
+    _rwlock.release_read();
+
+    return (r);
+}
 
 /****************************************************************** 
  *
@@ -544,6 +572,29 @@ w_rc_t key_ranges_map::getBoundariesVec(vector< pair<char*,char*> >& keyBoundari
         }
         // Add entry to the vector
         keyBoundariesVec.push_back(keyPair);
+    }
+    _rwlock.release_read();
+    return (RCOK);
+}
+
+/****************************************************************** 
+ *
+ * @fn:    updateRoot()
+ *
+ * @brief: Updates the root of the partition starting with key
+ *
+ ******************************************************************/
+
+w_rc_t key_ranges_map::updateRoot(const Key& key, const lpid_t& root)
+{
+    char* keyS = (char*) malloc(key.size());
+    key.copy_to(keyS);
+
+    _rwlock.acquire_read();
+    if(_keyRangesMap.find(keyS) != _keyRangesMap.end()) {
+	_keyRangesMap[keyS] = root;
+    } else {
+	return (RC(mrb_PARTITION_NOT_FOUND));
     }
     _rwlock.release_read();
     return (RCOK);

@@ -123,7 +123,9 @@ protected:
 
     // Delete the partition where "key" belongs, by merging it with the 
     // previous partition
-    virtual w_rc_t _deletePartitionByKey(char* keyS, lpid_t& root);
+    virtual w_rc_t _deletePartitionByKey(char* keyS, // Input
+					 lpid_t& root1, lpid_t& root2, // Outputs
+					 Key& startKey1, Key& startKey2); // Outputs
 
 public:
 
@@ -152,11 +154,14 @@ public:
 
     // Deletes the partition where "key" belongs by merging it with the previous 
     // partition
-    w_rc_t deletePartitionByKey(const Key& key, lpid_t& root);
+    w_rc_t deletePartitionByKey(const Key& key, // Input
+				lpid_t& root1, lpid_t& root2, // Outputs
+				Key& startKey1, Key& startKey2); // Outputs
 
     // Deletes the given partition (identified by the pid), by merging it with 
     // the previous partition
-    w_rc_t deletePartition(lpid_t pid);
+    w_rc_t deletePartition(lpid_t& root1, lpid_t& root2, // Outputs, well root2 is also input in this case
+			   Key& startKey1, Key& startKey2); // Outputs
 
     // Gets the partition id of the given key.
     //
@@ -170,6 +175,9 @@ public:
     w_rc_t getPartitions(const Key& key1, bool key1Included,
                          const Key& key2, bool key2Included,                         
                          vector<lpid_t>& pidVec);
+    // Returns the list of all root ids in partitions
+    w_rc_t getAllPartitions(vector<lpid_t>& pidVec);
+
 
     // Returns the range boundaries of a partition in a pair
     w_rc_t getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange);
@@ -180,6 +188,9 @@ public:
     // Returns a vector with the key boundaries for all the partitions
     w_rc_t getBoundariesVec(vector< pair<char*,char*> >& keyBoundariesVec);
 
+    // Updates the root of the partition starting with key
+    w_rc_t updateRoot(const Key& key, const lpid_t& root);
+    
     // Setters
     void setNumPartitions(uint numPartitions);
     void setMinKey(const Key& minKey);

@@ -125,6 +125,7 @@ public:
         w_rc_t create_the_file();
         w_rc_t create_the_mr_index();
         w_rc_t insert_rec_to_index(stid_t stid);
+        w_rc_t print_the_mr_index(stid_t stid);
         w_rc_t scan_the_file();
         w_rc_t scan_the_root_index();
         w_rc_t do_work();
@@ -205,7 +206,7 @@ smthread_user_t::create_the_file()
     {
         {
             w_ostrstream o(dummy, _rec_size);
-            o << "Record number " << j << ends;
+            o << j << ends;
             w_assert1(o.c_str() == dummy);
         }
         // header contains record #
@@ -250,6 +251,8 @@ smthread_user_t::create_the_mr_index()
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     W_DO(insert_rec_to_index(stid));
+
+    W_DO(print_the_mr_index(stid));    
      
     return RCOK;
 }
@@ -297,6 +300,19 @@ smthread_user_t::insert_rec_to_index(stid_t stid)
 
   W_DO(ssm->commit_xct());
   return RCOK;
+}
+
+rc_t
+smthread_user_t::print_the_mr_index(stid_t stid) 
+{
+    cout << "printing the mr index from store " << stid << endl;
+    W_DO(ssm->begin_xct());
+     
+    W_DO(ssm->print_mr_index(stid));
+
+    W_DO(ssm->commit_xct());
+     
+    return RCOK;
 }
 
 rc_t

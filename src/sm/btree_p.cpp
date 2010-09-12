@@ -1015,7 +1015,10 @@ btree_p::print(
         cout << ", elen="  << r.elen() << " bytes: " << r.elem();
         }
     } else {
-        cout << "pid = " << r.child();
+	if(print_elem) {
+	    cout << ", elen="  << r.elen() << " bytes: " << r.elem();
+        }
+        cout << ", pid = " << r.child();
     }
     cout << ">" << endl;
     }

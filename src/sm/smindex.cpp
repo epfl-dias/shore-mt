@@ -569,6 +569,17 @@ rc_t ss_m::delete_partition(stid_t stid, cvec_t& key)
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::delete_partition()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::delete_partition(stid_t stid, lpid_t& root)
+{
+    SM_PROLOGUE_RC(ss_m::delete_partition, not_in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    W_DO(_delete_partition(stid, root));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::_create_mr_index()                                    *
  *--------------------------------------------------------------*/
 rc_t ss_m::_create_mr_index(vid_t                   vid, 
@@ -750,11 +761,16 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
         return RC(eNOTIMPLEMENTED);
     }
     sortorder::keytype k = sortorder::convert(sd->sinfo().kc);
+    vector<lpid_t> pidVec;
+    uint i = 0;
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
     case t_uni_mrbtree:
-	// TODO: print subroots maybe here, not primary importance now
-        bt->print(sd->root(), k);
+	sd->partitions().getAllPartitions(pidVec);
+	for(; i < pidVec.size(); i++) {
+	    cout << "Partition " << i << endl;
+	    bt->print(pidVec[i], k);
+	}
         break;
     default:
         return RC(eBADNDXTYPE);
@@ -1008,11 +1024,11 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         return RC(eBADNDXTYPE);
     case t_uni_mrbtree:
     case t_mrbtree:
-        //W_DO(bt->lookup(sd->root(key), 
-	//		sd->sinfo().nkc, sd->sinfo().kc,
-	//		sd->sinfo().ntype == t_uni_btree,
-	//		cc,
-	//		key, el, elen, found) );
+        W_DO(bt->lookup(sd->root(key), 
+			sd->sinfo().nkc, sd->sinfo().kc,
+			sd->sinfo().ntype == t_uni_btree,
+			cc,
+			key, el, elen, found) );
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -1104,7 +1120,15 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
     FUNC(ss_m::_delete_partition);
 
     DBG(<<" stid " << stid);
+    // resulting root of the tree after the merge
     lpid_t root;
+    // btree roots to be merged
+    lpid_t root1;
+    lpid_t root2;
+    // initial keys of the partitions to be merged,
+    // the resulting partition will have start_key1 as the initial key after the merge
+    cvec_t start_key1;
+    cvec_t start_key2;
 
     // get the sinfo from sdesc
     sdesc_t* sd;
@@ -1114,15 +1138,66 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    // TODO: update the tree  
+    // delete from the key_ranges_map first to get the necessary info for merge
+    W_DO( sd->partitions().deletePartitionByKey(key, root1, root2, start_key1, start_key2) );
 
-    // update the ranges page & key_ranges_map which keeps the partition info
-    W_DO( sd->partitions().deletePartitionByKey(key, root) );
-    W_DO( ra->delete_partition(sd->root(), root) );
+    // update tree  
+    W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );
+
+    // update key_ranges_map if necessary
+    if( root != root1) {
+	W_DO( sd->partitions().updateRoot(start_key1, root) );
+    }
+    
+    // update the ranges page
+    W_DO( ra->delete_partition(sd->root(), root2, root1, root) );
     
     W_DO(xct_auto.commit());	     
     
     return RCOK;    
+}
+
+rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2)
+{
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
+    FUNC(ss_m::_delete_partition);
+
+    DBG(<<" stid " << stid);
+    // resulting root of the tree after the merge
+    lpid_t root;
+    // btree root to be merged
+    lpid_t root1;
+    // initial keys of the partitions to be merged,
+    // the resulting partition will have start_key1 as the initial key after the merge
+    cvec_t start_key1;
+    cvec_t start_key2;
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+       
+    W_DO(dir->access(stid, sd, EX));
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    // delete from the key_ranges_map first to get the necessary info for merge
+    W_DO( sd->partitions().deletePartition(root1, root2, start_key1, start_key2) );
+
+    // update tree  
+    W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );
+
+    // update key_ranges_map if necessary
+    if( root != root1) {
+	W_DO( sd->partitions().updateRoot(start_key1, root) );
+    }
+    
+    // update the ranges page
+    W_DO( ra->delete_partition(sd->root(), root2, root1, root) );
+    
+    W_DO(xct_auto.commit());	     
+
+    return RCOK;
 }
 
 // --

@@ -76,11 +76,12 @@ rc_t ranges_m::add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root)
     return RCOK;
 }
 
-rc_t ranges_m::delete_partition(const lpid_t& pid, const lpid_t& root)
+rc_t ranges_m::delete_partition(const lpid_t& pid, const lpid_t& root_to_delete,
+				const lpid_t& root_to_update_old, const lpid_t& root_to_update_new)
 {
     ranges_p page;
     W_DO(page.fix(pid, LATCH_EX));
-    W_DO(page.delete_partition(root));
+    W_DO(page.delete_partition(root_to_delete, root_to_update_old, root_to_update_new));
     page.unfix();
     return RCOK;
 }
@@ -211,12 +212,17 @@ rc_t ranges_p::add_partition(cvec_t& key, const lpid_t& root)
     return RCOK;
 }
 
-rc_t ranges_p::delete_partition(const lpid_t& root)
+rc_t ranges_p::delete_partition(const lpid_t& root_to_delete,
+				const lpid_t& root_to_update_old,
+				const lpid_t& root_to_update_new)
 {
     uint4_t nslots = page_p::nslots();
     //
     uint4_t i=1;
-    for(; i < nslots; i++) {
+    uint4_t slot_to_delete = 0;
+    bool root_updated = (root_to_update_old == root_to_update_new);
+    bool root_deleted = false;
+    for(; !(root_updated && root_deleted) && i < nslots; i++) {
 	// get the contents of the slot
 	char* pair = (char*) page_p::tuple_addr(i);
 	cvec_t pair_vec;
@@ -225,17 +231,34 @@ rc_t ranges_p::delete_partition(const lpid_t& root)
 	char* current_root = (char*) malloc(sizeof(lpid_t));
 	pair_vec.copy_to(current_root, sizeof(lpid_t));
 	lpid_t current_root_id = *((lpid_t*)current_root);
-	free(current_root);
 	//
-	if(current_root_id == root)
-	    break; // found the slot for the key to be deleted
+	if(!root_deleted && current_root_id == root_to_delete) {
+	    slot_to_delete = i; // found the slot for the key to be deleted
+	    root_deleted = true;
+	}
+	if(!root_updated && current_root_id == root_to_update_old) {
+	    cvec_t root_vec;
+	    cvec_t key;
+	    pair_vec.split(sizeof(lpid_t), root_vec, key);
+	    cvec_t new_pair_vec;
+	    current_root = (char*)(&root_to_update_new);
+	    new_pair_vec.put(current_root, sizeof(lpid_t));
+	    new_pair_vec.put(key);
+	    W_DO(page_p::overwrite(i, 0, new_pair_vec));
+	    root_updated = true;
+	}
+	free(current_root);
     }
     // here the key should be found because if it's not the deletePartition
     // call to the key_ranges_map should give the error (it's called before
     // this function to give the lpid_t of the root page 
-    
+
+    if(slot_to_delete == 0) {
+	// TODO: return error
+    }
+
     // free the slot
-    return page_p::mark_free(i);
+    return page_p::mark_free(slot_to_delete);
 }
 
 rc_t ranges_p::add_default_partition(cvec_t& key, const lpid_t& root) 

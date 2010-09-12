@@ -90,10 +90,12 @@ protected:
         concurrency_t                   cc,
         const cvec_t&                   key);
     static rc_t                        _merge_trees(
+        lpid_t&                         root,					    
         const lpid_t&                   root1,
 	const lpid_t&                   root2,
-        bool                            unique,
-        concurrency_t                   cc);
+	cvec_t&                         startKey1,
+	cvec_t&                         startKey2,
+	bool                            is_compressed);
     // --
 
     static rc_t                        _alloc_page(
