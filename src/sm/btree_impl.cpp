@@ -467,7 +467,7 @@ tree_latch::get_for_smo(
 // -- mrbt
 /******************************************************************
  *
- *  btree_impl::_split_tree(root_old, root_new, unique, cc, key)
+ *  btree_impl::_split_tree(root_old, root_new, start_key, unique, cc, key)
  *  Mrbtree modification after adding a new partition
  *
  ******************************************************************/
@@ -476,6 +476,7 @@ rc_t
 btree_impl::_split_tree(
     const lpid_t&       root_old,            // I-  root of the old btree
     const lpid_t&       root_new,           // I - root of the new btree
+    cvec_t&             start_key,           // O - actual start key for the new partition
     bool                unique,             // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key)                // I-  which key
@@ -507,16 +508,19 @@ btree_impl::_split_tree(
     bool found;
     bool found_elem;
     slotid_t ret_slot;
-    root_page_old.search(key, dummy_el, found, found_elem, ret_slot);
+    W_DO(root_page_old.search(key, dummy_el, found, found_elem, ret_slot));
+
+    btrec_t rec(root_page_old, ret_slot);
+    start_key.put(rec.key());
 
     W_DO( root_page_new.set_hdr(root_new.page, 
-				root_page_old.child(ret_slot), 
+				rec.child(), 
 				root_page_old.level(), 
 				(uint2_t) (root_page_old.is_compressed() ? 
 					   btree_p::t_compressed : btree_p::t_none)) );
 
     W_DO( root_page_old.shift(ret_slot, root_page_new) );
-    /* TODO: check with ryan about the above lines, if this is ok then no need the blow lines.
+    /* TODO: check with ryan about the above lines, if this is ok then no need the below lines.
     int current_slot_old;
     int current_slot_new;
     btrec_t current_rec;
@@ -528,7 +532,7 @@ btree_impl::_split_tree(
 	W_DO( root_page_new.insert(current_rec.key(), current_rec.elem(), current_slot_new, current_rec.child()) );
     }
     */
-
+    
     root_page_old.unfix();
     root_page_new.unfix();
     

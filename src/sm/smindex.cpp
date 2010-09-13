@@ -825,6 +825,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 #endif
 
     sdesc_t* sd;
+    cvec_t* real_key;
     W_DO(dir->access(stid, sd, index_mode));
 
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
@@ -835,11 +836,11 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
         return RC(eBADNDXTYPE);
     case t_mrbtree:
     case t_uni_mrbtree:
-       W_DO(bt->insert(sd->root(key), 
-			sd->sinfo().nkc, sd->sinfo().kc,
-			sd->sinfo().ntype == t_uni_mrbtree, 
-			cc,
-			key, el, 50));
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	W_DO(bt->mr_insert(sd->root(*real_key), 
+			   sd->sinfo().ntype == t_uni_mrbtree, 
+			   cc,
+			   *real_key, el, 50));
         break;
     case t_rtree:
         fprintf(stderr, "rtrees indexes do not support this function");
@@ -899,6 +900,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     DBG(<<"");
 
     sdesc_t* sd;
+    cvec_t* real_key;
     W_DO(dir->access(stid, sd, index_mode));
     DBG(<<"");
 
@@ -910,10 +912,10 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
         return RC(eBADNDXTYPE);
     case t_mrbtree:
     case t_uni_mrbtree:
-        W_DO(bt->remove(sd->root(key), 
-			sd->sinfo().nkc, sd->sinfo().kc,
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+        W_DO(bt->mr_remove(sd->root(*real_key), 
 			sd->sinfo().ntype == t_uni_mrbtree,
-			cc, key, el) );
+			cc, *real_key, el) );
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -932,6 +934,7 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
 {
 
     sdesc_t* sd;
+    cvec_t* real_key;
     W_DO(dir->access(stid, sd, IX));
     
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
@@ -949,10 +952,11 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
         return RC(eBADNDXTYPE);
     case t_mrbtree:
     case t_uni_mrbtree:
-        W_DO(bt->remove_key(sd->root(key), 
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+        W_DO(bt->mr_remove_key(sd->root(*real_key), 
 			    sd->sinfo().nkc, sd->sinfo().kc,
 			    sd->sinfo().ntype == t_uni_mrbtree,
-			    cc, key, num));
+			    cc, *real_key, num));
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -1015,6 +1019,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 #endif
 
     sdesc_t* sd;
+    cvec_t* real_key;
     W_DO(dir->access(stid, sd, index_mode));
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
@@ -1024,11 +1029,11 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         return RC(eBADNDXTYPE);
     case t_uni_mrbtree:
     case t_mrbtree:
-        W_DO(bt->lookup(sd->root(key), 
-			sd->sinfo().nkc, sd->sinfo().kc,
-			sd->sinfo().ntype == t_uni_btree,
-			cc,
-			key, el, elen, found) );
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+        W_DO(bt->mr_lookup(sd->root(*real_key), 
+			   sd->sinfo().ntype == t_uni_btree,
+			   cc,
+			   *real_key, el, elen, found) );
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -1052,6 +1057,8 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 
     // get the sinfo from sdesc
     sdesc_t* sd;
+    cvec_t* real_minKey;
+    cvec_t* real_maxKey;
    
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
@@ -1068,7 +1075,10 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 	roots.push_back(root);
     }
 
-    sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
+    W_DO(bt->_scramble_key(real_minKey, minKey, sd->sinfo().nkc, sd->sinfo().kc));
+    W_DO(bt->_scramble_key(real_maxKey, maxKey, sd->sinfo().nkc, sd->sinfo().kc));
+
+    sd->partitions().makeEqualPartitions(*real_minKey, *real_maxKey, numParts, roots);
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
@@ -1087,10 +1097,12 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     DBG(<<" stid " << stid);
     lpid_t root_old;
     lpid_t root_new;
+    cvec_t start_key;
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-        
+    cvec_t* real_key;
+    
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
@@ -1099,14 +1111,14 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
     
     // split the btree TODO: decide on concurrency_t (should be like in create_assoc for dora?)
-    W_DO(bt->split_tree(sd->root(key), root_new, 
-			sinfo.nkc, sinfo.kc, 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+    W_DO(bt->split_tree(sd->root(*real_key), root_new, start_key, 
 			sinfo.ntype == t_uni_mrbtree, 
-			(concurrency_t)sinfo.cc, key));
+			(concurrency_t)sinfo.cc, *real_key));
 
     // update the ranges page & key_ranges_map which keeps the partition info
-    W_DO( sd->partitions().addPartition(key, root_new) );    
-    W_DO( ra->add_partition(sd->root(), key, root_new) );
+    W_DO( sd->partitions().addPartition(start_key, root_new) );    
+    W_DO( ra->add_partition(sd->root(), start_key, root_new) );
     
     W_DO(xct_auto.commit());	     
 
@@ -1132,14 +1144,16 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-       
+    cvec_t* real_key;
+    
     W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     // delete from the key_ranges_map first to get the necessary info for merge
-    W_DO( sd->partitions().deletePartitionByKey(key, root1, root2, start_key1, start_key2) );
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+    W_DO( sd->partitions().deletePartitionByKey(*real_key, root1, root2, start_key1, start_key2) );
 
     // update tree  
     W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );

@@ -143,8 +143,7 @@ public:
     static rc_t                        split_tree(
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
-        int                               nkc,
-        const key_type_s*                 kc,
+	cvec_t&                           start_key, 
         bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key);
@@ -155,6 +154,35 @@ public:
 	cvec_t&                           startKey1,
 	cvec_t&                           startKey2,
 	bool                              is_compressed);
+        static rc_t                    mr_insert(
+        const lpid_t&                     root,
+	bool                              unique,
+        concurrency_t                     cc,
+        const cvec_t&                     key,
+        const cvec_t&                     elem,
+        int                               split_factor = 50);
+    static rc_t                        mr_remove(
+        const lpid_t&                    root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                    key,
+        const cvec_t&                    elem);
+    static rc_t                        mr_remove_key(
+        const lpid_t&                    root,
+        int                              nkc,
+        const key_type_s*                kc,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                    key,
+        int&                             num_removed);
+    static rc_t                        mr_lookup(
+        const lpid_t&                    root, 
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                    key_to_find, 
+        void*                            el, 
+        smsize_t&                        elen,
+        bool&                            found);
     // --
     static rc_t                        insert(
         const lpid_t&                     root,

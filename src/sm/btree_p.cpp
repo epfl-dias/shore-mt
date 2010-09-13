@@ -394,6 +394,8 @@ btree_p::set_hdr(shpid_t root, int l, shpid_t pid0, uint2_t flags)
     return RCOK;
 }
 
+// -- mrbt
+
 /*********************************************************************
  *
  *  btree_p::set_root(root)
@@ -408,6 +410,8 @@ btree_p::set_root(shpid_t root)
     W_DO( set_hdr(root, tmp.level, tmp.pid0, tmp.flags) );
     return RCOK;
 }
+
+// --
 
 /*********************************************************************
  *

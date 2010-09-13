@@ -86,6 +86,7 @@ protected:
     static rc_t                        _split_tree(
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
+	cvec_t&                         start_key,
         bool                            unique,
         concurrency_t                   cc,
         const cvec_t&                   key);

@@ -273,7 +273,196 @@ btree_m::insert(
 // -- mrbt
 /*********************************************************************
  *
- *  btree_m::split_tree(root_old, root_new, unique, cc, key)
+ *  btree_m::mr_insert(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as normal btree insert except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    const cvec_t&        el,                // I-  which element
+    int                  split_factor)        // I-  tune split in %
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el.size() > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el.size());
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_insert(root, unique, cc, key, el, split_factor);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_remove(root, unique, cc, key, el)
+ *
+ *  Same as normal btree remove except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_remove(
+    const lpid_t&        root,        // root of btree
+    bool                unique, // true if btree is unique
+    concurrency_t        cc,        // concurrency control
+    const cvec_t&        key,        // which key
+    const cvec_t&        el)        // which el
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree remove " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+        DBGTHRD(<<"");
+ retry:
+    rc_t rc =  btree_impl::_remove(root, unique, cc, key, el);
+    if(rc.is_error() && rc.err_num() == eRETRY) {
+        //fprintf(stderr, "-*-*-*- Retrying a btree insert!\n");
+        goto retry;
+    }
+
+    DBGTHRD(<<"rc=" << rc);
+    return rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_remove_key(root, unique, cc, key, num_removed)
+ *
+ *  Same as normal btree remove_key except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_remove_key(
+    const lpid_t&        root,        // root of btree
+    int                        nkc,
+    const key_type_s*        kc,
+    bool                unique, // true if btree is unique
+    concurrency_t        cc,        // concurrency control
+    const cvec_t&        key,        // which key
+    int&                num_removed
+)
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    num_removed = 0;
+
+    /*
+     *  We do this the dumb way ... optimization needed if this
+     *  proves to be a bottleneck.
+     */
+    while (1)  {
+        /*
+         *  scan for key
+         */
+        cursor_t cursor(true);
+        W_DO( fetch_init(cursor, root, nkc, kc, 
+                     unique, cc, key, cvec_t::neg_inf,
+                     ge, 
+                     le, key));
+        W_DO( fetch(cursor) );
+        if (!cursor.key()) {
+            /*
+             *  no more occurence of key ... done! 
+             */
+            break;
+        }
+        /*
+         *  call btree_m::_remove() 
+         */
+        const cvec_t cursor_vec_tmp(cursor.elem(), cursor.elen());
+        W_DO( mr_remove(root, unique, cc, key, cursor_vec_tmp));
+        ++num_removed;
+
+        if (unique) break;
+    }
+    if (num_removed == 0)  {
+        fprintf(stderr, "could not find  key\n" );
+        return RC(eNOTFOUND);
+    }
+
+    return RCOK;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_lookup(...)
+ *
+ *  Find key in btree. If found, copy up to elen bytes of the 
+ *  entry element into el. 
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_lookup(
+    const lpid_t&         root,        // I-  root of btree
+    bool                  unique, // I-  true if btree is unique
+    concurrency_t         cc,        // I-  concurrency control
+    const cvec_t&         key,        // I-  key we want to find
+    void*                 el,        // I-  buffer to put el found
+    smsize_t&             elen,        // IO- size of el
+    bool&                 found)        // O-  true if key is found
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    DBGTHRD(<<"");
+    cvec_t null;
+    W_DO( btree_impl::_lookup(root, unique, cc, key, null, found, 0, el, elen ));
+    return RCOK;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::split_tree(root_old, root_new, start_key, unique, cc, key)
  *
  *  Split from the root starting from the given key.
  *  Just copy the slots from root_old that has a key value greater 
@@ -283,9 +472,8 @@ btree_m::insert(
 rc_t
 btree_m::split_tree(
     const lpid_t&        root_old,          // I-  root of btree
-    const lpid_t&        root_new,           // I- root of the new btree    
-    int                  nkc,
-    const key_type_s*    kc,
+    const lpid_t&        root_new,           // I- root of the new btree
+    cvec_t&              start_key,         // O - actual start key for the new partition
     bool                 unique,            // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key)                // I-  which key
@@ -306,13 +494,8 @@ btree_m::split_tree(
 
     rc_t rc;
 
-    cvec_t* real_key;
-    DBGTHRD(<<"");
-    // TODO: resolve this issue in ranges-map
-    W_DO(_scramble_key(real_key, key, nkc, kc));
-    DBGTHRD(<<"");
-    
-    rc = btree_impl::_split_tree(root_old, root_new, unique, cc, *real_key);
+    DBGTHRD(<<"");    
+    rc = btree_impl::_split_tree(root_old, root_new, start_key, unique, cc, key);
     
     return  rc;
 }
