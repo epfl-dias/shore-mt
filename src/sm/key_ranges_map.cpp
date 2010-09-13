@@ -117,6 +117,10 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
 {
     assert (minKey<=maxKey);
 
+    // pin: to debug
+    if(minKey==maxKey)
+	cout << "crap!!" << endl;
+
     // IP: make sure that the store does not have any entries (isClean())
     // pin: the check for this should be in SM-API call make_equal_partitions
     
@@ -127,18 +131,33 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
     uint maxsz = maxKey.size();    
     _minKey = (char*) malloc(minsz);
     _maxKey = (char*) malloc(maxsz);    
-    minKey.copy_to(_minKey);
-    maxKey.copy_to(_maxKey);
+    minKey.copy_to(_minKey, sizeof(minsz));
+    maxKey.copy_to(_maxKey, sizeof(maxsz));
 
+    // pin: to debug TEST1
+    cout << "minKey: " << _minKey << " maxKey: " << _maxKey << endl;
+    int dummy_min = *((int*)_minKey);
+    int dummy_max = *((int*)_maxKey);
+    // pin: to debug TEST1
+    cout << "minKey: " << dummy_min << " maxKey: " << dummy_max << endl;
+	
     uint keysz = min(minsz,maxsz); // Use that many chars for the keys entries
+
+    // pin: to debug TEST1
+    cout << "keysz: " << keysz << endl;
 
     uint partsCreated = 0; // In case it cannot divide to numParts partitions
 
     uint base=0;
     while (_minKey[base] == _maxKey[base]) {
+	// pin: to debug TEST1
+	cout << "_minKey[base]: " << _minKey[base] << "_maxKey[base]: " << _maxKey[base] << endl;
          // discard the common prefixes
          base++; 
     }
+
+    // pin: to debug TEST1
+    cout << "base: " << base << endl;
 
     // To not to have integer overflow while computing the space between two strings
     uint sz = (keysz - base < 4) ? (keysz - base) : 4;
@@ -147,6 +166,9 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
     char* B = (char*) malloc(base+sz+1);
     partsCreated = _distributeSpace(strncpy(A, _minKey, base+sz), strncpy(B, _maxKey, base+sz),
 				    sz, numParts, subParts);
+    // pin: to debug TEST1
+    cout << "distributed space" << endl;
+
     free(A);
     free(B);
 
@@ -155,6 +177,9 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
     for(uint i = 0; i < partsCreated; i++) { 
         _keyRangesMap[subParts[i]] = roots[i];
     }
+
+    // pin: to debug TEST1
+    printPartitions();
 
     _rwlock.release_write();
 
@@ -614,7 +639,9 @@ void key_ranges_map::printPartitions()
     _rwlock.acquire_read();
     DBG(<<"Printing ranges map: ");
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, i++) {
-	DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << lpid_t << ")");
+	DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << iter->second << ")");
+	// pin: to debug
+	cout << "Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << iter->second << ")" << endl;
     }
     _rwlock.release_read();
 }
@@ -689,7 +716,7 @@ char* key_ranges_map::getMaxKey() const
     return (_maxKey);
 }
 
-map<char*, lpid_t, cmp_str_greater> key_ranges_map::getMap() const
+map<char*, lpid_t, cmp_greater> key_ranges_map::getMap() const
 {
     return (_keyRangesMap);
 }

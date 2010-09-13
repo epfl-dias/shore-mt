@@ -207,7 +207,7 @@ smthread_user_t::create_the_file()
     memset(dummy, '\0', _rec_size);
     vec_t data(dummy, _rec_size);
 
-    for(int j=0; j < _num_rec; j++)
+    for(int j=1; j < _num_rec; j++)
     {
         {
             w_ostrstream o(dummy, _rec_size);
@@ -292,8 +292,8 @@ rc_t smthread_user_t::mr_index_test1()
     cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
     cvec_t maxKey_vec((char*)(&maxKey), sizeof(maxKey));
     cout << "ssm->make_equal_partitions(stid = " << stid
-	 << ", minKey_vec = " << minKey
-	 << ", maxKey_vec = " << maxKey
+	 << ", minKey_vec = " << minKey_vec
+	 << ", maxKey_vec = " << maxKey_vec
 	 << ", num_partitions = " << 10 << ")" << endl;
     W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
 
@@ -322,7 +322,7 @@ rc_t smthread_user_t::mr_index_test2()
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-
+    /*
     int minKey = 0;
     int maxKey = 999;
     cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
@@ -332,18 +332,46 @@ rc_t smthread_user_t::mr_index_test2()
 	 << ", maxKey_vec = " << maxKey
 	 << ", num_partitions = " << 10 << ")" << endl;
     W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
-
+    */
     
     W_DO(insert_rec_to_index(stid));
 
 
+    W_DO(print_the_mr_index(stid));
+
+	
     int key = 700;
     cvec_t key_vec((char*)(&key), sizeof(key));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key << endl;
-    cout << "should give an error now since the roots will be leaf pages" << endl;
     W_DO(ssm->add_partition(stid, key_vec));
     
+
+    W_DO(print_the_mr_index(stid));
+
+
+    W_DO(ssm->begin_xct());
+    cout << "ssm->create_mr_assoc" << endl;
+    int new_key = 1000;
+    cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
+    cout << "Record key "  << new_key << endl;
+    cout << "key size " << new_key_vec.size() << endl;    
+    const vec_t el((char*)(&new_key), sizeof(new_key));
+    cout << "Record body "  << new_key << endl;
+    cout << "body size "  << el.size() << endl;
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
+
+    cout << "ssm->create_mr_assoc" << endl;
+    new_key = 0;
+    cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
+    cout << "Record key "  << new_key << endl;
+    cout << "key size " << new_key_vec.size() << endl;    
+    const vec_t el2((char*)(&new_key), sizeof(new_key));
+    cout << "Record body "  << new_key << endl;
+    cout << "body size "  << el.size() << endl;
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
+    W_DO(ssm->commit_xct());
+
 
     W_DO(print_the_mr_index(stid));
 
@@ -366,7 +394,7 @@ rc_t smthread_user_t::mr_index_test3()
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-
+    /*
     int minKey = 0;
     int maxKey = 9999;
     cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
@@ -376,41 +404,36 @@ rc_t smthread_user_t::mr_index_test3()
 	 << ", maxKey_vec = " << maxKey
 	 << ", num_partitions = " << 10 << ")" << endl;
     W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
-
+    */
     
     W_DO(insert_rec_to_index(stid));
 
 
-    int key1 = 700;
+    int key1 = 200;
     cvec_t key1_vec((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
     W_DO(ssm->add_partition(stid, key1_vec));
-
-
-    W_DO(print_the_mr_index(stid));
-
-
-    int key2 = 7900;
+    int key2 = 400;
     cvec_t key2_vec((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key2 << endl;
     W_DO(ssm->add_partition(stid, key2_vec));
-
-
-    W_DO(print_the_mr_index(stid));
-
-
-    int key3 = 5900;
+    int key3 = 600;
     cvec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key3 << endl;
     W_DO(ssm->add_partition(stid, key3_vec));
-
-
-    W_DO(print_the_mr_index(stid));
+    int key4 = 800;
+    cvec_t key4_vec((char*)(&key4), sizeof(key4));
+    cout << "ssm->add_partition(stid = " << stid
+	 << ", key_vec = " << key4 << endl;
+    W_DO(ssm->add_partition(stid, key4_vec));
 
     
+    W_DO(print_the_mr_index(stid));
+
+
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
     cout << "should be the case of -> root1.level == root2.level" << endl;
@@ -420,23 +443,23 @@ rc_t smthread_user_t::mr_index_test3()
     W_DO(print_the_mr_index(stid));
 
 
-    int key4 = 7909;
-    cvec_t key4_vec((char*)(&key4), sizeof(key4));
+    int key5 = 700;
+    cvec_t key5_vec((char*)(&key5), sizeof(key5));
     cout << "ssm->delete_partition(stid = " << stid
-	 << ", key_vec = " << key4 << endl;
+	 << ", key_vec = " << key5 << endl;
     cout << "should be the case of -> root1.level > root2.level" << endl;
-    W_DO(ssm->delete_partition(stid, key4_vec));
+    W_DO(ssm->delete_partition(stid, key5_vec));
 
     
     W_DO(print_the_mr_index(stid));
 
     
-    int key5 = 6500;
-    cvec_t key5_vec((char*)(&key5), sizeof(key5));
+    int key6 = 500;
+    cvec_t key6_vec((char*)(&key6), sizeof(key6));
     cout << "ssm->delete_partition(stid = " << stid
-	 << ", key_vec = " << key5 << endl;
+	 << ", key_vec = " << key6 << endl;
     cout << "should be the case of -> root1.level < root2.level" << endl;
-    W_DO(ssm->delete_partition(stid, key5_vec));
+    W_DO(ssm->delete_partition(stid, key6_vec));
 
     
     W_DO(print_the_mr_index(stid));
@@ -483,7 +506,7 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
 
     i++;
   } while (!eof);
-  w_assert1(i == _num_rec);
+  w_assert1(i == _num_rec-1);
 
   W_DO(ssm->commit_xct());
   return RCOK;
@@ -584,7 +607,7 @@ smthread_user_t::scan_the_file()
         cout << "Record body "  << body << endl;
         i++;
     } while (!eof);
-    w_assert1(i == _num_rec);
+    w_assert1(i == _num_rec-1);
 
     W_DO(ssm->commit_xct());
     return RCOK;
@@ -660,10 +683,10 @@ smthread_user_t::no_init()
     W_COERCE(find_file_info());
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
-    W_DO(mr_index_test0());
+    //W_DO(mr_index_test0());
     //W_DO(mr_index_test1());
     //W_DO(mr_index_test2());
-    //W_DO(mr_index_test3());
+    W_DO(mr_index_test3());
     return RCOK;
 }
 

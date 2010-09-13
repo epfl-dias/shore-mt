@@ -510,28 +510,16 @@ btree_impl::_split_tree(
     slotid_t ret_slot;
     W_DO(root_page_old.search(key, dummy_el, found, found_elem, ret_slot));
 
-    btrec_t rec(root_page_old, ret_slot);
+    btrec_t rec(root_page_old, ret_slot-1);
     start_key.put(rec.key());
 
-    W_DO( root_page_new.set_hdr(root_new.page, 
-				rec.child(), 
+    W_DO( root_page_new.set_hdr(root_new.page,
 				root_page_old.level(), 
+				rec.child(), 
 				(uint2_t) (root_page_old.is_compressed() ? 
 					   btree_p::t_compressed : btree_p::t_none)) );
 
-    W_DO( root_page_old.shift(ret_slot, root_page_new) );
-    /* TODO: check with ryan about the above lines, if this is ok then no need the below lines.
-    int current_slot_old;
-    int current_slot_new;
-    btrec_t current_rec;
-    int copy_slot;
-    for(current_slot_new = 0, current_slot_old = ret_slot; 
-	current_slot_old < root_old.nrecs(); 
-	current_slot++, curren_slot_new++) {
-	current_rec.set(root_page_old, current_slot_old);
-	W_DO( root_page_new.insert(current_rec.key(), current_rec.elem(), current_slot_new, current_rec.child()) );
-    }
-    */
+    W_DO( root_page_old.shift(ret_slot-1, root_page_new) );
     
     root_page_old.unfix();
     root_page_new.unfix();
@@ -635,6 +623,11 @@ btree_impl::_merge_trees(
 	W_DO( new_root_page.insert(startKey2, elem_to_insert, 1, root2.page) );
 	root_page_1.set_root(root.page);
 	root_page_2.set_root(root.page);
+	W_DO( new_root_page.set_hdr(root.page,
+				    root_page_1.level() + 1, 
+				    root1.page, 
+				    (uint2_t) (root_page_1.is_compressed() ? 
+					       btree_p::t_compressed : btree_p::t_none)) );
     }
 
     root_page_1.unfix();

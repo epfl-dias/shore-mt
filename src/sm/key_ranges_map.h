@@ -46,8 +46,8 @@
 #include <map>
 #include <vector>
 #include <utility>
-
 #include <math.h>
+#include <umemcmp.h>
 
 #include <sm_int_2.h>
 
@@ -78,11 +78,11 @@ enum {
 
 
 // For map<char*,lpid_t> to compare char*
-struct cmp_str_greater
+struct cmp_greater
 {
     bool operator()(char const *a, char const *b)
     {
-        return strcmp(a,b) > 0;
+        return umemcmp(a,b,sizeof(a)) > 0;
     }
 };
 
@@ -107,7 +107,7 @@ private:
     typedef cvec_t Key;
 
     // range_init_key -> root of the corresponding subtree
-    map<char*, lpid_t, cmp_str_greater > _keyRangesMap;
+    map<char*, lpid_t, cmp_greater > _keyRangesMap;
     uint _numPartitions;
     char* _minKey;
     char* _maxKey;
@@ -200,7 +200,7 @@ public:
     uint getNumPartitions() const;
     char* getMinKey() const;
     char* getMaxKey() const;
-    map<char*, lpid_t, cmp_str_greater> getMap() const;
+    map<char*, lpid_t, cmp_greater> getMap() const;
 
     // for debugging
     void printPartitions(); 
