@@ -202,8 +202,6 @@ rc_t ranges_p::delete_partition(const lpid_t& root_to_delete,
     bool root_updated = (root_to_update_old == root_to_update_new);
     bool root_deleted = false;
     for(; !(root_updated && root_deleted) && i < nslots; i++) {
-	//pin: to debug
-	cout << i << endl;
 	// get the contents of the slot
 	char* pair = (char*) page_p::tuple_addr(i);
 	cvec_t pair_vec;
@@ -213,26 +211,18 @@ rc_t ranges_p::delete_partition(const lpid_t& root_to_delete,
 	pair_vec.copy_to(current_root, sizeof(lpid_t));
 	lpid_t current_root_id = *((lpid_t*)current_root);
 	free(current_root);
-	//pin: to debug
-	cout << "current_root_id: " << current_root_id << endl;
 	//
 	if(!root_deleted && current_root_id == root_to_delete) {
 	    slot_to_delete = i; // found the slot for the key to be deleted
-	    //pin: to debug
-	    cout << "slot_to_delete: " << i << endl;
 	    root_deleted = true;
 	}
 	if(!root_updated && current_root_id == root_to_update_old) {
-	    //pin: to debug
-	    cout << "slot_to_update: " << i << endl;
 	    cvec_t root_vec;
 	    cvec_t key;
 	    pair_vec.split(sizeof(lpid_t), root_vec, key);
 	    cvec_t new_pair_vec;
 	    new_pair_vec.put((char*)(&root_to_update_new), sizeof(lpid_t));
 	    new_pair_vec.put(key);
-	    //pin: to debug
-	    cout << "new_pair_vec: " << new_pair_vec << endl;
 	    W_DO(page_p::overwrite(i, 0, new_pair_vec));
 	    root_updated = true;
 	}

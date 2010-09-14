@@ -529,6 +529,64 @@ btree_m::merge_trees(
     
     return  rc;
 }
+
+/*********************************************************************
+ *
+ *  btree_m::mr_print(root, sortorder::keytype kt = sortorder::kt_b,
+ *          bool print_elem=false, cvec_t_t& stop_key);
+ *
+ *  Print the btree (for debugging only)
+ *
+ *********************************************************************/
+void 
+btree_m::mr_print(const lpid_t& root, 
+	       sortorder::keytype kt,
+	       bool print_elem,
+	       cvec_t& stop_key)
+{
+    lpid_t nxtpid, pid0;
+    nxtpid = pid0 = root;
+    {
+        btree_p page;
+        W_COERCE( page.fix(root, LATCH_SH) ); // coerce ok-- debugging
+
+	// to stop printing when the partition ends
+	if(page.is_leaf()) {
+	    btrec_t rec(page, 1);
+	    if(rec.key() >= stop_key)
+		return;
+	}
+
+        for (int i = 0; i < 5 - page.level(); i++) {
+            cout << '\t';
+        }
+        cout 
+             << (page.is_smo() ? "*" : " ")
+             << (page.is_delete() ? "D" : " ")
+             << " "
+             << "LEVEL " << page.level() 
+             << ", page " << page.pid().page 
+             << ", prev " << page.prev()
+             << ", next " << page.next()
+             << ", nrec " << page.nrecs()
+             << endl;
+        page.print(kt, print_elem);
+        cout << flush;
+        if (page.next())  {
+            nxtpid.page = page.next();
+        }
+
+        if ( ! page.prev() && page.pid0())  {
+            pid0.page = page.pid0();
+        }
+    }
+    if (nxtpid != root)  {
+        mr_print(nxtpid, kt, print_elem, stop_key);
+    }
+    if (pid0 != root) {
+        mr_print(pid0, kt, print_elem, stop_key);
+    }
+}
 // --
 
 /*********************************************************************

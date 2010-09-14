@@ -176,6 +176,13 @@ public:
     slotid_t             snum,
     btree_p&             rsib);
 
+    // -- mrbt
+    rc_t            shift(
+    slotid_t             snum,
+    slotid_t             snum_dest,
+    btree_p&             rsib);
+    // --
+
     shpid_t         child(slotid_t idx) const;
     int             rec_size(slotid_t idx) const;
     int             nrecs() const;
@@ -311,6 +318,18 @@ btree_p::shift(
     w_assert9(level() == rsib.level());
     return zkeyed_p::shift(snum, &rsib, is_compressed());
 }
+
+// -- mrbt
+inline rc_t
+btree_p::shift(
+    slotid_t         snum,
+    slotid_t         snum_dest,
+    btree_p&         rsib)  
+{
+    w_assert9(level() == rsib.level());
+    return zkeyed_p::shift(snum, snum_dest, &rsib, is_compressed());
+}
+// -- 
 
 inline int
 btree_p::rec_size(slotid_t idx) const

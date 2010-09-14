@@ -763,6 +763,8 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     sortorder::keytype k = sortorder::convert(sd->sinfo().kc);
     vector<lpid_t> pidVec;
     uint i = 0;
+    cvec_t stop_key;
+    cvec_t dummy;
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
     case t_uni_mrbtree:
@@ -770,11 +772,14 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	sd->partitions().printPartitions();
 	cout << endl;
 	sd->partitions().getAllPartitions(pidVec);
-	for(; i < pidVec.size(); i++) {
+	cout << "Partition " << i << endl;
+	bt->print(pidVec[i], k);
+	for(i = 1; i < pidVec.size(); i++) {
+	    sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy);
 	    cout << "Partition " << i << endl;
-	    bt->print(pidVec[i], k);
+	    bt->mr_print(pidVec[i], k, true, stop_key);
 	}
-        break;
+	break;
     default:
         return RC(eBADNDXTYPE);
     }
@@ -1076,27 +1081,15 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 	lpid_t root;
 	W_DO(bt->create(stid, root, isCompressed));
 	roots.push_back(root);
-	// pin: to debug TEST1
-	cout << root << endl;
     }
 
     W_DO(bt->_scramble_key(real_minKey, minKey, sd->sinfo().nkc, sd->sinfo().kc));
     W_DO(bt->_scramble_key(real_maxKey, maxKey, sd->sinfo().nkc, sd->sinfo().kc));
 
-    // pin: to debug TEST1
-    cout << "minKey: " << *real_minKey << " maxKey: " << *real_maxKey << endl;
-
     sd->partitions().makeEqualPartitions(*real_minKey, *real_maxKey, numParts, roots);
-    //sd->partitions().makeEqualPartitions(minKey, maxKey, numParts, roots);
-
-    // pin: to debug TEST1
-    cout << "made equal partitions!" << endl;
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
-
-    // pin: to debug TEST1
-    cout << "filled page!" << endl;
 
     W_DO(xct_auto.commit());
 
@@ -1170,31 +1163,16 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
     W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
     W_DO( sd->partitions().deletePartitionByKey(*real_key, root1, root2, start_key1, start_key2) );
 
-    //pin: to debug
-    cout << "before merge trees" << endl;
-    
     // update tree  
     W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );
 
-    //pin: to debug
-    cout << "after merge trees" << endl;
-    cout << "root1: " << root1 << " root2: " << root2 << " root: " << root << endl;
-    
     // update key_ranges_map if necessary
     if( root != root1) {
-	//pin: to debug
-	cout << "update root" << endl;
 	W_DO( sd->partitions().updateRoot(start_key1, root) );
     }
 
-    //pin: to debug
-    cout << "update ranges page" << endl;
-
     // update the ranges page
     W_DO( ra->delete_partition(sd->root(), root2, root1, root) );
-
-    //pin: to debug
-    cout << "delete partition finished" << endl;
 
     W_DO(xct_auto.commit());	     
     

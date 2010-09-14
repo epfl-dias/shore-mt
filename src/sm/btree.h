@@ -183,6 +183,11 @@ public:
         void*                            el, 
         smsize_t&                        elen,
         bool&                            found);
+    static void                        mr_print(
+					 const lpid_t& root, 
+					 sortorder::keytype kt,
+					 bool print_elem,
+					 cvec_t& last_page);
     // --
     static rc_t                        insert(
         const lpid_t&                     root,
@@ -266,13 +271,14 @@ public:
         int                             nkc,
         const key_type_s*            kc);
 
-protected:
     static rc_t                        _unscramble_key(
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
         const key_type_s*             kc);
 
+    // pin: to debug (protected shoudl be moved up later
+protected:
     /* 
      * for use by logrecs for undo, redo
      */

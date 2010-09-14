@@ -436,7 +436,6 @@ rc_t smthread_user_t::mr_index_test3()
 
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
-    cout << "should be the case of -> root1.level == root2.level" << endl;
     W_DO(ssm->delete_partition(stid, key1_vec));
 
 
@@ -447,7 +446,6 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key5_vec((char*)(&key5), sizeof(key5));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key5 << endl;
-    cout << "should be the case of -> root1.level > root2.level" << endl;
     W_DO(ssm->delete_partition(stid, key5_vec));
 
     
@@ -458,7 +456,6 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key6_vec((char*)(&key6), sizeof(key6));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key6 << endl;
-    cout << "should be the case of -> root1.level < root2.level" << endl;
     W_DO(ssm->delete_partition(stid, key6_vec));
 
     

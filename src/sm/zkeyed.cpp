@@ -172,6 +172,97 @@ zkeyed_p::shift(slotid_t idx, zkeyed_p* rsib, bool compressed)
 
 }
 
+// -- mrbt
+/*********************************************************************
+ *
+ *  zkeyed_p::shift(idx, idx_dest, rsib, compressed)
+ *
+ *  Shift all entries starting at "idx" to idx_dest entry of page "rsib".
+ *  This is called from btree.cpp, where nothing is known about
+ *  key compression, so it's up to this function to maintain the
+ *  invariant that the first slot on a page has no compression.
+ *
+ *********************************************************************/
+rc_t
+zkeyed_p::shift(slotid_t idx, slotid_t idx_dest, zkeyed_p* rsib, bool compressed)
+{
+    FUNC(zkeyed_p::shift);
+    w_assert1(idx >= 0 && idx < nrecs());
+
+    int n = nrecs() - idx;
+
+    DBG(<<"zkeyed_p::SHIFT "  
+        << " (compressed=" << compressed 
+        << ") from page " << pid().page << " idx " << idx
+        << " #recs " << n
+        );
+
+    int start_simple_move=0;
+    rc_t rc;
+    /*
+    if(compressed) {
+        // First slot is a special case
+        // See if it's got a compressed prefix; if so,
+        // materialize the whole thing through zkeyed_p::rec
+        // before stuffing it into the rsib.
+        //
+        // In several cases, though, idx is 0 (we're moving everything)
+        // and in that case, we don't have to check anything
+        if(idx > 0)
+        {
+            const char*    junk;
+            int            pxl;
+            int            pxp;
+            int             junklen;
+            cvec_t          key;
+            W_DO(this->rec(idx, pxl, pxp, key, junk, junklen));
+            if(pxl>0) {
+                cvec_t    aux;
+                aux.put(junk,junklen);
+                // It had better fit!
+                DBG(<<"Shift : first rec has " << pxp << " prefix parts");
+                W_COERCE(rsib->insert(key, aux, 0));
+                start_simple_move ++;
+            }
+        }
+    }
+    */
+    /* 
+     * grot performance hack: do in chunks of up to 
+     * tmp_chunk_size slots at a time
+     */
+    const int tmp_chunk_size = 20;    // XXX magic number
+    vec_t *tp = new vec_t[tmp_chunk_size];
+    if (!tp)
+        return RC(fcOUTOFMEMORY);
+    w_auto_delete_array_t<vec_t>    ad_tp(tp);
+
+    for (int i = start_simple_move, k = idx_dest; i < n && (! rc.is_error()); ) {
+        int j;
+
+        // NB: this next for-loop increments variable i !!!
+        for (j = 0; j < tmp_chunk_size && i < n; j++, i++, k++)  {
+            tp[j].set(page_p::tuple_addr(1 + idx + i),
+                  page_p::tuple_size(1 + idx + i));
+        }
+
+        // i has been incremented j times, hence the
+        // subtraction for the 1st arg to insert_expand():
+        rc = rsib->insert_expand(1 + k - j, j, tp); // do it & log it
+    }
+    if (! rc.is_error())  {
+        DBG(<<"Removing " << n << " slots starting with " << 1+idx
+            << " from page " << pid().page);
+        rc = remove_compress(1 + idx, n);
+    }
+    DBG(<< " page " << pid().page << " has " << nrecs() << " slots");
+    DBG(<< " page " << rsib->pid().page << " has " << rsib->nrecs() 
+        << " slots");
+
+    return rc.reset();
+
+}
+// --
 
 /*********************************************************************
  *

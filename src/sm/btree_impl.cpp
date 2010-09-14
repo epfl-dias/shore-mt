@@ -481,6 +481,8 @@ btree_impl::_split_tree(
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key)                // I-  which key
 {
+    // TODO: update the root pages of all the pages below when you move them
+    
     FUNC(btree_impl::_split_tree);
 
     DBGTHRD(<<"_split_tree: unique = " << unique << " cc=" << int(cc)
@@ -548,6 +550,9 @@ btree_impl::_merge_trees(
     cvec_t&             startKey2,
     bool                is_compressed) // I- info for creating the new root page if required
 {
+    // TODO: update the root pages of all the pages below when you move them
+    // TODO: deallocate the page you don't use anymore
+    
     FUNC(btree_impl::_merge_trees);
 
     DBGTHRD(<<"_merge_trees: unique = " << unique << " cc=" << int(cc));
@@ -572,7 +577,9 @@ btree_impl::_merge_trees(
     int level_2 = root_page_2.level();
     cvec_t elem_to_insert; // dummy
     if ( level_1 < level_2 ) { // root2 has a higher level than root1
- 	                            // put root1 into appropriate slot in btree with root2
+	                       // put root1 into appropriate slot in btree with root2
+	// pin: to debug
+	cout << "root1.level < root2.level" << endl;
 	cvec_t elem_to_insert; // dummy
 	// find the page to insert the other tree
 	if(level_2 > level_1+1) {
@@ -586,15 +593,18 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( page_to_insert.insert(startKey1, elem_to_insert, 0, root1.page) );
+	    W_DO( root_page_1.shift(0, page_to_insert.nrecs(), page_to_insert) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_2.insert(startKey1, elem_to_insert, 0, root1.page) );
+	else W_DO( root_page_1.shift(0, root_page_2.nrecs(), root_page_2) );
 	root = root2;
 	root_page_1.set_root(root.page);
+	// TODO: this is wrong
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
+	// pin: to debug
+	cout << "root1.level > root2.level" << endl;
 	// find the page to insert the other tree
 	if(level_1 > level_2+1) {
 	    btrec_t rec(root_page_1, root_page_1.nrecs() - 1);
@@ -607,27 +617,24 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( page_to_insert.insert(startKey2, elem_to_insert, page_to_insert.nrecs(), root2.page) );
+	    W_DO( root_page_2.shift(0, page_to_insert.nrecs(), page_to_insert) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_1.insert(startKey2, elem_to_insert, root_page_1.nrecs(), root2.page) );
+	else W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
 	root = root1;
 	root_page_2.set_root(root.page);
     }
     else { // both btrees have the same height
-	   // create new root
-	W_DO( create(root1._stid, root, is_compressed) );
-	btree_p new_root_page;
-	W_DO( new_root_page.fix(root, LATCH_EX) );
-	W_DO( new_root_page.insert(startKey1, elem_to_insert, 0, root1.page) );
-	W_DO( new_root_page.insert(startKey2, elem_to_insert, 1, root2.page) );
-	root_page_1.set_root(root.page);
+	   // append root2 entries to root1
+	   // TODO: if root1 doesn't have enough space, don't let merge
+
+	// pin: to debug
+	cout << "root1.level == root2.level" << endl;
+
+ 	W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
+	root = root1;
+
 	root_page_2.set_root(root.page);
-	W_DO( new_root_page.set_hdr(root.page,
-				    root_page_1.level() + 1, 
-				    root1.page, 
-				    (uint2_t) (root_page_1.is_compressed() ? 
-					       btree_p::t_compressed : btree_p::t_none)) );
     }
 
     root_page_1.unfix();
