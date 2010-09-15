@@ -182,7 +182,7 @@ btree_p::distribute(
 rc_t
 btree_p::_unlink(btree_p &rsib
 #ifdef SM_DORA
-		 , bool bIgnoreLatches
+		 , const bool bIgnoreLatches
 #endif
 		 )
 {
@@ -246,7 +246,7 @@ btree_p::unlink_and_propagate(
     lpid_t&           parent_pid,
     lpid_t const&     root_pid
 #ifdef SM_DORA
-    , bool bIgnoreLatches
+    , const bool bIgnoreLatches
 #endif
 			      )
 {

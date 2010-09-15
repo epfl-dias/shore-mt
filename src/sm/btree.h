@@ -253,7 +253,10 @@ public:
         const cvec_t&                    bound2,
         lock_mode_t                    mode = SH);
     static rc_t                        fetch_reinit(cursor_t& cursor); 
-    static rc_t                        fetch(cursor_t& cursor);
+    static rc_t                        fetch(cursor_t& cursor
+#ifdef SM_DORA
+					     , const bool bIgnoreLatches = false
+#endif);
     static rc_t                        is_empty(const lpid_t& root, bool& ret);
     static rc_t                        purge(const lpid_t& root, bool check_empty, 
                                      bool forward_processing);

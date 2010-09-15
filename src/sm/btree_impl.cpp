@@ -3303,7 +3303,7 @@ btree_impl::_propagate_split(
                                 // slot -1 means pid0
     bool&                    was_split// O - true if parent was split by this
 #ifdef SM_DORA
-    , bool bIgnoreLatches
+    , const bool bIgnoreLatches
 #endif
 )
 {

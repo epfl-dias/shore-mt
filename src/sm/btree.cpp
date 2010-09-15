@@ -938,7 +938,7 @@ btree_m::fetch_reinit(
 rc_t
 btree_m::fetch(cursor_t& cursor
 #ifdef SM_DORA
-	       , bool bIgnoreLatches
+	       , const bool bIgnoreLatches
 #endif
 	       )
 {

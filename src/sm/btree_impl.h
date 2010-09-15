@@ -87,14 +87,20 @@ protected:
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
 	cvec_t&                         start_key,
-        const cvec_t&                   key);
+        const cvec_t&                   key
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
     static rc_t                        _merge_trees(
-        lpid_t&                         root,					    
+        lpid_t&                         root,			      	    
         const lpid_t&                   root1,
 	const lpid_t&                   root2,
 	cvec_t&                         startKey1,
 	cvec_t&                         startKey2,
-	bool                            is_compressed);
+	bool                            is_compressed
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
     // --
 
     static rc_t                        _alloc_page(
@@ -106,7 +112,9 @@ protected:
         bool                            set_its_smo=false,
         bool                            compress=false,
         store_flag_t                     stf = st_regular
-        );
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
 
     static rc_t                        _insert(
         const lpid_t&                     root,
@@ -114,13 +122,19 @@ protected:
         concurrency_t                    cc,
         const cvec_t&                     key,
         const cvec_t&                     elem,
-        int                             split_factor = 50);
+        int                             split_factor = 50
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
     static rc_t                        _remove(
         const lpid_t&                    root,
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-        const cvec_t&                     elem);
+        const cvec_t&                     elem
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
 
     static rc_t                 _lookup(
         const lpid_t&                     root,  // I-  root of btree
@@ -132,7 +146,9 @@ protected:
         bt_cursor_t*                    cursor,// I/o - put result here OR
         void*                             el,           // I/o-  buffer to put el if !cursor
         smsize_t&                     elen   // IO- size of el if !cursor
-        );        
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);        
 
     static rc_t                 _skip_one_slot(
         btree_p&                    p1, 
@@ -142,7 +158,9 @@ protected:
         bool&                            eof,
         bool&                            found,
         bool                             backward=false
-        );
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
 
     static rc_t                 _propagate(
         const lpid_t&                     root_pid,         // I-  root page  -- fixed
@@ -152,7 +170,9 @@ protected:
                                         //  or of the page that was split
         int                            child_level, // I - level of child_pid
         bool                              isdelete     // I-  true if delete being propagated
-        );
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
     static void                         _skip_one_slot(
         btree_p&                     p1,
         btree_p&                     p2,
@@ -222,20 +242,27 @@ private:
         btree_p&                     parent,        // O-  parent of leaf satisfying search
         lsn_t&                             leaf_lsn,        // O-  lsn of leaf 
         lsn_t&                             parent_lsn        // O-  lsn of parent 
-        ); 
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif); 
     static rc_t                 _propagate_split(
         btree_p&                     parent,     // I - page to get the insertion
         const lpid_t&                    _pid,       // I - pid of child that was split
         slotid_t                      slot,        // I - slot where the split page sits
                                     //  which is < slot where the new entry goes
         bool&                        was_split   // O - true if parent was split by this
-        );
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
     static rc_t                 _split_leaf(
         const lpid_t&                    root_pid,         // I - root of tree
         btree_p&                    leaf,         // I - page to be split
         const cvec_t&                    key,        // I-  which key causes split
         const cvec_t&                    el,                // I-  which element causes split
-        int                             split_factor);
+        int                             split_factor
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
 
     static rc_t                 __split_page(
         btree_p&                    page,        // IO- page that needs to split
@@ -244,10 +271,18 @@ private:
         slotid_t&                   slot,        // IO- slot of insertion after split
         int                            addition,        // I-  # bytes intended to insert
         int                            split_factor// I-  % of left page that should remain
-        );
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif);
 
-    static rc_t                        _grow_tree(btree_p& root);
-    static rc_t                        _shrink_tree(btree_p& root);
+    static rc_t                        _grow_tree(btree_p& root
+#ifdef SM_DORA
+						  , const bool bIgnoreLatches = false
+#endif);
+    static rc_t                        _shrink_tree(btree_p& root
+#ifdef SM_DORA
+						    , const bool bIgnoreLatches = false
+#endif);
     
 
     static rc_t                 _handle_dup_keys(
