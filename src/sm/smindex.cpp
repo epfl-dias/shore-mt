@@ -962,9 +962,9 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
     case t_uni_mrbtree:
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_remove_key(sd->root(*real_key), 
-			    sd->sinfo().nkc, sd->sinfo().kc,
-			    sd->sinfo().ntype == t_uni_mrbtree,
-			    cc, *real_key, num));
+			       sd->sinfo().nkc, sd->sinfo().kc,
+			       sd->sinfo().ntype == t_uni_mrbtree,
+			       cc, *real_key, num));
         break;
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
@@ -1120,9 +1120,7 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
     
     // split the btree TODO: decide on concurrency_t (should be like in create_assoc for dora?)
     W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-    W_DO(bt->split_tree(sd->root(*real_key), root_new, start_key, 
-			sinfo.ntype == t_uni_mrbtree, 
-			(concurrency_t)sinfo.cc, *real_key));
+    W_DO(bt->split_tree(sd->root(*real_key), root_new, start_key, *real_key));
 
     // update the ranges page & key_ranges_map which keeps the partition info
     W_DO( sd->partitions().addPartition(start_key, root_new) );    

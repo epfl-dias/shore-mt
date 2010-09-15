@@ -462,7 +462,7 @@ btree_m::mr_lookup(
 
 /*********************************************************************
  *
- *  btree_m::split_tree(root_old, root_new, start_key, unique, cc, key)
+ *  btree_m::split_tree(root_old, root_new, start_key, key)
  *
  *  Split from the root starting from the given key.
  *  Just copy the slots from root_old that has a key value greater 
@@ -474,8 +474,6 @@ btree_m::split_tree(
     const lpid_t&        root_old,          // I-  root of btree
     const lpid_t&        root_new,           // I- root of the new btree
     cvec_t&              start_key,         // O - actual start key for the new partition
-    bool                 unique,            // I-  true if tree is unique
-    concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key)                // I-  which key
 {
 #if BTREE_LOG_COMMENT_ON
@@ -485,17 +483,11 @@ btree_m::split_tree(
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    if(
-        (cc != t_cc_none) && (cc != t_cc_file) &&
-        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
-        (cc != t_cc_im) 
-        ) return badcc();
-    w_assert1(kc && nkc > 0);
 
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_split_tree(root_old, root_new, start_key, unique, cc, key);
+    rc = btree_impl::_split_tree(root_old, root_new, start_key, key);
     
     return  rc;
 }
@@ -944,7 +936,11 @@ btree_m::fetch_reinit(
  *
  *********************************************************************/
 rc_t
-btree_m::fetch(cursor_t& cursor)
+btree_m::fetch(cursor_t& cursor
+#ifdef SM_DORA
+	       , bool bIgnoreLatches
+#endif
+	       )
 {
     FUNC(btree_m::fetch);
     bool __eof = false;
@@ -954,6 +950,9 @@ btree_m::fetch(cursor_t& cursor)
     check_latches(___s,___e, ___s+___e); 
     DBGTHRD(<<"first_time=" << cursor.first_time
         << " keep_going=" << cursor.keep_going);
+
+    latch_mode_t mode;
+    
     if (cursor.first_time)  {
         /*
          *  Fetch_init() already placed cursor on
@@ -997,7 +996,13 @@ btree_m::fetch(cursor_t& cursor)
              *  Fix the cursor page. If page has changed (lsn
              *  mismatch) then call fetch_init to re-traverse.
              */
-            W_DO( p1.fix(cursor.pid(), LATCH_SH) );
+	    mode = LATCH_SH;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		mode = LATCH_NL;
+	    }
+#endif
+            W_DO( p1.fix(cursor.pid(), mode) );
             if (cursor.lsn() == p1.lsn())  {
                 break;
             }
@@ -1038,10 +1043,15 @@ btree_m::fetch(cursor_t& cursor)
 
                 // unconditional
                 tree_latch tree_root(child->root());
-
+		mode = LATCH_SH;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    mode = LATCH_NL;
+		}
+#endif
                 w_error_t::err_num_t rce =
-                   tree_root.get_for_smo(false, LATCH_SH,
-                            *child, LATCH_SH, false, 
+                   tree_root.get_for_smo(false, mode,
+                            *child, mode, false, 
                                 child==&p1? &p2 : &p1, LATCH_NL);
                 if(rce) return RC(rce);
 
@@ -1115,7 +1125,13 @@ btree_m::fetch(cursor_t& cursor)
                     p1.unfix();
                     p2.unfix();
                     W_DO( lm->lock(kvl, SH, t_long) );
-                    W_DO( child->fix(pid, LATCH_SH) );
+		    mode = LATCH_SH;
+#ifdef SM_DORA
+		    if(bIgnoreLatches) {
+			mode = LATCH_NL;
+		    }
+#endif
+                    W_DO( child->fix(pid, mode) );
                     if (lsn == child->lsn() && child == &p1)  {
                         ;
                     } else {

@@ -180,7 +180,11 @@ btree_p::distribute(
  *
  *********************************************************************/
 rc_t
-btree_p::_unlink(btree_p &rsib)
+btree_p::_unlink(btree_p &rsib
+#ifdef SM_DORA
+		 , bool bIgnoreLatches
+#endif
+		 )
 {
     DBG(<<" unlinking page: "  << pid()
     << " nrecs " << nrecs()
@@ -216,7 +220,13 @@ btree_p::_unlink(btree_p &rsib)
         btree_p lsib;
         if(lsib_pid.page) {
             INC_TSTAT(bt_links);
-            W_DO( lsib.fix(lsib_pid, LATCH_EX) ); 
+	    latch_mode_t mode = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		mode = LATCH_NL;
+	    }
+#endif	    
+            W_DO( lsib.fix(lsib_pid, mode) ); 
             SSMTEST("btree.unlink.3");
             W_DO( lsib.link_up(lsib.prev(), rsib_page) );
         }
@@ -235,10 +245,13 @@ btree_p::unlink_and_propagate(
     btree_p&          rsib,
     lpid_t&           parent_pid,
     lpid_t const&     root_pid
-)
+#ifdef SM_DORA
+    , bool bIgnoreLatches
+#endif
+			      )
 {
 #if W_DEBUG_LEVEL > 2
-    W_DO(log_comment("start unlink_and_propagate"));
+b    W_DO(log_comment("start unlink_and_propagate"));
 #endif 
     w_assert3(this->is_fixed());
     w_assert3(rsib.is_fixed() || next() == 0);
@@ -280,8 +293,13 @@ btree_p::unlink_and_propagate(
 
             w_assert3( ! is_fixed());
 
-
-            X_DO(parent.fix(parent_pid, LATCH_EX), anchor);
+	    latch_mode_t mode = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		mode = LATCH_NL;
+	    }
+#endif
+            X_DO(parent.fix(parent_pid, mode), anchor);
             X_DO(parent.search(key, elem, found_key, total_match, slot), anchor)
 
             // might, might not:w_assert3(found_key);

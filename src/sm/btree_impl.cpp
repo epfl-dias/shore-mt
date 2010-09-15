@@ -306,8 +306,7 @@ tree_latch::get_for_smo(
     latch_mode_t        p1mode,
     bool                relatch_p2, // do relatch it, if it was latched
     btree_p*            p2,         // might be latched
-    latch_mode_t        p2mode
-)
+    latch_mode_t        p2mode)        
 {
     check(); 
     get_latches(___s,___e); // for checking that we
@@ -477,19 +476,27 @@ btree_impl::_split_tree(
     const lpid_t&       root_old,            // I-  root of the old btree
     const lpid_t&       root_new,           // I - root of the new btree
     cvec_t&             start_key,           // O - actual start key for the new partition
-    bool                unique,             // I-  true if tree is unique
-    concurrency_t        cc,                // I-  concurrency control 
-    const cvec_t&        key)                // I-  which key
+    const cvec_t&       key                // I-  which key
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)
 {
     // TODO: update the root pages of all the pages below when you move them
-    
+
     FUNC(btree_impl::_split_tree);
 
-    DBGTHRD(<<"_split_tree: unique = " << unique << " cc=" << int(cc)
-        << " key=" << key );
+    DBGTHRD(<<"_split_tree: " << " key=" << key );
 
-    get_latches(___s,___e);
+    latch_mode_t root_latch = LATCH_EX;
 
+#ifdef SM_DORA
+    // pin: use lowest latch mode for DORA
+    if(bIgnoreLatches) {
+	root_latch = LATCH_NL;
+    }
+#endif
+    
     btree_p         root_page_old;
     btree_p         root_page_new;
     rc_t            rc;
@@ -497,8 +504,8 @@ btree_impl::_split_tree(
     w_assert9( !root_page_old.is_fixed() );
     w_assert9( !root_page_new.is_fixed() );
 
-    W_DO( root_page_old.fix(root_old, LATCH_EX) );
-    W_DO( root_page_new.fix(root_new, LATCH_EX) );
+    W_DO( root_page_old.fix(root_old, root_latch) );
+    W_DO( root_page_new.fix(root_new, root_latch) );
     
     w_assert9( root_page_old.is_fixed() );
     w_assert9( root_page_new.is_fixed() );
@@ -529,8 +536,6 @@ btree_impl::_split_tree(
     w_assert9( !root_page_old.is_fixed() );
     w_assert9( !root_page_new.is_fixed() );
 
-    // TODO: check_latches
-
     return RCOK;
 }
 
@@ -548,16 +553,21 @@ btree_impl::_merge_trees(
     const lpid_t&       root2,           
     cvec_t&             startKey1,    // I- initial keys
     cvec_t&             startKey2,
-    bool                is_compressed) // I- info for creating the new root page if required
+    bool                is_compressed // I- info for creating the new root page if required
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)    
 {
     // TODO: update the root pages of all the pages below when you move them
     // TODO: deallocate the page you don't use anymore
+    // TODO: here you affect two partitions, depending on the thread causing this merge operation
+    //       you should block the other thread for not modifiying its partition
+    //       think about this and use bIgoreLatches accordingly
     
     FUNC(btree_impl::_merge_trees);
 
     DBGTHRD(<<"_merge_trees: unique = " << unique << " cc=" << int(cc));
-
-    get_latches(___s,___e);
 
     btree_p         root_page_1;
     btree_p         root_page_2;
@@ -643,8 +653,6 @@ btree_impl::_merge_trees(
     w_assert9( !root_page_1.is_fixed() );
     w_assert9( !root_page_2.is_fixed() );
 
-    // TODO: check_latches
-
     return RCOK;
 }
 // --
@@ -677,10 +685,20 @@ btree_impl::_alloc_page(
     bool set_its_smo, // = false
     bool compressed,  // = false
     store_flag_t stf  // = st_regular,
-)
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
     FUNC(btree_impl::_alloc_page);
 
+    latch_mode_t mode = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	mode = LATCH_NL;
+    }
+#endif
+	
     lpid_t pid;
     w_assert9(near_p != lpid_t::null);
 
@@ -695,7 +713,7 @@ btree_impl::_alloc_page(
         NL,        //  ignored
         true        // search file
         )) ;
-    W_DO( ret_page.fix(pid, LATCH_EX, ret_page.t_virgin, stf) );
+    W_DO( ret_page.fix(pid, mode, ret_page.t_virgin, stf) );
 
     btree_p::flag_t f = compressed? btree_p::t_compressed : btree_p::t_none;
 
@@ -725,7 +743,11 @@ btree_impl::_insert(
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
     const cvec_t&        el,                // I-  which element
-    int                 split_factor)        // I-  tune split in %
+    int                 split_factor        // I-  tune split in %
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)
 {
     FUNC(btree_impl::_insert);
     lpid_t                  search_start_pid = root;
@@ -736,10 +758,17 @@ btree_impl::_insert(
 
     DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
         << " key=" << key );
+
     get_latches(___s,___e);
 
     {
         tree_latch         tree_root(root);
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
 again:
     {
         btree_p         leaf;
@@ -769,11 +798,16 @@ again:
          *  search the leaf page; it's our responsibility
          *  to check that we're at the correct leaf.
          */
-
+	traverse_latch = LATCH_EX;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+#endif
         W_DO( _traverse(root, search_start_pid,
             search_start_lsn,
             key, el, found, 
-            LATCH_EX, leaf, parent,
+            traverse_latch, leaf, parent,
             leaf_lsn, parent_lsn) );
 
         if(leaf.pid() == root) {
@@ -810,10 +844,18 @@ again:
             w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
             w_assert2(leaf.is_fixed());
             w_assert2(leaf.latch_mode() == LATCH_EX);
-            /* conditional=true, try to get tree latch in SH mode,
+	    /* conditional=true, try to get tree latch in SH mode,
              */
-            w_error_t::err_num_t rce = tree_root.get_for_smo(true, LATCH_SH, 
-                        leaf, LATCH_EX, false, &parent, LATCH_NL);
+	    smo_mode = LATCH_SH;
+	    smo_p1mode = LATCH_EX;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    smo_mode = LATCH_NL;
+	    smo_p1mode = LATCH_NL;
+	}
+#endif
+	w_error_t::err_num_t rce = tree_root.get_for_smo(true, smo_mode, 
+							 leaf, smo_p1mode, false, &parent, LATCH_NL);
 
             w_assert9(leaf.is_fixed());
             w_assert9(leaf.latch_mode() == LATCH_EX);
@@ -954,7 +996,13 @@ again:
                         btree_p cousin;
 
                         if(cousin_pid.page) {
-                            rc = cousin.conditional_fix(cousin_pid, LATCH_EX);
+			    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+#endif
+                            rc = cousin.conditional_fix(cousin_pid, fix_latch);
                             W_IFDEBUG1(
                             if(!rc.is_error())
                                 w_assert1(cousin.prev() == leaf.pid().page);)
@@ -967,7 +1015,13 @@ again:
                                 2 *(key.size() + el.size() +
                                 btree_p::overhead_requirement_per_entry);
 
-                            rc = parent.conditional_fix(parent_pid, LATCH_EX);
+			    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+#endif
+                            rc = parent.conditional_fix(parent_pid, fix_latch);
                             if(!rc.is_error()) {
                                 /* check if parent has space for the new
                                    key. To avoid running afoul of shore's
@@ -1066,9 +1120,17 @@ again:
                          * tree latch, we'll start all over, having
                          * free the tree latch.
                          */
+			smo_mode = LATCH_EX;
+			smo_p1mode = LATCH_EX;
+#ifdef SM_DORA
+			if(bIgnoreLatches) {
+			    smo_mode = LATCH_NL;
+			    smo_p1mode = LATCH_NL;
+			}
+#endif
                         w_error_t::err_num_t rce = 
-                            tree_root.get_for_smo(true, LATCH_EX,
-                                leaf, LATCH_EX, false, 0, LATCH_NL);
+                            tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, 0, LATCH_NL);
 
                         w_assert2(tree_root.is_fixed());
                         w_assert2(leaf.is_fixed());
@@ -1217,7 +1279,13 @@ again:
             p2_pid.page = leaf.next();
 
             INC_TSTAT(bt_links);
-            W_DO( p2.fix(p2_pid, LATCH_SH) );
+	    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO( p2.fix(p2_pid, fix_latch) );
             next_slot = 0; //first rec on next page
 
             w_assert9(p2.nrecs());  // else we'd have been at
@@ -1312,7 +1380,14 @@ again:
                 }
                 leaf.unfix();
                 W_DO(lm->lock(nxt_kvl, next_mode, next_duration));
-                W_DO(leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+#endif
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     /*
                      * if the page changed, the found key
@@ -1323,7 +1398,13 @@ again:
                     goto again;
                 }
                 if(p2_pid.page) {
-                    W_DO(p2.fix(p2_pid, LATCH_SH) );
+		    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+#endif
+                    W_DO(p2.fix(p2_pid, fix_latch));
                     if(p2.lsn() != p2_lsn) {
                         /*
                          * Have to re-compute next value.
@@ -1366,7 +1447,14 @@ again:
                 }
                 leaf.unfix();
                 W_DO(lm->lock(kvl, this_mode, this_duration));
-                W_DO(leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     /*
                      * if the page changed, the found key
@@ -1453,9 +1541,11 @@ again:
         }
         w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
     }
-    }        
+    }
+
     check_latches(___s,___e, ___s+___e);
 
+    
     return RCOK;
 }
 
@@ -1472,7 +1562,10 @@ btree_impl::_remove(
     concurrency_t        cc,        // concurrency control
     const cvec_t&        key,        // which key
     const cvec_t&        el         // which el
-)
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
     FUNC(btree_impl::_remove);
     lpid_t                  search_start_pid = root;
@@ -1489,11 +1582,20 @@ btree_impl::_remove(
         cout << "BEFORE _remove" <<endl;
         btree_m::print(root);
     }
-#endif 
-    get_latches(___s,___e);
+#endif
 
+    get_latches(___s,___e);
+    
     {
     tree_latch         tree_root(root);
+
+    // latch modes
+    latch_mode_t traverse_latch;
+    latch_mode_t smo_mode;
+    latch_mode_t smo_p1mode;
+    latch_mode_t smo_p2mode;
+    latch_mode_t fix_latch;
+
 again:
     {
     btree_p         leaf;
@@ -1526,19 +1628,24 @@ again:
      *  to check that we're at the correct leaf.
      */
 
+    traverse_latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	traverse_latch = LATCH_NL;
+    }
+#endif
     W_DO( _traverse(root, search_start_pid,
         search_start_lsn,
         key, el, found, 
-        LATCH_EX, leaf, parent,
+        traverse_latch, leaf, parent,
         leaf_lsn, parent_lsn) );
-
 
     if(leaf.pid() == root) {
         check_latches(___s,___e+2, ___s+___e+2);
     } else {
         check_latches(___s+1,___e+1, ___s+___e+2);
     }
-
+    
     w_assert9(leaf.is_fixed());
     w_assert9(leaf.is_leaf());
 
@@ -1579,8 +1686,16 @@ again:
 
     if(leaf.is_smo()) {
         w_error_t::err_num_t rce;
-        rce = tree_root.get_for_smo(true, LATCH_SH,
-                    leaf, LATCH_EX, false, &parent, LATCH_NL);
+	smo_mode = LATCH_SH;
+	smo_p1mode = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	smo_mode = LATCH_NL;
+	smo_p1mode = LATCH_NL;
+    }
+#endif
+        rce = tree_root.get_for_smo(true, smo_mode,
+                    leaf, smo_p1mode, false, &parent, LATCH_NL);
         tree_root.unfix(); // Instant latch
 
         w_assert2(!tree_root.is_fixed() );
@@ -1724,7 +1839,13 @@ again:
                         INC_TSTAT(bt_links);
                         DBG(<<"");
 
-                        W_DO( sib.fix(sib_pid, LATCH_SH) );
+			fix_latch = LATCH_SH;
+#ifdef SM_DORA
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+#endif
+                        W_DO( sib.fix(sib_pid, fix_latch) );
                         sib_lsn = sib.lsn();
                         if(sib.nrecs() > 0) {
                             next_on_next_page =true;
@@ -1753,10 +1874,17 @@ again:
                              * wait for POSC
                              */
                             DBG(<<"");
-
+			    smo_mode = LATCH_SH;
+			    smo_p1mode = LATCH_EX;
+#ifdef SM_DORA
+			    if(bIgnoreLatches) {
+				smo_mode = LATCH_NL;
+				smo_p1mode = LATCH_NL;
+			    }
+#endif
                             w_error_t::err_num_t rce;
-                            rce = tree_root.get_for_smo(true, LATCH_SH,
-                                leaf, LATCH_EX, false, &sib, LATCH_NL);
+                            rce = tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, &sib, LATCH_NL);
                             tree_root.unfix(); // Instant latch
 
                             w_assert2(!tree_root.is_fixed() );
@@ -1807,14 +1935,27 @@ again:
                 leaf.unfix();
                 sib.unfix();
                 W_DO( lm->lock(nxt_kvl, next_mode, next_duration) );
-                W_DO( leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+#endif
+                W_DO( leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     leaf.unfix();
                     DBG(<<"-->again");
                     goto again;
                 }
                 if(sib_pid.page)  {
-                    W_DO( sib.fix(sib_pid, LATCH_SH) );
+		    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+#endif
+                    W_DO( sib.fix(sib_pid, fix_latch) );
                     if(sib.lsn() != sib_lsn) {
                         leaf.unfix();
                         sib.unfix();
@@ -1857,7 +1998,14 @@ again:
             leaf.unfix();
             sib.unfix();
             W_DO( lm->lock(kvl, this_mode, this_duration) );
-            W_DO( leaf.fix(leaf_pid, LATCH_EX) );
+
+	    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO( leaf.fix(leaf_pid, fix_latch) );
             if(leaf.lsn() != leaf_lsn) {
                 leaf.unfix();
                 DBG(<<"-->again");
@@ -1920,9 +2068,16 @@ again:
 
             SSMTEST("btree.remove.2");
 
+	    smo_p1mode = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		tree_latch_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
+#endif
             w_error_t::err_num_t rce = 
                 tree_root.get_for_smo(true, tree_latch_mode,
-                    leaf, LATCH_EX, sib.is_fixed(), &sib, sib.latch_mode());
+                    leaf, smo_p1mode, sib.is_fixed(), &sib, sib.latch_mode());
 
             w_assert2(tree_root.is_fixed());
             w_assert2(leaf.is_fixed());
@@ -2031,10 +2186,20 @@ again:
              *  to hold this until we're done with the SMO
              *  (page deletion).
              */
+	    smo_mode = LATCH_EX;
+	    smo_p1mode = LATCH_EX;
+	    smo_p2mode = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+		smo_p2mode = LATCH_NL;
+	    }
+#endif
             w_error_t::err_num_t rce;
-            rce = tree_root.get_for_smo(true, LATCH_EX,
-                    leaf, LATCH_EX,
-                    true, &sib, LATCH_EX);
+            rce = tree_root.get_for_smo(true, smo_mode,
+                    leaf, smo_p1mode,
+                    true, &sib, smo_p2mode);
             // if sib wasn't latched before calling for the latch,
             // it won't be latched now.
             DBGTHRD(<<" rc= " << rc);
@@ -2065,9 +2230,15 @@ again:
                  * latches because we already have the tree latch
                  * and we only travel right from the leaf -- never left.
                  */
+		fix_latch = LATCH_EX;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+#endif
                 if(!sib.is_fixed()) {
-                    W_DO(sib.fix(sib_pid, LATCH_EX));
-                } else if (sib.latch_mode() != LATCH_EX) {
+                    W_DO(sib.fix(sib_pid, fix_latch));
+                } else if (sib.latch_mode() != fix_latch) {
 #if COMMENT
                     // Took out because the buffer cleaner might
                     // have this page latched, but the buffer 
@@ -2077,7 +2248,7 @@ again:
                     W_DO(sib.upgrade_latch_if_not_block(would_block));
                     w_assert9(!would_block);
 #else
-                    sib.upgrade_latch(LATCH_EX);
+                    sib.upgrade_latch(fix_latch);
 #endif /* COMMENT */
                 }
             }
@@ -2094,8 +2265,10 @@ again:
     } // deletion of the key
     }
     }
+
     check_latches(___s,___e, ___s+___e);
 
+    
     return RCOK;
 }
 
@@ -2120,10 +2293,15 @@ btree_impl::_lookup(
     bt_cursor_t*        cursor, // I/o - put result here OR
     void*               el,        // I/o-  buffer to put el if !cursor
     smsize_t&           elen        // IO- size of el if !cursor
-    )        
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)                
 {
     FUNC(btree_impl::_lookup);
+
     get_latches(___s,___e); 
+
     rc_t        rc;
 
     INC_TSTAT(bt_find_cnt);
@@ -2134,8 +2312,15 @@ btree_impl::_lookup(
         lpid_t       search_start_pid = root;
         lsn_t        search_start_lsn = lsn_t::null;
 
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+
         check_latches(___s,___e, ___s+___e); 
-     again:
+	
+    again:
         DBGTHRD(<<"_lookup.again");
 
 
@@ -2159,15 +2344,21 @@ btree_impl::_lookup(
          *  search the leaf page; it's our responsibility
          *  to check that we're at the correct leaf.
          */
+	traverse_latch = LATCH_SH;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+#endif
         W_DO( _traverse(root, 
                 search_start_pid, 
                 search_start_lsn,
                 key, elem, found, 
-                LATCH_SH, leaf, parent,
+                traverse_latch, leaf, parent,
                 leaf_lsn, parent_lsn) );
 
         check_latches(___s+2,___e, ___s+___e+2); 
-
+	
         w_assert9(leaf.is_fixed());
         w_assert9(leaf.is_leaf());
         
@@ -2250,7 +2441,13 @@ btree_impl::_lookup(
             pid.page = leaf.next();
 
             INC_TSTAT(bt_links);
-            W_DO( p2.fix(pid, LATCH_SH) );
+	    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO( p2.fix(pid, fix_latch) );
             /* 
              * does successor have a satisfying key?
              */
@@ -2279,10 +2476,18 @@ btree_impl::_lookup(
             } else {
                 /* no satisfying key; page could be empty */
 
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
+#endif
                 w_error_t::err_num_t rce;
                 // unconditional
-                rce = tree_root.get_for_smo(false, LATCH_SH,
-                        leaf, LATCH_SH, false, &p2, LATCH_NL);
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &p2, LATCH_NL);
                 //eRETRY means we need to restart the search
                 //but we're going to restart it ANYWAY.
                 //TODO look this case up in the paper and document it here
@@ -2325,10 +2530,18 @@ btree_impl::_lookup(
             w_assert1(leaf.is_smo() || root == leaf.pid());
 
             if(leaf.is_smo()) {
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
+#endif
                 // unconditional
                 w_error_t::err_num_t rce;
-                rce = tree_root.get_for_smo(false, LATCH_SH,
-                        leaf, LATCH_SH, false, &parent, LATCH_NL);
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &parent, LATCH_NL);
                 tree_root.unfix();
                 if(rce && (rce != eRETRY)) {
                     return RC(rce);
@@ -2420,7 +2633,13 @@ btree_impl::_lookup(
                  *  meaning there's no chance of the whole index being
                  *  destroyed in the meantime.
                  */
-                W_DO( child->fix(pid, LATCH_SH) );
+		fix_latch = LATCH_SH;
+#ifdef SM_DORA
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+#endif
+                W_DO( child->fix(pid, fix_latch) );
                 if (lsn == child->lsn() && child == &leaf)  {
                     /* do nothing */;
                 } else {
@@ -2459,8 +2678,9 @@ btree_impl::_lookup(
         }
         // Destructors did or will unfix all pages.
     }
-    check_latches(___s,___e, ___s+___e); 
 
+    check_latches(___s,___e, ___s+___e); 
+    
     return RCOK;
 }
 
@@ -2496,13 +2716,19 @@ btree_impl::_skip_one_slot(
     bool&                eof,
     bool&                found,
     bool                backward 
-)
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
     FUNC(btree_impl::_skip_one_slot);
     w_assert9( p1.is_fixed());
     w_assert9(! p2.is_fixed());
     w_assert9(child == &p1);
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     w_assert9(slot <= p1.nrecs());
     if(backward) {
         --slot;
@@ -2528,7 +2754,13 @@ btree_impl::_skip_one_slot(
         }
         p1.unfix();
         DBGTHRD(<<"fixing " << pid);
-        W_DO(p2.fix(pid, LATCH_SH));
+	fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+#endif
+        W_DO(p2.fix(pid, fix_latch));
         if(p2.nrecs() == 0) {
             w_assert9(p2.is_smo()); 
             found = false;
@@ -2552,11 +2784,18 @@ btree_impl::_skip_one_slot(
  *
  *********************************************************************/
 rc_t
-btree_impl::_shrink_tree(btree_p& rp)
+btree_impl::_shrink_tree(btree_p& rp
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			 )        			 
 {
     FUNC(btree_impl::_shrink_tree);
     INC_TSTAT(bt_shrinks);
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     w_assert3( rp.latch_mode() == LATCH_EX);
     w_assert1( rp.nrecs() == 0);
     w_assert1( !rp.prev() && !rp.next() );
@@ -2568,7 +2807,13 @@ btree_impl::_shrink_tree(btree_p& rp)
          *  and free child page.
          */
         btree_p cp;
-        W_DO( cp.fix(pid, LATCH_EX) );
+	fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+#endif
+        W_DO( cp.fix(pid, fix_latch) );
 
         DBG(<<"shrink " << rp.pid()  
                 << " from level " << rp.level()
@@ -2622,16 +2867,29 @@ btree_impl::_shrink_tree(btree_p& rp)
  *
  *********************************************************************/
 rc_t
-btree_impl::_grow_tree(btree_p& rp)
+btree_impl::_grow_tree(btree_p& rp
+#ifdef SM_DORA
+		       , const bool bIgnoreLatches
+#endif
+		       )        
 {
     FUNC(btree_impl::_grow_tree);
     INC_TSTAT(bt_grows);
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     /*
      *  Sanity check
      */
-    rp.upgrade_latch(LATCH_EX);
-    w_assert9(rp.latch_mode() == LATCH_EX);
+    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    rp.upgrade_latch(fix_latch);
+    w_assert9(rp.latch_mode() == fix_latch);
     w_assert1(rp.next());
     w_assert9(rp.is_smo());
 
@@ -2644,7 +2902,13 @@ btree_impl::_grow_tree(btree_p& rp)
 
     // "following" a link here means fixing the page
     INC_TSTAT(bt_links);
-    W_DO( np.fix(nxtpid, LATCH_EX) );
+    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    W_DO( np.fix(nxtpid, fix_latch) );
     w_assert1(!np.next());
 
 
@@ -2710,10 +2974,22 @@ btree_impl::_propagate(
                                     //  or of the page that was split
     int                  child_level, // I - level of child_pid
     bool                 isdelete// I-  true if delete being propagated
-)
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
+    // latch modes
+    latch_mode_t fix_latch;
+	
     btree_p root;
-    root.fix(root_pid, LATCH_SH);
+    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    root.fix(root_pid, fix_latch);
     w_assert9(root.is_fixed());
     // FRJ: not yet... if we're a 1-level btree (below) then this will be true
     //    w_assert9(root.latch_mode()==LATCH_EX);
@@ -2813,7 +3089,13 @@ btree_impl::_propagate(
             bool         found_key = false;
 
             DBG(<<"INSPECTING " << top << " pid " << pid[top] );
-            W_DO( p[top].fix(pid[top], LATCH_SH) );
+	    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO( p[top].fix(pid[top], fix_latch) );
 
 #if W_DEBUG_LEVEL > 3
             if(print_propagate) {
@@ -2878,7 +3160,13 @@ btree_impl::_propagate(
              * changed..
              */
             w_assert9(p[top].is_fixed());
-            if(p[top].latch_mode() != LATCH_EX) {
+	    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            if(p[top].latch_mode() != fix_latch) {
                 // should not block because we've got the tree latched
 #if W_DEBUG_LEVEL > 3
                 bool would_block = false;
@@ -2888,7 +3176,7 @@ btree_impl::_propagate(
                     DBG(<<"BF-CLEANER? clash" );
                 }
 #endif 
-                p[top].upgrade_latch(LATCH_EX);
+                p[top].upgrade_latch(fix_latch);
             }
 
             if(isdelete) {
@@ -2947,7 +3235,13 @@ btree_impl::_propagate(
                     // we're done?
                     break;
                 } else {
-                    p[top].fix(root_pid, LATCH_EX);
+		    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+#endif
+                    p[top].fix(root_pid, fix_latch);
                     btree_p &root = p[top];
                     W_DO(_grow_tree(root));
                     w_assert9(root.nrecs() == 0);
@@ -2959,7 +3253,13 @@ btree_impl::_propagate(
 #if W_DEBUG_LEVEL > 3
                     {
                         btree_p tmp;
-                        W_DO(tmp.fix(child_pid, LATCH_SH));
+			fix_latch = LATCH_SH;
+#ifdef SM_DORA
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+#endif
+                        W_DO(tmp.fix(child_pid, fix_latch));
                         w_assert2(tmp.next() != 0);
                     }
 #endif 
@@ -2976,7 +3276,13 @@ btree_impl::_propagate(
             if(pid[top] != root_pid) w_assert3(!p[top].is_fixed());
 #endif
 
-            W_DO(p[top].fix(pid[top], LATCH_EX));
+	    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO(p[top].fix(pid[top], fix_latch));
         }
 
     }
@@ -2996,6 +3302,9 @@ btree_impl::_propagate_split(
                                 //  which is 1 less than slot where the new entry goes
                                 // slot -1 means pid0
     bool&                    was_split// O - true if parent was split by this
+#ifdef SM_DORA
+    , bool bIgnoreLatches
+#endif
 )
 {
 
@@ -3003,12 +3312,21 @@ btree_impl::_propagate_split(
     W_DO(log_comment("start propagate_split"));
 #endif 
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     lpid_t pid = _pid;
     /*
      *  Fix first child so that we can get the pid of the new page
      */
     btree_p c1;
-    W_DO( c1.fix(pid, LATCH_SH) );
+    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    W_DO( c1.fix(pid, fix_latch) );
 #if W_DEBUG_LEVEL > 3
     if(print_split) { 
         DBG(<<"LEAF being split :");
@@ -3025,7 +3343,13 @@ btree_impl::_propagate_split(
     INC_TSTAT(bt_links);
 
     // GAK: EX because we have to do an update below
-    W_DO( c2.fix(pid, LATCH_EX) ); 
+    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    W_DO( c2.fix(pid, fix_latch) ); 
 #if W_DEBUG_LEVEL > 3
     if(print_split) { 
         DBG(<<"NEW right sibling :");
@@ -3123,7 +3447,13 @@ btree_impl::_propagate_split(
             w_assert9(parent.is_fixed());
             target = parent;
         } else {
-            W_DO(target.fix(rsib_page, LATCH_EX));
+	    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            W_DO(target.fix(rsib_page, fix_latch));
             w_assert9(rsib.is_fixed());
         }
         SSMTEST("btree.propagate.s.8");
@@ -3162,7 +3492,13 @@ btree_impl::_propagate_split(
      * clear the smo in the first leaf, since
      * parent now has its smo set.
      */
-    W_DO( c1.fix(_pid, LATCH_EX) );
+    fix_latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+#endif
+    W_DO( c1.fix(_pid, fix_latch) );
     W_DO(c1.clr_smo());
     parent.unfix();
 
@@ -3202,7 +3538,10 @@ btree_impl::_split_leaf(
     const cvec_t&         key,        // I-  which key causes split
     const cvec_t&         el,        // I-  which element causes split
     int                   split_factor
-)
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
     w_assert9(leaf.is_fixed());
     w_assert9(leaf.latch_mode() == LATCH_EX);
@@ -3256,14 +3595,21 @@ btree_impl::__split_page(
     bool&        left_heavy,        // O-  true if insert should go to left
     slotid_t&        slot,                // IO- slot of insertion after split
     int                addition,        // I-  # bytes intended to insert
-    int                split_factor)        // I-  % of left page that should remain
+    int                split_factor        // I-  % of left page that should remain
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)        
 {
     FUNC(btree_impl::__split_page);
 
     INC_TSTAT(bt_splits);
 
     DBGTHRD( << "split page " << page.pid() << " addition " << addition);
-    
+
+    // latch modes
+    latch_mode_t fix_latch;
+	
     /*
      *  Allocate new sibling
      */
@@ -3274,7 +3620,6 @@ btree_impl::__split_page(
 
     w_assert9(sibling.is_fixed());
     w_assert9(sibling.latch_mode() == LATCH_EX);
-
     SSMTEST("btree.propagate.s.2");
     /*
      *  Page has a modified tree structure.
@@ -3320,7 +3665,13 @@ btree_impl::__split_page(
 
         // "following" a link here means fixing the page
         INC_TSTAT(bt_links);
-        W_DO( cousin.fix(old_next, LATCH_EX) );
+	fix_latch = LATCH_EX;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+#endif
+        W_DO( cousin.fix(old_next, fix_latch) );
         W_DO( cousin.link_up(sibling_page.page, cousin.next()));
     }
 
@@ -3379,7 +3730,10 @@ btree_impl::_traverse(
     btree_p&             parent,        // O-  parent of leaf satisfying search
     lsn_t&               leaf_lsn,        // O-  lsn of leaf 
     lsn_t&               parent_lsn        // O-  lsn of parent 
-    ) 
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+		      )         
 {
     FUNC(btree_impl::_traverse);
     lsn_t        start_lsn = _start_lsn;
@@ -3398,6 +3752,12 @@ btree_impl::_traverse(
                                // NOTE: this used to be the root page
     slotid_t                   slot = -1;
 
+    // latch modes
+    latch_mode_t smo_mode;
+    latch_mode_t smo_p1mode;
+    latch_mode_t smo_p2mode;
+    latch_mode_t fix_latch;
+    
 pagain:
 
     check_latches(___s,___e, ___s+___e); 
@@ -3436,7 +3796,13 @@ pagain:
          *  to the input/output argument "leaf".
          */
 
-        W_DO( p[c].fix(pid[c], LATCH_SH) );
+	fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+#endif
+        W_DO( p[c].fix(pid[c], fix_latch) );
         w_assert1(p[c].is_fixed());
         lsns[c] = p[c].lsn(); 
 
@@ -3573,9 +3939,19 @@ no_change:
                     DBG(<<"old mode" << int(old_mode));
 #endif 
 
+		    smo_mode = LATCH_SH;
+		    smo_p1mode = LATCH_SH;
+		    smo_p2mode = LATCH_SH;
+#ifdef SM_DORA
+		    if(bIgnoreLatches) {
+			smo_mode = LATCH_NL;
+			smo_p1mode = LATCH_NL;
+			smo_p2mode = LATCH_NL;
+		    }
+#endif
                     w_error_t::err_num_t rce;
-                    rce = tree_root.get_for_smo(false, LATCH_SH,
-                                p[c], LATCH_SH, true, &p[1-c], LATCH_SH);
+                    rce = tree_root.get_for_smo(false, smo_mode,
+                                p[c], smo_p1mode, true, &p[1-c], smo_p2mode);
 
                     w_assert2(tree_root.is_fixed());
                     w_assert2(tree_root.latch_mode() >= LATCH_SH);
@@ -3592,7 +3968,13 @@ no_change:
                          * latch it again. Just clear the smo bit.  We might
                          * not have *this* page fixed in EX mode though.
                          */
-                        if(p[c].latch_mode() < LATCH_EX) {
+			fix_latch = LATCH_EX;
+#ifdef SM_DORA
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+#endif
+                        if(p[c].latch_mode() < fix_latch) {
                             // We should be able to do this because
                             // we have the tree latch.  We're not
                             // turning a read-ohly query into read-write
@@ -3600,7 +3982,7 @@ no_change:
                             // or delete.
                             w_assert2(tree_root.is_fixed());
                             w_assert2(tree_root.pinned_by_me());
-                            p[c].upgrade_latch(LATCH_EX);
+                            p[c].upgrade_latch(fix_latch);
                         }
                         INC_TSTAT(bt_clr_smo_traverse);
 #if BTREE_LOG_COMMENT_ON
@@ -3674,7 +4056,13 @@ no_change:
              */
             pid[1-c].page = ((slot < 0) ? p[c].pid0() : p[c].child(slot));
 
-            latch_mode_t node_mode = p[c].is_leaf_parent()? mode : LATCH_SH;
+	    fix_latch = LATCH_SH;
+#ifdef SM_DORA
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+#endif
+            latch_mode_t node_mode = p[c].is_leaf_parent()? mode : fix_latch;
 
             /*
              * 1-c is child, c is parent; 

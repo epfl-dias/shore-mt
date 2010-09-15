@@ -144,8 +144,6 @@ public:
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
 	cvec_t&                           start_key, 
-        bool                              unique,
-        concurrency_t                     cc,
         const cvec_t&                     key);
     static rc_t                        merge_trees(
        lpid_t&                            root,
