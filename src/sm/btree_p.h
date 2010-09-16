@@ -161,7 +161,8 @@ public:
                         const lpid_t&    root_pid
 #ifdef SM_DORA
 			, const bool bIgnoreLatches = false
-#endif);
+#endif
+					  );
     rc_t             cut_page(lpid_t &child, slotid_t slot);
     
     rc_t            distribute(
@@ -217,7 +218,8 @@ private:
     rc_t            _unlink(btree_p &
 #ifdef SM_DORA
 			    , const bool bIgnoreLatches = false
-#endif);
+#endif
+			    );
     rc_t            _clr_flag(flag_t, bool compensate=false);
     rc_t            _set_flag(flag_t, bool compensate=false);
     rc_t            _set_hdr(const btctrl_t& new_hdr);

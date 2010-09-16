@@ -462,18 +462,15 @@ btree_m::mr_lookup(
 
 /*********************************************************************
  *
- *  btree_m::split_tree(root_old, root_new, start_key, key)
+ *  btree_m::split_tree(root_old, root_new, key)
  *
- *  Split from the root starting from the given key.
- *  Just copy the slots from root_old that has a key value greater 
- *  than the given key to the tree with root_new. 
+ *  Split from the tree starting from the given key.
  *
  *********************************************************************/
 rc_t
 btree_m::split_tree(
     const lpid_t&        root_old,          // I-  root of btree
     const lpid_t&        root_new,           // I- root of the new btree
-    cvec_t&              start_key,         // O - actual start key for the new partition
     const cvec_t&        key)                // I-  which key
 {
 #if BTREE_LOG_COMMENT_ON
@@ -487,7 +484,7 @@ btree_m::split_tree(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_split_tree(root_old, root_new, start_key, key);
+    rc = btree_impl::_split_tree(root_old, root_new, key);
     
     return  rc;
 }

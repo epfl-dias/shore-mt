@@ -409,21 +409,39 @@ rc_t smthread_user_t::mr_index_test3()
     W_DO(insert_rec_to_index(stid));
 
 
+    W_DO(print_the_mr_index(stid));
+
+    
     int key1 = 200;
     cvec_t key1_vec((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
     W_DO(ssm->add_partition(stid, key1_vec));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+
     int key2 = 400;
     cvec_t key2_vec((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key2 << endl;
     W_DO(ssm->add_partition(stid, key2_vec));
+
+
+    W_DO(print_the_mr_index(stid));
+
+
     int key3 = 600;
     cvec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key3 << endl;
     W_DO(ssm->add_partition(stid, key3_vec));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+
     int key4 = 800;
     cvec_t key4_vec((char*)(&key4), sizeof(key4));
     cout << "ssm->add_partition(stid = " << stid
@@ -485,19 +503,19 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
     }
     if(eof) break;
     
-    cout << "Record " << i << "/" << _num_rec
-	 << " Rid "  << cursor->rid() << endl;
+    cout << "Record " << i << "/" << _num_rec << endl;
     cvec_t       key(cursor->hdr(), cursor->hdr_size());
     int         hdrcontents;
     key.copy_to(&hdrcontents, sizeof(hdrcontents));
-    cout << "Record key "  << hdrcontents << endl;
+    cout << "Key: "  << hdrcontents << endl;
     cout << "key size " << key.size() << endl;
-    
+    const vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
+    cout << "El: " << cursor->rid() << endl;
+    cout << "El size "  << el.size() << endl;
+
     const char *body = cursor->body();
     w_assert1(cursor->body_size() == _rec_size);
     cout << "Record body "  << body << endl;
-    const vec_t el(body, sizeof(body));
-    cout << "body size "  << el.size() << endl;
 
     W_DO(ssm->create_mr_assoc(stid, key, el));
 

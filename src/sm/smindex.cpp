@@ -549,7 +549,11 @@ rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
 /*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition(stid_t stid, cvec_t& key)
+rc_t ss_m::add_partition(stid_t stid, cvec_t& key
+#ifdef SM_DORA
+			 , const bool bIgnoreLocks
+#endif
+			 )
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
@@ -1096,35 +1100,66 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition(stid_t stid, cvec_t& key)
+rc_t ss_m::_add_partition(stid_t stid, cvec_t& key
+#ifdef SM_DORA
+			  , const bool bIgnoreLocks
+#endif
+			  )
 {
+
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-
+    
     FUNC(ss_m::_add_partition);
-
+    
     DBG(<<" stid " << stid);
+
+    lock_mode_t                index_mode = NL; // lock mode needed on index
+
+#ifdef SM_DORA
+    // IP: DORA inserts using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      index_mode = NL;
+    } else {
+#endif
+
+    xct_t* xd = xct();
+    if (xd)  {
+        lock_mode_t lock_mode;
+        W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
+	if (!(lock_mode == IX || lock_mode >= SIX)) {
+	    index_mode = IX;
+        }
+    }
+
+#ifdef SM_DORA
+    }
+#endif
+
+    sdesc_t* sd;
+    W_DO( dir->access(stid, sd, index_mode) );
+    
     lpid_t root_old;
     lpid_t root_new;
-    cvec_t start_key;
 
-    // get the sinfo from sdesc
-    sdesc_t* sd;
     cvec_t* real_key;
     
-    W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
-    
-    // split the btree TODO: decide on concurrency_t (should be like in create_assoc for dora?)
-    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-    W_DO(bt->split_tree(sd->root(*real_key), root_new, start_key, *real_key));
 
     // update the ranges page & key_ranges_map which keeps the partition info
-    W_DO( sd->partitions().addPartition(start_key, root_new) );    
-    W_DO( ra->add_partition(sd->root(), start_key, root_new) );
+    W_DO( sd->partitions().addPartition(key, root_new) );    
+    W_DO( ra->add_partition(sd->root(), key, root_new) );
+
+    // split the btree
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+    W_DO(bt->split_tree(sd->root(*real_key), root_new, *real_key
+#ifdef SM_DORA
+			, bIgnoreLocks
+#endif
+			));
     
     W_DO(xct_auto.commit());	     
 

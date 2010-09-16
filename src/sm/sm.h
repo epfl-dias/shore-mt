@@ -2632,7 +2632,11 @@ public:
      * @param[in] key      The startKey of the new partition.
      */
     static rc_t add_partition(stid_t stid,
-			      cvec_t& key);
+			      cvec_t& key
+#ifdef SM_DORA
+			      , const bool bIgnoreLocks = false
+#endif
+			      );
 
     /**\brief Delete the partition that contains the given key and add it to its previous partition
      * in a Multi-rooted B+-Tree index.  
@@ -3557,7 +3561,11 @@ private:
 				       uint numParts);
 
     static rc_t _add_partition(stid_t stid,
-			       cvec_t& key);
+			       cvec_t& key
+#ifdef SM_DORA
+			       , const bool bIgnoreLocks = false
+#endif
+			       );
     
     static rc_t _delete_partition(stid_t stid,
 				  cvec_t& key);

@@ -86,11 +86,11 @@ protected:
     static rc_t                        _split_tree(
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
-	cvec_t&                         start_key,
         const cvec_t&                   key
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+						   );
     static rc_t                        _merge_trees(
         lpid_t&                         root,			      	    
         const lpid_t&                   root1,
@@ -100,7 +100,8 @@ protected:
 	bool                            is_compressed
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+						    );
     // --
 
     static rc_t                        _alloc_page(
@@ -114,7 +115,8 @@ protected:
         store_flag_t                     stf = st_regular
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+						   );
 
     static rc_t                        _insert(
         const lpid_t&                     root,
@@ -125,7 +127,8 @@ protected:
         int                             split_factor = 50
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					       );
     static rc_t                        _remove(
         const lpid_t&                    root,
         bool                             unique,
@@ -134,7 +137,8 @@ protected:
         const cvec_t&                     elem
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					       );
 
     static rc_t                 _lookup(
         const lpid_t&                     root,  // I-  root of btree
@@ -148,7 +152,8 @@ protected:
         smsize_t&                     elen   // IO- size of el if !cursor
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);        
+#endif
+					);        
 
     static rc_t                 _skip_one_slot(
         btree_p&                    p1, 
@@ -160,7 +165,8 @@ protected:
         bool                             backward=false
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					       );
 
     static rc_t                 _propagate(
         const lpid_t&                     root_pid,         // I-  root page  -- fixed
@@ -172,7 +178,8 @@ protected:
         bool                              isdelete     // I-  true if delete being propagated
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					   );
     static void                         _skip_one_slot(
         btree_p&                     p1,
         btree_p&                     p2,
@@ -244,7 +251,8 @@ private:
         lsn_t&                             parent_lsn        // O-  lsn of parent 
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif); 
+#endif
+					  ); 
     static rc_t                 _propagate_split(
         btree_p&                     parent,     // I - page to get the insertion
         const lpid_t&                    _pid,       // I - pid of child that was split
@@ -253,7 +261,8 @@ private:
         bool&                        was_split   // O - true if parent was split by this
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+						 );
     static rc_t                 _split_leaf(
         const lpid_t&                    root_pid,         // I - root of tree
         btree_p&                    leaf,         // I - page to be split
@@ -262,7 +271,8 @@ private:
         int                             split_factor
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					    );
 
     static rc_t                 __split_page(
         btree_p&                    page,        // IO- page that needs to split
@@ -273,16 +283,19 @@ private:
         int                            split_factor// I-  % of left page that should remain
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
-#endif);
+#endif
+					     );
 
     static rc_t                        _grow_tree(btree_p& root
 #ifdef SM_DORA
 						  , const bool bIgnoreLatches = false
-#endif);
+#endif
+						  );
     static rc_t                        _shrink_tree(btree_p& root
 #ifdef SM_DORA
 						    , const bool bIgnoreLatches = false
-#endif);
+#endif
+						    );
     
 
     static rc_t                 _handle_dup_keys(

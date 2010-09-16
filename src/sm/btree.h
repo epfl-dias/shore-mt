@@ -143,7 +143,6 @@ public:
     static rc_t                        split_tree(
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
-	cvec_t&                           start_key, 
         const cvec_t&                     key);
     static rc_t                        merge_trees(
        lpid_t&                            root,
@@ -256,7 +255,8 @@ public:
     static rc_t                        fetch(cursor_t& cursor
 #ifdef SM_DORA
 					     , const bool bIgnoreLatches = false
-#endif);
+#endif
+					     );
     static rc_t                        is_empty(const lpid_t& root, bool& ret);
     static rc_t                        purge(const lpid_t& root, bool check_empty, 
                                      bool forward_processing);

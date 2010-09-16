@@ -466,7 +466,7 @@ tree_latch::get_for_smo(
 // -- mrbt
 /******************************************************************
  *
- *  btree_impl::_split_tree(root_old, root_new, start_key, unique, cc, key)
+ *  btree_impl::_split_tree(root_old, root_new, key)
  *  Mrbtree modification after adding a new partition
  *
  ******************************************************************/
@@ -475,7 +475,6 @@ rc_t
 btree_impl::_split_tree(
     const lpid_t&       root_old,            // I-  root of the old btree
     const lpid_t&       root_new,           // I - root of the new btree
-    cvec_t&             start_key,           // O - actual start key for the new partition
     const cvec_t&       key                // I-  which key
 #ifdef SM_DORA
     , const bool bIgnoreLatches
@@ -483,59 +482,110 @@ btree_impl::_split_tree(
 			)
 {
     // TODO: update the root pages of all the pages below when you move them
+    //       i'm not sure whether this is necessary now so i did't do this
 
     FUNC(btree_impl::_split_tree);
 
     DBGTHRD(<<"_split_tree: " << " key=" << key );
 
-    latch_mode_t root_latch = LATCH_EX;
-
+    btree_p         root_page_new;
+    rc_t            rc;
+  
+    // TODO: don't let tree split when root is a leaf page, i'm not sure why we said this now ???
+    	
+    latch_mode_t latch = LATCH_SH;
 #ifdef SM_DORA
     // pin: use lowest latch mode for DORA
     if(bIgnoreLatches) {
-	root_latch = LATCH_NL;
+	latch = LATCH_NL;
     }
 #endif
-    
-    btree_p         root_page_old;
-    btree_p         root_page_new;
-    rc_t            rc;
-   
-    w_assert9( !root_page_old.is_fixed() );
-    w_assert9( !root_page_new.is_fixed() );
 
-    W_DO( root_page_old.fix(root_old, root_latch) );
-    W_DO( root_page_new.fix(root_new, root_latch) );
-    
-    w_assert9( root_page_old.is_fixed() );
-    w_assert9( root_page_new.is_fixed() );
-
-    w_assert9( !root_old.is_leaf() ); // don't let tree split when root is a leaf page
-
-    // find the key on the old root page
     cvec_t dummy_el; // not important since we're only interested in the key now
     bool found;
     bool found_elem;
     slotid_t ret_slot;
-    W_DO(root_page_old.search(key, dummy_el, found, found_elem, ret_slot));
+    vector<slotid_t> ret_slots;
+    vector<lpid_t> pids;
+    btree_p current_page;
+    shpid_t prev_child = root_old.page;
+    lpid_t current_pid;
+    current_pid._stid = root_old._stid;
+    bool is_leaf = false;
+    shpid_t current_pid0;
+	
+    // find the key's first appearence on the tree
+    while(!found && !is_leaf) {
+	current_pid.page = prev_child;
+	W_DO( current_page.fix(current_pid, latch) );
+	W_DO( current_page.search(key, dummy_el, found, found_elem, ret_slot) );
+	ret_slots.push_back(ret_slot);
+	pids.push_back(current_pid);
+	btrec_t current_rec(current_page, ret_slot-1);
+	prev_child = current_rec.child();
+	is_leaf = current_page.is_leaf();
+	current_page.unfix();
+    }
 
-    btrec_t rec(root_page_old, ret_slot-1);
-    start_key.put(rec.key());
+    latch = LATCH_EX;
+#ifdef SM_DORA
+    // pin: use lowest latch mode for DORA
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+#endif
 
+    // special case for first one
+    // pid0 is rec.child here while for the other's it's new_tree_page.pid
+    W_DO( current_page.fix(current_pid, latch) );
+    btrec_t current_rec(current_page, ret_slot);
+    btree_p new_tree_page;
+    current_pid0 = current_rec.child();
+    if( current_pid != root_old ) {
+	W_DO( _alloc_page(root_new, current_page.level(), root_new, new_tree_page,
+			  current_rec.child(), false, current_page.is_compressed(), st_regular
+#ifdef SM_DORA
+			  , bIgnoreLatches
+#endif
+			  ));
+	W_DO( current_page.shift(ret_slot, new_tree_page) );
+	current_pid0 = new_tree_page.pid().page;
+	new_tree_page.unfix();
+    }
+    current_page.unfix();
+	
+    // move the records starting from the first location the key is found (a bottom-up process)
+    for(uint i = ret_slots.size() - 2; i > 0; i--) {
+	ret_slot = ret_slots[i];
+	current_pid = pids[i];
+	W_DO( current_page.fix(current_pid, latch) );
+	btrec_t current_rec(current_page, ret_slot);
+	btree_p new_tree_page;
+	W_DO( _alloc_page(root_new, current_page.level(), root_new, new_tree_page,
+			  current_pid0, false, current_page.is_compressed(), st_regular
+#ifdef SM_DORA
+			  , bIgnoreLatches
+#endif
+			  ));
+	W_DO( current_page.shift(ret_slot, new_tree_page) );
+	current_page.unfix();
+	current_pid0 = new_tree_page.pid().page;
+	new_tree_page.unfix();
+    }
+    
+    // special case : new tree root
+    W_DO( root_page_new.fix(root_new, latch) );
+    ret_slot = ret_slots[0];
+    current_pid = pids[0]; // TODO: check current_pid == root_old here
+    W_DO( current_page.fix(current_pid, latch) );
     W_DO( root_page_new.set_hdr(root_new.page,
-				root_page_old.level(), 
-				rec.child(), 
-				(uint2_t) (root_page_old.is_compressed() ? 
-					   btree_p::t_compressed : btree_p::t_none)) );
-
-    W_DO( root_page_old.shift(ret_slot-1, root_page_new) );
+				current_page.level(), 
+				current_pid0, 
+				current_page.is_compressed()) );
+    W_DO( current_page.shift(ret_slot, root_page_new) );
+    current_page.unfix();
+    root_page_new.unfix();	    
     
-    root_page_old.unfix();
-    root_page_new.unfix();
-    
-    w_assert9( !root_page_old.is_fixed() );
-    w_assert9( !root_page_new.is_fixed() );
-
     return RCOK;
 }
 
