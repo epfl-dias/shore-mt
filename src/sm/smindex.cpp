@@ -627,9 +627,13 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 ) return RC(eBADCCLEVEL);
 
      switch (ntype)  {
-     case t_mrbtree:
-     case t_uni_mrbtree:
-	    
+     case t_mrbtree_regular:
+     case t_uni_mrbtree_regular:
+     case t_mrbtree_leaf:
+     case t_uni_mrbtree_leaf:
+     case t_mrbtree_partition:
+     case t_uni_mrbtree_partition:
+	 
 	 // create one subtree initially
 	 //compress prefixes only if the first part is compressed
 	 W_DO( bt->create(stid, subroot, kcomp[0].compressed != 0) );
@@ -638,7 +642,8 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 W_DO( ra->create(stid, root, subroot) );
 
 	 break;
-    default:
+
+     default:
         return RC(eBADNDXTYPE);
     }
     sinfo_s sinfo(stid.store, t_index, 100/*unused*/, 
@@ -662,10 +667,16 @@ rc_t ss_m::_destroy_mr_index(const stid_t& iid)
 
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     switch (sd->sinfo().ntype)  {
-    case t_mrbtree:
-    case t_uni_mrbtree:
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+	 
         W_DO(io->destroy_store(iid));
         break;
+
     default:
         return RC(eBADNDXTYPE);
     }
@@ -688,26 +699,43 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
     sdesc_t* sd;
     W_DO(dir->access(stid, sd, EX));
 
+    DBG(<<"bulk loading multi-rooted btree " << sd->root());
+
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+
     switch (sd->sinfo().ntype) {
-    case t_mrbtree:
-    case t_uni_mrbtree:
-        DBG(<<"bulk loading multi-rooted btree " << sd->root());
-	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+	
+    	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
         W_DO(bt->mr_bulk_load(sd->partitions(), 
 			      nsrcs,
 			      source,
 			      sd->sinfo().nkc, sd->sinfo().kc,
-			      sd->sinfo().ntype == t_uni_mrbtree, 
+			      sd->sinfo().ntype == t_uni_mrbtree_regular, 
 			      (concurrency_t)sd->sinfo().cc,
 			      _stats.btree,
 			      sort_duplicates,
 			      lexify_keys
 			      ));
         break;
+
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+	
+	// TODO: call corresponding bulk loading function
+	break;
+	
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	// TODO: call corresponding bulk loading function
+	break;
+	
     default:
         return RC(eBADNDXTYPE);
     }
+    
     {
         store_flag_t st;
         W_DO(io->get_store_flags(stid, st));
@@ -735,14 +763,27 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
 
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     switch (sd->sinfo().ntype) {
-    case t_mrbtree:
-    case t_uni_mrbtree:
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
 	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
 	W_DO(bt->mr_bulk_load(sd->partitions(), sorted_stream,
 			      sd->sinfo().nkc, sd->sinfo().kc,
-			      sd->sinfo().ntype == t_uni_mrbtree, 
+			      sd->sinfo().ntype == t_uni_mrbtree_regular, 
 			      (concurrency_t)sd->sinfo().cc, _stats.btree));
         break;
+
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+	
+	// TODO: call corresponding bulk loading function
+	break;
+	
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	// TODO: call corresponding bulk loading function
+	break;
+
     default:
         return RC(eBADNDXTYPE);
     }
@@ -770,8 +811,13 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     cvec_t stop_key;
     cvec_t dummy;
     switch (sd->sinfo().ntype) {
-    case t_mrbtree:
-    case t_uni_mrbtree:
+    case t_mrbtree_regular:
+     case t_uni_mrbtree_regular:
+     case t_mrbtree_leaf:
+     case t_uni_mrbtree_leaf:
+     case t_mrbtree_partition:
+     case t_uni_mrbtree_partition:
+    
 	cout << endl;
 	sd->partitions().printPartitions();
 	cout << endl;
@@ -784,6 +830,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	    bt->mr_print(pidVec[i], k, true, stop_key);
 	}
 	break;
+
     default:
         return RC(eBADNDXTYPE);
     }
@@ -843,20 +890,33 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
+	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
+	sd->sinfo().ntype == t_uni_mrbtree_partition;
+    
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
-    case t_mrbtree:
-    case t_uni_mrbtree:
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	// TODO: here btree insert is the same but need to change the actual record insert to a file
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));	
  	W_DO(bt->mr_insert(sd->root(*real_key), 
-			   sd->sinfo().ntype == t_uni_mrbtree, 
+			   is_unique, 
 			   cc,
 			   *real_key, el, 50));
         break;
+
     case t_rtree:
         fprintf(stderr, "rtrees indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
+
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
@@ -919,16 +979,27 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
+	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
+	sd->sinfo().ntype == t_uni_mrbtree_partition;
+	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
-    case t_mrbtree:
-    case t_uni_mrbtree:
+
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+    
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_remove(sd->root(*real_key), 
-			sd->sinfo().ntype == t_uni_mrbtree,
+			is_unique,
 			cc, *real_key, el) );
         break;
+
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
@@ -959,20 +1030,33 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num)
         // cc is off if file is EX locked
         if (lock_mode == EX) cc = t_cc_none;
     }
+
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
+	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
+	sd->sinfo().ntype == t_uni_mrbtree_partition;
+	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
-    case t_mrbtree:
-    case t_uni_mrbtree:
+
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+	
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_remove_key(sd->root(*real_key), 
 			       sd->sinfo().nkc, sd->sinfo().kc,
-			       sd->sinfo().ntype == t_uni_mrbtree,
+			       is_unique,
 			       cc, *real_key, num));
         break;
+
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
+
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
@@ -1036,20 +1120,32 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
+	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
+	sd->sinfo().ntype == t_uni_mrbtree_partition;
+	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
-    case t_uni_mrbtree:
-    case t_mrbtree:
+
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+    
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_lookup(sd->root(*real_key), 
-			   sd->sinfo().ntype == t_uni_btree,
+			   is_unique,
 			   cc,
 			   *real_key, el, elen, found) );
         break;
+	
     case t_rtree:
         fprintf(stderr, "rtree indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
+
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
@@ -1060,6 +1156,10 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
 				 cvec_t& maxKey, uint numParts)
 {
+
+    // since this should only be called initially
+    // we don't have to call different versions for different mrbtree types
+    
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
     FUNC(ss_m::_make_equal_partitions);
@@ -1155,12 +1255,34 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key
 
     // split the btree
     W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-    W_DO(bt->split_tree(sd->root(*real_key), root_new, *real_key
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+	
+	W_DO(bt->split_tree(sd->root(*real_key), root_new, *real_key
 #ifdef SM_DORA
-			, bIgnoreLocks
+			    , bIgnoreLocks
 #endif
-			));
-    
+			    ));
+
+        break;
+
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+	
+	// TODO: call corresponding split tree function
+	break;
+	
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	// TODO: call corresponding split tree function
+	break;
+	
+    default:
+        return RC(eBADNDXTYPE);
+    }
+        
     W_DO(xct_auto.commit());	     
 
     return RCOK;    
@@ -2036,8 +2158,12 @@ ss_m::_get_store_info(
     case t_btree:
     case t_uni_btree:
 	// --mrbt
-    case t_mrbtree:
-    case t_uni_mrbtree:
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
 	// --
         W_DO( key_type_s::get_key_type(info.keydescr, 
 				       info.keydescrlen,

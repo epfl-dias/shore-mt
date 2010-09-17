@@ -351,8 +351,12 @@ public:
         t_uni_btree,             // Unique-key btree
         t_rtree,                 // R*tree
 	// -- mrbt                 
-	t_mrbtree,              // Multi-rooted B+tree with duplicates   
-	t_uni_mrbtree           // Unique-key multi-rooted btree
+	t_mrbtree_regular,       // Multi-rooted B+tree with regular heap files   
+	t_uni_mrbtree_regular,          
+	t_mrbtree_leaf,          // Multi-rooted B+tree where a heap file is pointed by only one leaf page 
+	t_uni_mrbtree_leaf,               
+	t_mrbtree_partition,     // Multi-rooted B+tree where a heap file belongs to only one partition
+	t_uni_mrbtree_partition
 	// --
     };
 
