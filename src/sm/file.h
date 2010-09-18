@@ -110,6 +110,11 @@ public:
 #endif
         );
 
+    // -- mrbt
+    // pin: made this public
+    rc_t                destroy_rec(slotid_t idx);
+    //
+    
 #define DUMMY_CLUSTER_ID 0
 
 private:
@@ -129,7 +134,6 @@ private:
         const vec_t&        data,
         int                 pff);
 
-    rc_t                destroy_rec(slotid_t idx);
     rc_t                append_rec(slotid_t idx, const vec_t& data);
     rc_t                truncate_rec(slotid_t idx, uint4_t amount);
     rc_t                set_rec_len(slotid_t idx, uint4_t new_len);
@@ -151,7 +155,8 @@ protected: // pin_i uses these
         slot_length_t            len,
         const vec_t&             data);
 
-public:          
+public:
+    // 
     // ss_m::_update_rec_hdr calls this
     rc_t                splice_hdr(
         slotid_t                 idx,
@@ -199,6 +204,9 @@ private:
 
 class file_m  : public smlevel_2 {
     friend class alloc_file_page_log;
+    // -- mrbt
+    friend class btree_impl;
+    // --
     typedef page_s::slot_length_t slot_length_t;
 public:
     NORET file_m();
@@ -246,6 +254,19 @@ public:
                         rid_t& rid,
                         bool forward_alloc = true
                         );
+
+    static rc_t create_rec_in_given_page(
+				smsize_t            len_hint,
+                                sdesc_t&            sd,
+                                const vec_t&        hdr,
+                                const vec_t&        data,
+                                rid_t&              rid,
+                                file_p&             page        // input
+#ifdef SM_DORA
+                                , const bool        bIgnoreParents = false
+#endif
+                    );
+    
 
     static rc_t destroy_rec(const rid_t& rid);
 

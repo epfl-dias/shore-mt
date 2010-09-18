@@ -199,7 +199,7 @@ zkeyed_p::shift(slotid_t idx, slotid_t idx_dest, zkeyed_p* rsib, bool compressed
 
     int start_simple_move=0;
     rc_t rc;
-    /*
+    
     if(compressed) {
         // First slot is a special case
         // See if it's got a compressed prefix; if so,
@@ -226,7 +226,7 @@ zkeyed_p::shift(slotid_t idx, slotid_t idx_dest, zkeyed_p* rsib, bool compressed
             }
         }
     }
-    */
+    
     /* 
      * grot performance hack: do in chunks of up to 
      * tmp_chunk_size slots at a time

@@ -372,6 +372,92 @@ file_m::_create_rec(
     return RCOK;
 }
 
+// -- mrbt
+rc_t
+file_m::create_rec_in_given_page(
+    smsize_t              len_hint,
+    sdesc_t&              sd,
+    const vec_t&          hdr,
+    const vec_t&          data,
+    rid_t&                rid, // output
+    file_p&               page       
+#ifdef SM_DORA
+    , const bool          bIgnoreParents
+#endif
+)
+{
+    smsize_t        space_needed;
+    recflags_t      rec_impl; 
+
+    {
+        /*
+         * compute space needed, record implementation
+         */
+        w_assert3(fid == sd.stid());
+        smsize_t est_data_len = MAX((uint4_t)data.size(), len_hint);
+        rec_impl = file_p::choose_rec_implementation( hdr.size(), 
+                                                  est_data_len,
+                                                  space_needed);
+    }
+
+    DBG(<<"create_rec "
+        << " space_needed=" << space_needed
+        << " rec_impl=" << int(rec_impl)
+        << " page is fixed=" << page.is_fixed()
+        );
+
+    { // open scope for hu
+        slotid_t        slot = 0;
+
+        DBGTHRD(<<"About to copy sd");
+        histoid_update_t hu(&sd);
+
+        if(page.is_fixed()) {
+
+            rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
+
+            if(rc.is_error()) {
+                page.unfix();
+                DBG(<<"rc=" << rc);
+		// pin: you might do something diff here but this should be ok for now
+                return rc;
+                w_assert3(!page.is_fixed());
+            } else {
+                DBG(<<"acquired slot " << slot);
+                w_assert2(page.is_fixed());
+                hu.replace_page(&page);
+#if W_DEBUG_LEVEL > 2
+                {
+                    w_assert3(page.latch_mode() == LATCH_EX);
+                    space_bucket_t b = page.bucket();
+                    if((page.page_bucket_info.old() != b) && 
+                        page.page_bucket_info.initialized()) {
+                        W_FATAL_MSG(fcINTERNAL, << "ah ha!");
+                    }
+                }
+#endif
+            }
+        }
+
+        // split into 2 parts so we don't hog the histoid, and
+        // so we don't run into double-acquiring it in append_rec.
+
+        w_assert2(page.is_fixed() && page.latch_mode() == LATCH_EX);
+
+        W_DO(_create_rec_in_slot(page, slot, rec_impl, hdr, data, sd, false, rid));
+
+        w_assert2(page.is_fixed() && page.latch_mode() == LATCH_EX);
+
+        hu.update();
+    } // close scope for hu
+
+    if(rec_impl == t_large_0) {
+        W_DO(append_rec(rid, data, sd));
+    }
+    return RCOK;
+}
+// --
+
 rc_t
 file_m::_find_slotted_page_with_space(
     const stid_t&        stid,

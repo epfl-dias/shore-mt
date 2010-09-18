@@ -86,7 +86,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_impl.h"
 #include "btcursor.h"
 #include <crash.h>
-
 #include <store_latch_manager.h>
 // common/store_latch_manager.h defines or undefs the following:
 extern store_latch_manager store_latches; // sm_io.cpp
@@ -507,24 +506,24 @@ btree_impl::_split_tree(
     slotid_t ret_slot;
     vector<slotid_t> ret_slots;
     vector<lpid_t> pids;
-    btree_p current_page;
+    btree_p page;
     shpid_t prev_child = root_old.page;
-    lpid_t current_pid;
-    current_pid._stid = root_old._stid;
+    lpid_t pid;
+    pid._stid = root_old._stid;
     bool is_leaf = false;
-    shpid_t current_pid0;
+    shpid_t pid0;
 	
     // find the key's first appearence on the tree
     while(!found && !is_leaf) {
-	current_pid.page = prev_child;
-	W_DO( current_page.fix(current_pid, latch) );
-	W_DO( current_page.search(key, dummy_el, found, found_elem, ret_slot) );
+	pid.page = prev_child;
+	W_DO( page.fix(pid, latch) );
+	W_DO( page.search(key, dummy_el, found, found_elem, ret_slot) );
 	ret_slots.push_back(ret_slot);
-	pids.push_back(current_pid);
-	btrec_t current_rec(current_page, ret_slot-1);
-	prev_child = current_rec.child();
-	is_leaf = current_page.is_leaf();
-	current_page.unfix();
+	pids.push_back(pid);
+	btrec_t rec(page, ret_slot-1);
+	prev_child = rec.child();
+	is_leaf = page.is_leaf();
+	page.unfix();
     }
 
     latch = LATCH_EX;
@@ -537,55 +536,162 @@ btree_impl::_split_tree(
 
     // special case for first one
     // pid0 is rec.child here while for the other's it's new_tree_page.pid
-    W_DO( current_page.fix(current_pid, latch) );
-    btrec_t current_rec(current_page, ret_slot);
+    W_DO( page.fix(pid, latch) );
+    btrec_t rec(page, ret_slot);
     btree_p new_tree_page;
-    current_pid0 = current_rec.child();
-    if( current_pid != root_old ) {
-	W_DO( _alloc_page(root_new, current_page.level(), root_new, new_tree_page,
-			  current_rec.child(), false, current_page.is_compressed(), st_regular
+    pid0 = rec.child();
+    if( pid != root_old ) {
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  rec.child(), false, page.is_compressed(), st_regular
 #ifdef SM_DORA
 			  , bIgnoreLatches
 #endif
 			  ));
-	W_DO( current_page.shift(ret_slot, new_tree_page) );
-	current_pid0 = new_tree_page.pid().page;
+	W_DO( page.shift(ret_slot, new_tree_page) );
+	pid0 = new_tree_page.pid().page;
 	new_tree_page.unfix();
     }
-    current_page.unfix();
+    page.unfix();
 	
     // move the records starting from the first location the key is found (a bottom-up process)
     for(uint i = ret_slots.size() - 2; i > 0; i--) {
 	ret_slot = ret_slots[i];
-	current_pid = pids[i];
-	W_DO( current_page.fix(current_pid, latch) );
-	btrec_t current_rec(current_page, ret_slot);
+	pid = pids[i];
+	W_DO( page.fix(pid, latch) );
+	btrec_t rec(page, ret_slot);
 	btree_p new_tree_page;
-	W_DO( _alloc_page(root_new, current_page.level(), root_new, new_tree_page,
-			  current_pid0, false, current_page.is_compressed(), st_regular
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  pid0, false, page.is_compressed(), st_regular
 #ifdef SM_DORA
 			  , bIgnoreLatches
 #endif
 			  ));
-	W_DO( current_page.shift(ret_slot, new_tree_page) );
-	current_page.unfix();
-	current_pid0 = new_tree_page.pid().page;
+	W_DO( page.shift(ret_slot, new_tree_page) );
+	page.unfix();
+	pid0 = new_tree_page.pid().page;
 	new_tree_page.unfix();
     }
     
     // special case : new tree root
     W_DO( root_page_new.fix(root_new, latch) );
     ret_slot = ret_slots[0];
-    current_pid = pids[0]; // TODO: check current_pid == root_old here
-    W_DO( current_page.fix(current_pid, latch) );
+    pid = pids[0]; // TODO: check pid == root_old here
+    W_DO( page.fix(pid, latch) );
     W_DO( root_page_new.set_hdr(root_new.page,
-				current_page.level(), 
-				current_pid0, 
-				current_page.is_compressed()) );
-    W_DO( current_page.shift(ret_slot, root_page_new) );
-    current_page.unfix();
+				page.level(), 
+				pid0, 
+				page.is_compressed()) );
+    W_DO( page.shift(ret_slot, root_page_new) );
+    page.unfix();
     root_page_new.unfix();	    
     
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_split_heap(leaf)
+ *  Moves the pages pointed by the leaf to another heap page.
+ *  Called after _split_tree during add_partition for the design
+ *  where a heap page is pointed by only one leaf page.
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_split_heap(
+    const lpid_t&       leaf,
+    rc_t (*ptr_dir_access)(const stid_t&, sdesc_t*&, lock_mode_t) 			
+#ifdef SM_DORA
+    , const bool bIgnoreLatches
+#endif
+			)
+{
+
+    FUNC(btree_impl::_split_heap);
+
+    DBGTHRD(<<"_split_heap: " << " leaf=" << leaf );
+
+    btree_p         root_page_new;
+    rc_t            rc;
+  
+    latch_mode_t latch = LATCH_EX;
+#ifdef SM_DORA
+    // pin: use lowest latch mode for DORA
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+#endif
+
+    btree_p leaf_page;
+    W_DO( leaf_page.fix(leaf, latch) );
+
+    // if some of the heap pages the new leaf page points to are not pointed by any other leaf page already
+    // we don't have to split that heap page
+
+    // 1. collect info on the heap_pages
+    map<lpid_t, vector<rid_t> > recs_map;
+    map<rid_t, slotid_t> slot_map;
+    for(uint i=0; leaf_page.nrecs(); i++) {
+	btrec_t rec(leaf_page, i);
+	rid_t rid;
+	rec.elem().copy_to((&rid), sizeof(rid_t));
+	recs_map[rid.pid].push_back(rid);
+	slot_map[rid] = i;
+    }
+
+    // 2. determine the heap pages that needs to be split
+    vector<lpid_t> pages_to_split;
+    file_p heap_page;
+    file_p new_page;
+    lpid_t new_page_id;
+    rid_t rid;
+    for(map<lpid_t, vector<rid_t> >::iterator iter = recs_map.begin(); iter != recs_map.end(); iter++) {
+	    W_DO( heap_page.fix(iter->first, latch) );
+	    if( (uint) heap_page.num_slots() > (iter->second).size() ) {
+		// have to move some records from the heap_page
+		// create the new heap page
+		W_DO( file_m::_alloc_page((iter->first)._stid,
+					  lpid_t::eof,
+					  new_page_id,
+					  new_page,
+					  true) );
+		// move the recs pointed by the leaf page 
+		for(uint i=0; i < (iter->second).size(); i++) {
+		    rid = (iter->second)[i];
+		    // get the rec from the heap_page
+		    record_t* rec;
+		    W_DO( heap_page.get_rec(rid.slot, rec) );
+		    // move it to new page
+		    vec_t hdr;
+		    vec_t data;
+		    rid_t new_rid;
+		    hdr.put((*rec).hdr(), (*rec).hdr_size());
+		    data.put((*rec).body(), (*rec).body_size());
+		    sdesc_t* sd;
+		    W_DO((*ptr_dir_access)((iter->first)._stid, sd, EX));
+		    W_DO( file_m::create_rec_in_given_page((*rec).hdr_size() + (*rec).body_size(),
+							   *sd,
+							   hdr,
+							   data,
+							   new_rid,
+							   new_page
+#ifdef SM_DORA
+							   , bIgnoreLatches
+#endif
+							   ) );
+		    W_DO( heap_page.destroy_rec(rid.slot) );
+		    btrec_t btree_rec(leaf_page, slot_map[rid]);
+		    cvec_t elem;
+		    elem.put((char*)(&new_rid), sizeof(rid_t));
+		    // update rid in leaf_page
+		    W_DO( leaf_page.overwrite(slot_map[rid], btree_rec.klen(), elem) ); 
+		}
+	    }
+	    heap_page.unfix();
+	}
+
+    leaf_page.unfix();
+	
     return RCOK;
 }
 

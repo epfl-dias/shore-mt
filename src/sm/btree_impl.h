@@ -91,6 +91,13 @@ protected:
 	, const bool bIgnoreLatches = false
 #endif
 						   );
+    static rc_t                        _split_heap(
+        const lpid_t&                   leaf,
+	rc_t (*ptr_dir_access)(const stid_t&, sdesc_t*&, lock_mode_t) 			
+#ifdef SM_DORA
+	, const bool bIgnoreLatches = false
+#endif
+						   );
     static rc_t                        _merge_trees(
         lpid_t&                         root,			      	    
         const lpid_t&                   root1,

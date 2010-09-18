@@ -76,7 +76,9 @@ class page_p : public smlevel_0
 {
 
 friend class dir_vol_m;  // for access to page_p::splice();
-
+    // -- mrbt
+    friend class btree_impl;
+    // --
 protected:
     typedef page_s::slot_t slot_t;
     typedef page_s::slot_offset_t slot_offset_t;
