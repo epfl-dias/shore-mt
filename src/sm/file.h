@@ -192,6 +192,10 @@ public:
         smsize_t                   est_data_len,
         smsize_t&                  rec_size);
 
+    // -- mrbt
+    rc_t            shift(slotid_t snum, file_p* rsib);
+    //
+    
 private:
     /*
      *        Disable these since files do not have prev and next
@@ -205,7 +209,9 @@ private:
 class file_m  : public smlevel_2 {
     friend class alloc_file_page_log;
     // -- mrbt
+    // pin: TODO: to be removed if you use ss_m functions to allocate a page instead of _alloc.. here
     friend class btree_impl;
+    friend class btree_m;
     // --
     typedef page_s::slot_length_t slot_length_t;
 public:

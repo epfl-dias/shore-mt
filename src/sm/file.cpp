@@ -1960,6 +1960,70 @@ file_m::_truncate_large(file_p& page, slotid_t slot, uint4_t amount)
     return RCOK;
 }
 
+// -- mrbt
+
+/*********************************************************************
+ *
+ *  file_p::shift(idx, rsib)
+ *
+ *  Shift all entries starting at "idx" to first entry of page "rsib".
+ *  Stolen from zkeyed_p. Adapted to file_p.
+ *
+ *********************************************************************/
+rc_t
+file_p::shift(slotid_t idx, file_p* rsib)
+{
+    FUNC(file_p::shift);
+    w_assert1(idx >= 0 && idx < nrecs());
+
+    int n = num_slots() - idx;
+
+    DBG(<<"file_p::SHIFT "  
+	<< " from page " << pid().page << " idx " << idx
+        << " #recs " << n
+        );
+
+    int start_simple_move=0;
+    rc_t rc;
+
+    /* 
+     * grot performance hack: do in chunks of up to 
+     * tmp_chunk_size slots at a time
+     */
+    const int tmp_chunk_size = 20;    // XXX magic number
+    vec_t *tp = new vec_t[tmp_chunk_size];
+    if (!tp)
+        return RC(fcOUTOFMEMORY);
+    w_auto_delete_array_t<vec_t>    ad_tp(tp);
+
+    for (int i = start_simple_move; i < n && (! rc.is_error()); ) {
+        int j;
+
+        // NB: this next for-loop increments variable i !!!
+        for (j = 0; j < tmp_chunk_size && i < n; j++, i++)  {
+            tp[j].set(page_p::tuple_addr(1 + idx + i),
+                  page_p::tuple_size(1 + idx + i));
+        }
+
+        // i has been incremented j times, hence the
+        // subtraction for the 1st arg to insert_expand():
+        rc = rsib->insert_expand(1 + i - j, j, tp); // do it & log it
+    }
+    if (! rc.is_error())  {
+        DBG(<<"Removing " << n << " slots starting with " << 1+idx
+            << " from page " << pid().page);
+        rc = remove_compress(1 + idx, n);
+    }
+    DBG(<< " page " << pid().page << " has " << nrecs() << " slots");
+    DBG(<< " page " << rsib->pid().page << " has " << rsib->nrecs() 
+        << " slots");
+
+    return rc.reset();
+
+}
+
+// --
+
 rc_t
 file_p::fill_slot(
     slotid_t                idx,

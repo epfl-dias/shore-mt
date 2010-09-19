@@ -707,15 +707,16 @@ btree_impl::_merge_trees(
     lpid_t&             root,         // O- the root after merge
     const lpid_t&       root1,        // I- roots of the btrees to be merged
     const lpid_t&       root2,           
-    cvec_t&             startKey1,    // I- initial keys
-    cvec_t&             startKey2,
+    cvec_t&             start_key1,    // I- initial keys
+    cvec_t&             start_key2,
     bool                is_compressed // I- info for creating the new root page if required
 #ifdef SM_DORA
     , const bool bIgnoreLatches
 #endif
 			)    
 {
-    // TODO: update the root pages of all the pages below when you move them
+    // TODO: update the root pages of all the pages below when you move them;
+    //       not sure whether this is necessary now, so i didn't do
     // TODO: deallocate the page you don't use anymore
     // TODO: here you affect two partitions, depending on the thread causing this merge operation
     //       you should block the other thread for not modifiying its partition
@@ -759,13 +760,14 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( root_page_1.shift(0, page_to_insert.nrecs(), page_to_insert) );
+	    W_DO( page_to_insert.insert( start_key1, elem_to_insert,
+					 page_to_insert.nrecs(), root1.page) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_1.shift(0, root_page_2.nrecs(), root_page_2) );
+	else W_DO( root_page_2.insert( start_key1, elem_to_insert,
+				       root_page_2.nrecs(), root1.page) );
 	root = root2;
 	root_page_1.set_root(root.page);
-	// TODO: this is wrong
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
@@ -783,10 +785,12 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( root_page_2.shift(0, page_to_insert.nrecs(), page_to_insert) );
+	    W_DO( page_to_insert.insert( start_key2, elem_to_insert,
+					 page_to_insert.nrecs(), root2.page) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
+	else W_DO( root_page_1.insert( start_key2, elem_to_insert,
+				       root_page_1.nrecs(), root2.page) );
 	root = root1;
 	root_page_2.set_root(root.page);
     }
