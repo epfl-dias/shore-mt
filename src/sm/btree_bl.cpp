@@ -769,6 +769,9 @@ btree_m::mr_bulk_load(
         << " lexify_keys=" << lexify_keys
         );
 
+    // pin: to debug
+    cout << "bulk loading" << endl;
+    
     // set up statistics gathering
     _stats.clear();
     base_stat_t uni_cnt = 0;
@@ -793,8 +796,13 @@ btree_m::mr_bulk_load(
     cvec_t endKey;
     // to mark the root change
     bool root_change = false;
-
+    bool first_root = true;
+    bool last_root = false;
+    
     for(src_index = 0; src_index < nsrcs; src_index++) {
+	// pin: to debug
+	cout << "src_index: " << src_index << endl;
+
         lpid_t               pid;
         bool                 eof = false;
         skip_last = false;
@@ -802,6 +810,9 @@ btree_m::mr_bulk_load(
         for (rc = fi->first_page(src[src_index], pid, NULL /* allocated only*/);
              !rc.is_error() && !eof;
               rc = fi->next_page(pid, eof, NULL /* allocated only*/))     {
+
+	    // pin: to debug
+	    cout << "\tpid: " << pid << endl;
             
 	    // for each page ...
             W_DO( page[i].fix(pid, LATCH_SH) );
@@ -814,6 +825,10 @@ btree_m::mr_bulk_load(
             } 
 
             for ( ; s; s = page[i].next_slot(s))  {
+
+		// pin: to debug
+		cout << "\t\tslot: " << s << endl;
+	
                 // for each slot in page ...
                 record_t* r;
                 W_COERCE( page[i].get_rec(s, r) );
@@ -832,31 +847,50 @@ btree_m::mr_bulk_load(
 		    cvec_t* real_key = 0;
 		    if(lexify_keys) {
 			DBG(<<"lexify, before getting the right root with the key = " << key);
+			// pin: to debug
+			cout << "lexify, before getting the right root with the key = " << key << endl;
 			W_DO(_scramble_key(real_key, key, nkc, kc));
-			if(startKey.size() == 0 || 
-			   !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+			cout << "scrambled key " << *real_key << endl; 
+			if(!last_root &&
+			   !(startKey <= (*real_key) && (*real_key) < endKey)) {
+			    cout << "changing root" << endl;
 			    partitions.getPartitionByKey(*real_key, current_root);
+			    cout << "new root" << endl;
 			    root_change = true;
 			}
+			cout << "root is " << current_root << endl;
 		    }
 		    else {
 			DBG(<<"no lexify before getting the root, key = " << key);
-			if(startKey.size() == 0 || 
+			// pin: to debug
+			cout << "no lexify before getting the root, key = " << key << endl;
+			if(!last_root &&
 			   !(startKey <= key && key < endKey)) {  
 			    partitions.getPartitionByKey(key, current_root);
 			    root_change = true;
 			}
 		    }
 		    if(root_change) {
-			W_DO( sink.map_to_root() );
+			cout << "sink.map_to_root()" << endl;
+			if(!first_root) {
+			    W_DO( sink.map_to_root() );
+			} else {
+			    first_root = false;
+			}
+			cout << "sink map to root finidhed" << endl;
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey);
+			partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);
-		     
+
+			// pin: to debug
+			cout << "index->sub_root =" << current_root 
+			     << "startKey =" << startKey
+			     << "endKey =" << endKey << endl;
+			
 			// Btree must be empty for bulkload.
 			W_DO( purge(current_root, true, true) );
 
@@ -866,7 +900,10 @@ btree_m::mr_bulk_load(
 		    
                     DBG(<<"pr->hdr_size " << pr->hdr_size());
                     DBG(<<"pr->body_size " << pr->body_size());
-
+		    // pin: to debug
+		    cout << "pr->hdr_size " << pr->hdr_size() <<
+			" pr->body_size " << pr->body_size() << endl;
+		    
                     /*
                      *  check uniqueness and sort order
                      *  key is prev, r is curr
@@ -946,22 +983,23 @@ btree_m::mr_bulk_load(
 	if(lexify_keys) {    
             W_DO(_scramble_key(real_key, key, nkc, kc));
             DBG(<<"");
-	    if(startKey.size() == 0 || 
+	    if(!last_root &&
 	       !(startKey <= (*real_key) && (*real_key) < endKey)) {  
 		partitions.getPartitionByKey(*real_key, current_root);
 		root_change = true;
 	    }
         } else {
             DBG(<<"");
-	     if(startKey.size() == 0 || 
-	       !(startKey <= key && key < endKey)) {  
+	     if(!last_root &&
+		!(startKey <= key && key < endKey)) {  
 		partitions.getPartitionByKey(key, current_root);
 		root_change = true;
 	    }
         }
 
 	if(root_change) {
-	    W_DO( sink.map_to_root() );
+	    if(!first_root)
+		W_DO( sink.map_to_root() );
 	    
 	    // TODO: stats of the old root
 	    
@@ -1034,7 +1072,9 @@ btree_m::mr_bulk_load(
     // current start&end key
     cvec_t startKey;
     cvec_t endKey;
-
+    bool last_root = false;
+    bool first_root = true;
+    
     rc_t rc;
     btsink_t sink;
 
@@ -1091,15 +1131,18 @@ btree_m::mr_bulk_load(
         W_DO(_scramble_key(real_key, key, nkc, kc));
 	
 	// check for root change
-	if(startKey.size() == 0 || 
-	   !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+	if(!last_root && !(startKey <= (*real_key) && (*real_key) < endKey)) {  
 	    partitions.getPartitionByKey(*real_key, current_root);
-	    // finish with old root
-	    W_DO( sink.map_to_root() );
+	    if(!first_root) {
+		// finish with old root
+		W_DO( sink.map_to_root() );
+	    } else {
+		first_root = false;
+	    }
 	    // TODO: stats of the old root
 
 	    // change to new root
-	    partitions.getBoundaries(current_root, startKey, endKey);
+	    partitions.getBoundaries(current_root, startKey, endKey, last_root);
 	    DBG(<< "index->sub_root =" << current_root 
 		<< "startKey =" << startKey
 		<< "endKey =" << endKey);
@@ -1196,7 +1239,9 @@ btree_m::mr_bulk_load_leaf(
     cvec_t endKey;
     // to mark the root change
     bool root_change = false;
-
+    bool first_root = true;
+    bool last_root = false;
+    
     lpid_t               pid;
     slotid_t s;
     
@@ -1238,26 +1283,28 @@ btree_m::mr_bulk_load_leaf(
 		    if(lexify_keys) {
 			DBG(<<"lexify, before getting the right root with the key = " << key);
 			W_DO(_scramble_key(real_key, key, nkc, kc));
-			if(startKey.size() == 0 || 
-			   !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+			if(!last_root && !(startKey <= (*real_key) && (*real_key) < endKey)) {  
 			    partitions.getPartitionByKey(*real_key, current_root);
 			    root_change = true;
 			}
 		    }
 		    else {
 			DBG(<<"no lexify before getting the root, key = " << key);
-			if(startKey.size() == 0 || 
-			   !(startKey <= key && key < endKey)) {  
+			if(!last_root && !(startKey <= key && key < endKey)) {  
 			    partitions.getPartitionByKey(key, current_root);
 			    root_change = true;
 			}
 		    }
 		    if(root_change) {
-			W_DO( sink.map_to_root() );
+			if(!first_root) {
+			    W_DO( sink.map_to_root() );
+			} else {
+			    first_root = false;
+			}
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey);
+			partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);
@@ -1371,22 +1418,21 @@ btree_m::mr_bulk_load_leaf(
 	if(lexify_keys) {    
             W_DO(_scramble_key(real_key, key, nkc, kc));
             DBG(<<"");
-	    if(startKey.size() == 0 || 
-	       !(startKey <= (*real_key) && (*real_key) < endKey)) {  
+	    if(!last_root && !(startKey <= (*real_key) && (*real_key) < endKey)) {  
 		partitions.getPartitionByKey(*real_key, current_root);
 		root_change = true;
 	    }
         } else {
             DBG(<<"");
-	     if(startKey.size() == 0 || 
-	       !(startKey <= key && key < endKey)) {  
+	     if(!last_root && !(startKey <= key && key < endKey)) {  
 		partitions.getPartitionByKey(key, current_root);
 		root_change = true;
 	    }
         }
 
 	if(root_change) {
-	    W_DO( sink.map_to_root() );
+	    if(!first_root)
+		W_DO( sink.map_to_root() );
 	    
 	    // TODO: stats of the old root
 	    
@@ -1536,7 +1582,7 @@ btsink_t::map_to_root()
     w_assert1(xd);
     check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
     if (xd)  anchor = xd->anchor();
-
+    
     for (int i = 0; i <= _top; i++)  {
         X_DO( log_page_image(_page[i]), anchor );
     }
@@ -1574,10 +1620,12 @@ btsink_t::map_to_root()
     }
     _page[_top] = rp;
 
+
     if (xd)  {
         SSMTEST("btree.bulk.2");
         xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.bl.2"));
     }
+
 
     /*
      *  Free the child page. It has been copied to the root.

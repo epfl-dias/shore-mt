@@ -182,7 +182,7 @@ public:
     // Returns the range boundaries of a partition in a pair
     w_rc_t getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange);
     // Returns the range boundaries of a partition in start&end key
-    w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey);
+    w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey, bool& last);
 
 
     // Returns a vector with the key boundaries for all the partitions

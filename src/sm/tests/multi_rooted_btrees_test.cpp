@@ -128,6 +128,7 @@ public:
     w_rc_t mr_index_test1();
     w_rc_t mr_index_test2();
     w_rc_t mr_index_test3();
+    w_rc_t mr_index_test4();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
     // --
@@ -306,70 +307,21 @@ rc_t smthread_user_t::mr_index_test1()
     return RCOK;
 }
 
-/*
-rc_t smthread_user_t::mr_index_test1()
-{
-    cout << endl;
-    cout << " ------- TEST1 -------" << endl;
-    cout << endl;
-    
-    cout << "Start mrbt index related operations!" << endl;
-
-    stid_t stid;
-
-    
-    cout << "Creating multi rooted btree index." << endl;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
-
-    
-    int minKey = 0;
-    int maxKey = 999;
-    cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
-    cvec_t maxKey_vec((char*)(&maxKey), sizeof(maxKey));
-    cout << "ssm->make_equal_partitions(stid = " << stid
-	 << ", minKey_vec = " << minKey_vec
-	 << ", maxKey_vec = " << maxKey_vec
-	 << ", num_partitions = " << 10 << ")" << endl;
-    W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
-
-    
-    W_DO(insert_rec_to_index(stid));
-
-    
-    W_DO(print_the_mr_index(stid));
-
-    
-    return RCOK;
-}
-*/
-
 rc_t smthread_user_t::mr_index_test2()
 {
     cout << endl;
     cout << " ------- TEST2 -------" << endl;
+    cout << "Create a partition after the some assocs are created in MRBtree" << endl;
+    cout << "Then add new assocs" << endl;
+    cout << "Tests split tree for MRBtree with regular heap-files" << endl;
     cout << endl;
-    
-    cout << "Start mrbt index related operations!" << endl;
-
-    stid_t stid;
 
     
     cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-    /*
-    int minKey = 0;
-    int maxKey = 999;
-    cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
-    cvec_t maxKey_vec((char*)(&maxKey), sizeof(maxKey));
-    cout << "ssm->make_equal_partitions(stid = " << stid
-	 << ", minKey_vec = " << minKey
-	 << ", maxKey_vec = " << maxKey
-	 << ", num_partitions = " << 10 << ")" << endl;
-    W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
-    */
     
     W_DO(insert_rec_to_index(stid));
 
@@ -420,28 +372,15 @@ rc_t smthread_user_t::mr_index_test3()
 {
     cout << endl;
     cout << " ------- TEST3 -------" << endl;
+    cout << "Tests split_tree in regular heap files mode and merging trees that have the same level" << endl;
     cout << endl;
     
-    cout << "Start mrbt index related operations!" << endl;
-
-    stid_t stid;
-
     
     cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-    /*
-    int minKey = 0;
-    int maxKey = 9999;
-    cvec_t minKey_vec((char*)(&minKey), sizeof(minKey));
-    cvec_t maxKey_vec((char*)(&maxKey), sizeof(maxKey));
-    cout << "ssm->make_equal_partitions(stid = " << stid
-	 << ", minKey_vec = " << minKey
-	 << ", maxKey_vec = " << maxKey
-	 << ", num_partitions = " << 10 << ")" << endl;
-    W_DO(ssm->make_equal_partitions(stid, minKey_vec, maxKey_vec, 10));
-    */
     
     W_DO(insert_rec_to_index(stid));
 
@@ -517,6 +456,50 @@ rc_t smthread_user_t::mr_index_test3()
     W_DO(print_the_mr_index(stid));
 
 
+    return RCOK;
+}
+
+rc_t smthread_user_t::mr_index_test4()
+{
+    cout << endl;
+    cout << " ------- TEST4 -------" << endl;
+    cout << "1. Make initial partitions" << endl; 
+    cout << "2. Bulk load the recs to MRBtree index" << endl;
+    cout << "To test bulk loading from files!" << endl;
+    cout << endl;
+
+    
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid));
+
+
+    int key1 = 700;
+    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key1 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec1));
+    
+    
+    int key2 = 500;
+    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key2 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec2));
+
+
+    W_DO(ssm->begin_xct());
+    sm_du_stats_t stats;
+    cout << "ssm->bulkld_mr_index(stid = " << stid
+	 << ", file = " << _fid << endl;
+    W_DO(ssm->bulkld_mr_index(stid, _fid, stats));
+    W_DO(ssm->commit_xct());
+
+    
+    W_DO(print_the_mr_index(stid));
+
+    
     return RCOK;
 }
 
@@ -735,10 +718,11 @@ smthread_user_t::no_init()
     W_COERCE(find_file_info());
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
-    //W_DO(mr_index_test0());
-    W_DO(mr_index_test1());
-    //W_DO(mr_index_test2());
-    //W_DO(mr_index_test3());
+    //W_DO(mr_index_test0()); // ok
+    //W_DO(mr_index_test1()); // ok
+    //W_DO(mr_index_test2()); // ok
+    W_DO(mr_index_test3()); //
+    //W_DO(mr_index_test4()); //
     return RCOK;
 }
 

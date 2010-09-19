@@ -522,7 +522,7 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange)
  *
  ******************************************************************/
 
-w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey) 
+w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey, bool& last) 
 {
     keysIter iter;
     bool bFound = false;
@@ -542,15 +542,19 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKe
     }
 
     startKey.set(iter->first, sizeof(iter->first));
-    iter++;
-    if(iter == _keyRangesMap.end() && _maxKey != NULL) { 
-        // check whether it is the last range
-	endKey.set(_maxKey, sizeof(_maxKey));
-    }
-    else {
+    cout << "startkey " << iter->first << endl;
+    if( iter != _keyRangesMap.begin() ) {
+	iter--;
         endKey.set(iter->first, sizeof(iter->first));
     }
-
+    else if(_maxKey == NULL) {
+	cout << "maxKey isn't set" << endl;
+	last = true;
+    }
+    else {
+	endKey.set(_maxKey, sizeof(_maxKey));
+    }
+    cout << "endkey " << endKey << endl;
     return (RCOK);
 }
 

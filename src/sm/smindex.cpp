@@ -835,6 +835,8 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     cvec_t* key;
     cvec_t dummy;
     int value;
+    bool last = false;
+    
     switch (sd->sinfo().ntype) {
     case t_mrbtree_regular:
      case t_uni_mrbtree_regular:
@@ -850,7 +852,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	cout << "Partition " << i << endl;
 	bt->print(pidVec[i], k);
 	for(i = 1; i < pidVec.size(); i++) {
-	    sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy);
+	    sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy, last);
 	    W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
 	    key->copy_to(&value, sizeof(value));
 	    cout << "Start Key was " << value << endl;
@@ -858,7 +860,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	    cout << "Partition " << i << endl;
 	    bt->mr_print(pidVec[i], k, true, stop_key);
 	}
-	sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy);
+	sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy, last);
 	W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
 	key->copy_to(&value, sizeof(value));
 	cout << "Start Key was " << value << endl;
@@ -1354,17 +1356,20 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key
 
     W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+
+    root_old = sd->root(*real_key);
+    
     // update the ranges page & key_ranges_map which keeps the partition info
-    W_DO( sd->partitions().addPartition(key, root_new) );    
-    W_DO( ra->add_partition(sd->root(), key, root_new) );
+    W_DO( sd->partitions().addPartition(*real_key, root_new) );
+    W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
 
     // split the btree
-    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
     switch (sd->sinfo().ntype) {
     case t_mrbtree_regular:
     case t_uni_mrbtree_regular:
 	
-	W_DO(bt->split_tree(sd->root(*real_key), root_new, *real_key
+	W_DO(bt->split_tree(root_old, root_new, *real_key
 #ifdef SM_DORA
 			    , bIgnoreLocks
 #endif

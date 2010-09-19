@@ -480,8 +480,6 @@ btree_impl::_split_tree(
 #endif
 			)
 {
-    // TODO: update the root pages of all the pages below when you move them
-    //       i'm not sure whether this is necessary now so i did't do this
 
     FUNC(btree_impl::_split_tree);
 
@@ -491,7 +489,8 @@ btree_impl::_split_tree(
     rc_t            rc;
   
     // TODO: don't let tree split when root is a leaf page, i'm not sure why we said this now ???
-    	
+    //       if root.is_leaf is ok, then you should update prev/next values for root too 
+     
     latch_mode_t latch = LATCH_SH;
 #ifdef SM_DORA
     // pin: use lowest latch mode for DORA
@@ -501,8 +500,8 @@ btree_impl::_split_tree(
 #endif
 
     cvec_t dummy_el; // not important since we're only interested in the key now
-    bool found;
-    bool found_elem;
+    bool found = false;
+    bool found_elem = false;
     slotid_t ret_slot;
     vector<slotid_t> ret_slots;
     vector<lpid_t> pids;
@@ -533,7 +532,7 @@ btree_impl::_split_tree(
 	latch = LATCH_NL;
     }
 #endif
-
+    
     // special case for first one
     // pid0 is rec.child here while for the other's it's new_tree_page.pid
     W_DO( page.fix(pid, latch) );
@@ -549,6 +548,20 @@ btree_impl::_split_tree(
 			  ));
 	W_DO( page.shift(ret_slot, new_tree_page) );
 	pid0 = new_tree_page.pid().page;
+	// update prev/next pointers if leaf page
+	if(page.is_leaf()) {
+	    btree_p next_page;
+	    shpid_t next_page_id = page.next();
+	    W_DO( page.link_up(page.prev(), pid0) );
+	    W_DO( new_tree_page.link_up(pid.page, next_page_id) );
+	    if(next_page_id != 0) {
+		lpid_t next_page_pid(pid._stid, next_page_id);
+		W_DO( next_page.fix(next_page_pid, latch) );
+		W_DO( next_page.link_up(pid0, next_page.next()) );
+		next_page.unfix();
+	    }
+	    W_DO( new_tree_page.set_pid0(0) );
+	}
 	new_tree_page.unfix();
     }
     page.unfix();
@@ -575,7 +588,8 @@ btree_impl::_split_tree(
     // special case : new tree root
     W_DO( root_page_new.fix(root_new, latch) );
     ret_slot = ret_slots[0];
-    pid = pids[0]; // TODO: check pid == root_old here
+    pid = pids[0];
+    w_assert9( pid == root_old );
     W_DO( page.fix(pid, latch) );
     W_DO( root_page_new.set_hdr(root_new.page,
 				page.level(), 
@@ -801,6 +815,8 @@ btree_impl::_merge_trees(
 	// pin: to debug
 	cout << "root1.level == root2.level" << endl;
 
+	W_DO( root_page_1.insert( start_key2, elem_to_insert,
+				  root_page_1.nrecs(), root_page_2.pid0()) );
  	W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
 	root = root1;
 
