@@ -774,12 +774,16 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( page_to_insert.insert( start_key1, elem_to_insert,
-					 page_to_insert.nrecs(), root1.page) );
+	    W_DO( page_to_insert.insert( start_key2, elem_to_insert,
+					 0, root_page_2.pid0()) );
+	    W_DO( page_to_insert.set_pid0( root1.page ) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_2.insert( start_key1, elem_to_insert,
-				       root_page_2.nrecs(), root1.page) );
+	else {
+	    W_DO( root_page_2.insert(start_key2, elem_to_insert,
+				     0, root_page_2.pid0()) );
+	    W_DO( root_page_2.set_pid0( root1.page ) );
+	}
 	root = root2;
 	root_page_1.set_root(root.page);
     }

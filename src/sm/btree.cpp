@@ -271,6 +271,34 @@ btree_m::insert(
 }
 
 // -- mrbt
+
+rc_t
+btree_m::link(lpid_t prev, lpid_t next, latch_mode_t latch) {
+    btree_p prev_page;
+    btree_p next_page;
+
+    W_DO( prev_page.fix(prev, latch) );
+    W_DO( next_page.fix(next, latch) );
+
+    shpid_t prev_next = prev_page.next();
+
+    W_DO( prev_page.link_up(prev_page.prev(), next.page) );    
+    W_DO( next_page.link_up(prev.page, prev_next) );
+
+    prev_page.unfix();
+    next_page.unfix();
+    
+    if(prev_next != 0) {
+	lpid_t prev_next_id(prev._stid, prev_next);
+	btree_p prev_next_page;
+	W_DO( prev_next_page.fix(prev_next_id, latch) );
+	W_DO( prev_next_page.link_up(next.page, prev_next_page.next()) );
+	next_page.unfix();
+    }
+
+    return RCOK;
+}
+
 /*********************************************************************
  *
  *  btree_m::mr_insert(root, unique, cc, key, el, split_factor)

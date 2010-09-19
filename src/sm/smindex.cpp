@@ -1246,16 +1246,18 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
 
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
     
-    FUNC(ss_m::_add_partition);
+    FUNC(ss_m::_add_partition_init);
     
     DBG(<<" stid " << stid);
 
     lock_mode_t                index_mode = NL; // lock mode needed on index
-
+    latch_mode_t latch = LATCH_EX;
+    
 #ifdef SM_DORA
     // IP: DORA inserts using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
       index_mode = NL;
+      latch = LATCH_NL;
     } else {
 #endif
 
@@ -1274,7 +1276,8 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
 
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );
-    
+
+    lpid_t root_old;
     lpid_t root_new;
     cvec_t* real_key;    
     sinfo_s sinfo = sd->sinfo();
@@ -1292,10 +1295,14 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
 
 	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	root_old = sd->root(*real_key);
 	// update the ranges page & key_ranges_map which keeps the partition info
 	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
 	W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
-	
+
+	// pin: to debug
+	cout << "root_old " << root_old << "root_new " << root_new << endl;
+	//TODO: not sure this is necessary W_DO( bt->link(root_old, root_new, latch) );
 	break;
 	
     default:

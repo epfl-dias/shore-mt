@@ -129,6 +129,8 @@ public:
     w_rc_t mr_index_test2();
     w_rc_t mr_index_test3();
     w_rc_t mr_index_test4();
+    w_rc_t mr_index_test5();
+    w_rc_t mr_index_test6();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
     // --
@@ -503,6 +505,102 @@ rc_t smthread_user_t::mr_index_test4()
     return RCOK;
 }
 
+rc_t smthread_user_t::mr_index_test5()
+{
+    cout << endl;
+    cout << " ------- TEST5 -------" << endl;
+    cout << " 1. Add initial partitions " << endl;
+    cout << "To test merge partitions when root1,level > root2.level in MRBtree!" << endl;
+    cout << endl;
+
+    
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid));
+
+
+    int key1 = 700;
+    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key1 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec1));
+    
+    
+    int key2 = 500;
+    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key2 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec2));
+
+
+    W_DO(insert_rec_to_index(stid));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+
+    int key3 = 600;
+    cvec_t key3_vec((char*)(&key3), sizeof(key3));
+    cout << "ssm->delete_partition(stid = " << stid
+	 << ", key = " << key3 << endl;
+    W_DO(ssm->delete_partition(stid, key3_vec));
+
+
+    W_DO(print_the_mr_index(stid));
+
+    
+    return RCOK;
+}
+
+rc_t smthread_user_t::mr_index_test6()
+{
+    cout << endl;
+    cout << " ------- TEST6 -------" << endl;
+    cout << " 1. Add initial partitions " << endl;
+    cout << "To test merge partitions when root1,level < root2.level in MRBtree!" << endl;
+    cout << endl;
+
+    
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid));
+
+
+    int key1 = 700;
+    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key1 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec1));
+    
+    
+    int key2 = 500;
+    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key2 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec2));
+
+
+    W_DO(insert_rec_to_index(stid));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+
+    int key3 = 800;
+    cvec_t key3_vec((char*)(&key3), sizeof(key3));
+    cout << "ssm->delete_partition(stid = " << stid
+	 << ", key = " << key3 << endl;
+    W_DO(ssm->delete_partition(stid, key3_vec));
+
+
+    W_DO(print_the_mr_index(stid));
+
+    
+    return RCOK;
+}
+
 // Modified the code for scan_the_file
 rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
 {
@@ -721,8 +819,10 @@ smthread_user_t::no_init()
     //W_DO(mr_index_test0()); // ok
     //W_DO(mr_index_test1()); // ok
     //W_DO(mr_index_test2()); // ok
-    W_DO(mr_index_test3()); //
+    //W_DO(mr_index_test3()); // ok
     //W_DO(mr_index_test4()); //
+    //W_DO(mr_index_test5()); // ok
+    W_DO(mr_index_test6()); // ok
     return RCOK;
 }
 

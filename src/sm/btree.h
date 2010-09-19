@@ -205,6 +205,9 @@ public:
 					 sortorder::keytype kt,
 					 bool print_elem,
 					 cvec_t& last_page);
+    static rc_t                        link(lpid_t prev,
+					    lpid_t next,
+					    latch_mode_t latch);
     // --
     static rc_t                        insert(
         const lpid_t&                     root,
