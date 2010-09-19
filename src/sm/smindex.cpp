@@ -547,6 +547,25 @@ rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::add_partition_init()                                  *
+ *--------------------------------------------------------------*/
+rc_t ss_m::add_partition_init(stid_t stid, cvec_t& key
+#ifdef SM_DORA
+			      , const bool bIgnoreLocks
+#endif
+			      )
+{
+    SM_PROLOGUE_RC(ss_m::add_partition_init, not_in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    W_DO(_add_partition_init(stid, key
+#ifdef SM_DORA
+			 , bIgnoreLocks
+#endif
+			     ));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
 rc_t ss_m::add_partition(stid_t stid, cvec_t& key
@@ -557,7 +576,11 @@ rc_t ss_m::add_partition(stid_t stid, cvec_t& key
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition(stid, key));
+    W_DO(_add_partition(stid, key
+#ifdef SM_DORA
+			 , bIgnoreLocks
+#endif
+			));
     return RCOK;
 }
 
@@ -809,7 +832,9 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     vector<lpid_t> pidVec;
     uint i = 0;
     cvec_t stop_key;
+    cvec_t* key;
     cvec_t dummy;
+    int value;
     switch (sd->sinfo().ntype) {
     case t_mrbtree_regular:
      case t_uni_mrbtree_regular:
@@ -826,9 +851,19 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	bt->print(pidVec[i], k);
 	for(i = 1; i < pidVec.size(); i++) {
 	    sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy);
+	    W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
+	    key->copy_to(&value, sizeof(value));
+	    cout << "Start Key was " << value << endl;
+	    cout << endl;
 	    cout << "Partition " << i << endl;
 	    bt->mr_print(pidVec[i], k, true, stop_key);
 	}
+	sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy);
+	W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
+	key->copy_to(&value, sizeof(value));
+	cout << "Start Key was " << value << endl;
+	cout << endl;
+		
 	break;
 
     default:
@@ -1196,6 +1231,76 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
 
     W_DO(xct_auto.commit());
+
+    return RCOK;    
+}
+
+rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
+#ifdef SM_DORA
+			  , const bool bIgnoreLocks
+#endif
+			  )
+{
+
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+    
+    FUNC(ss_m::_add_partition);
+    
+    DBG(<<" stid " << stid);
+
+    lock_mode_t                index_mode = NL; // lock mode needed on index
+
+#ifdef SM_DORA
+    // IP: DORA inserts using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      index_mode = NL;
+    } else {
+#endif
+
+    xct_t* xd = xct();
+    if (xd)  {
+        lock_mode_t lock_mode;
+        W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
+	if (!(lock_mode == IX || lock_mode >= SIX)) {
+	    index_mode = IX;
+        }
+    }
+
+#ifdef SM_DORA
+    }
+#endif
+
+    sdesc_t* sd;
+    W_DO( dir->access(stid, sd, index_mode) );
+    
+    lpid_t root_new;
+    cvec_t* real_key;    
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    // split the btree
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree_regular:
+    case t_uni_mrbtree_regular:	
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0));
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	// update the ranges page & key_ranges_map which keeps the partition info
+	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
+	W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
+	
+	break;
+	
+    default:
+        return RC(eBADNDXTYPE);
+    }
+        
+    W_DO(xct_auto.commit());	     
 
     return RCOK;    
 }

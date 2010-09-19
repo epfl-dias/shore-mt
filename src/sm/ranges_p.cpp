@@ -50,8 +50,7 @@ rc_t ranges_m::create(const stid_t stid, lpid_t& pid, const lpid_t& subroot)
     ranges_p page;
     W_DO(page.fix(pid, LATCH_EX, page.t_virgin)); 
     // add one subtree to ranges 
-    int i = 0;
-    cvec_t startKey(&i, sizeof(i));
+    cvec_t startKey;
     W_DO( page.add_default_partition(startKey, subroot) );
     page.unfix();
     return RCOK;

@@ -250,15 +250,13 @@ rc_t smthread_user_t::mr_index_test0()
 {
     cout << endl;
     cout << " ------- TEST0 -------" << endl;
+    cout << "To test MRBtree with single partition!" << endl;
     cout << endl;
     
-    cout << "Start mrbt index related operations!" << endl;
 
-    stid_t stid;
-
-    
     cout << "Creating multi rooted btree index." << endl;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
+    stid_t stid;
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     
@@ -271,6 +269,44 @@ rc_t smthread_user_t::mr_index_test0()
     return RCOK;
 }
 
+rc_t smthread_user_t::mr_index_test1()
+{
+    cout << endl;
+    cout << " ------- TEST1 -------" << endl;
+    cout << "To test adding inital partitions to MRBtree!" << endl;
+    cout << endl;
+
+    
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid));
+
+
+    int key1 = 700;
+    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key1 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec1));
+    
+    
+    int key2 = 500;
+    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    cout << "ssm->add_partition_init(stid = " << stid
+	 << ", key = " << key2 << endl;
+    W_DO(ssm->add_partition_init(stid, key_vec2));
+
+
+    W_DO(insert_rec_to_index(stid));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+    
+    return RCOK;
+}
+
+/*
 rc_t smthread_user_t::mr_index_test1()
 {
     cout << endl;
@@ -306,6 +342,7 @@ rc_t smthread_user_t::mr_index_test1()
     
     return RCOK;
 }
+*/
 
 rc_t smthread_user_t::mr_index_test2()
 {
@@ -319,7 +356,7 @@ rc_t smthread_user_t::mr_index_test2()
 
     
     cout << "Creating multi rooted btree index." << endl;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     /*
@@ -391,7 +428,7 @@ rc_t smthread_user_t::mr_index_test3()
 
     
     cout << "Creating multi rooted btree index." << endl;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     /*
@@ -699,9 +736,9 @@ smthread_user_t::no_init()
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
     //W_DO(mr_index_test0());
-    //W_DO(mr_index_test1());
+    W_DO(mr_index_test1());
     //W_DO(mr_index_test2());
-    W_DO(mr_index_test3());
+    //W_DO(mr_index_test3());
     return RCOK;
 }
 

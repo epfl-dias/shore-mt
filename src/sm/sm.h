@@ -2626,6 +2626,21 @@ public:
 				      uint numParts);
 
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
+     * This is for initially creating some partitions, when there are no assocs created
+     * in index yet.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The startKey of the new partition.
+     */
+    static rc_t add_partition_init(stid_t stid,
+				   cvec_t& key
+#ifdef SM_DORA
+				   , const bool bIgnoreLocks = false
+#endif
+				   );
+    
+    /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
      * @param[in] stid     ID of the index.
@@ -3560,6 +3575,13 @@ private:
 				       cvec_t& maxKey,
 				       uint numParts);
 
+    static rc_t _add_partition_init(stid_t stid,
+				    cvec_t& key
+#ifdef SM_DORA
+				    , const bool bIgnoreLocks = false
+#endif
+				    );
+    
     static rc_t _add_partition(stid_t stid,
 			       cvec_t& key
 #ifdef SM_DORA
