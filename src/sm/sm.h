@@ -2459,6 +2459,34 @@ public:
                 stid_t&               stid
     );
 
+    /**\brief Create a MR-B+-Tree index based on initial partitions.
+     * \ingroup SSMBTREE
+     * @param[in] vid   Volume on which to create the index.
+     * @param[in] ntype   Type of index. Legitimate values are: 
+     *  - t_mrbtree : Multi-rooted B+-Tree with duplicate keys allowed
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys 
+     * @param[in] property Logging level of store. Legitimate values are:
+     *  - t_regular
+     *  - t_load_file
+     *  - t_insert_file
+     *  See sm_store_property_t for details.
+     * @param[in] key_desc Description of key type.
+     *  See \ref key_description for details.
+     * @param[in] cc The locking protocol to use with this index. See
+     * smlevel_0::concurrency_t and \ref SSMBTREE.
+     * @param[out] stid New store ID will be returned here.
+     * @param[in] ranges Initial partitions
+     */
+    static rc_t            create_mr_index(
+                vid_t                 vid, 
+                ndx_t                 ntype, 
+                store_property_t      property,
+                const char*           key_desc,
+                concurrency_t         cc, 
+                stid_t&               stid,
+		key_ranges_map&       ranges
+    );
+
     /**\brief Destroy a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
@@ -3515,6 +3543,16 @@ private:
         const char*           key_desc,
         concurrency_t         cc,
         stid_t&               stid
+    );
+
+    static rc_t            _create_mr_index(
+        vid_t                 vid, 
+        ndx_t                 ntype, 
+        store_property_t      property,
+        const char*           key_desc,
+        concurrency_t         cc,
+        stid_t&               stid,
+	key_ranges_map&       ranges
     );
 
     static rc_t            _destroy_mr_index(const stid_t& iid); 

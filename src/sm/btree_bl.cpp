@@ -456,6 +456,8 @@ btree_m::bulk_load(
     file_p page[2];           // page[i] is current page
 
     const record_t*         pr = 0;        // previous record
+    lpid_t pr_pid; // previous pid
+    slotid_t pr_s = 0; // previous slot
     int                     src_index = 0;
     bool                    skip_last = false;
 
@@ -495,9 +497,10 @@ btree_m::bulk_load(
                 if (pr) {
                     bool insert_one = false;
                     cvec_t key(pr->hdr(), pr->hdr_size());
-                    cvec_t el(pr->body(), (int)pr->body_size());
-                    DBG(<<"pr->hdr_size " << pr->hdr_size());
-                    DBG(<<"pr->body_size " << pr->body_size());
+		    rid_t rid(pr_pid, pr_s);
+                    cvec_t el((char*)(&rid), sizeof(rid_t));
+                    DBG(<<"pr->key_size " << pr->hdr_size());
+                    DBG(<<"pr->el_size " << el.size());
 
                     /*
                      *  check uniqueness and sort order
@@ -563,6 +566,8 @@ btree_m::bulk_load(
 
                 if (page[1-i].is_fixed())  page[1-i].unfix();
                 pr = r;
+		pr_s = s;
+		pr_pid = pid;
 
                 if (!s) break;
             }
@@ -576,9 +581,10 @@ btree_m::bulk_load(
 
 
     if (!skip_last && pr) {
-        cvec_t key(pr->hdr(), pr->hdr_size());
-        cvec_t el(pr->body(), (int)pr->body_size());
-        if(lexify_keys) {
+	cvec_t key(pr->hdr(), pr->hdr_size());
+	rid_t rid(pr_pid, pr_s);
+	cvec_t el((char*)(&rid), sizeof(rid_t));
+	if(lexify_keys) {
             cvec_t* real_key;
             W_DO(_scramble_key(real_key, key, nkc, kc));
             DBG(<<"");
@@ -780,12 +786,15 @@ btree_m::mr_bulk_load(
 
     rc_t rc;
     btsink_t sink;
+    int partition = 0;
 
     // go thru the src file page by page
     int i = 0;                // toggle
     file_p page[2];           // page[i] is current page
 
     const record_t*         pr = 0;        // previous record
+    lpid_t pr_pid; // previous pid
+    slotid_t pr_s = 0; // previous slot
     int                     src_index = 0;
     bool                    skip_last = false;
     
@@ -841,7 +850,8 @@ btree_m::mr_bulk_load(
                 if (pr) {
                     bool insert_one = false;
                     cvec_t key(pr->hdr(), pr->hdr_size());
-                    cvec_t el(pr->body(), (int)pr->body_size());
+		    rid_t rid(pid, s);
+                    cvec_t el((char*)(&rid), sizeof(rid_t));
 
 		    // check for change of the root
 		    cvec_t* real_key = 0;
@@ -877,7 +887,7 @@ btree_m::mr_bulk_load(
 			} else {
 			    first_root = false;
 			}
-			cout << "sink map to root finidhed" << endl;
+			cout << "sink map to root finished" << endl;
 			// TODO: stats of the old root
 
 			// change to new root
@@ -891,8 +901,8 @@ btree_m::mr_bulk_load(
 			     << "startKey =" << startKey
 			     << "endKey =" << endKey << endl;
 			
-			// Btree must be empty for bulkload.
-			W_DO( purge(current_root, true, true) );
+			// Btree must be empty for bulkload. // pin: no it doesn't check this now
+			//W_DO( purge(current_root, false, true) );
 
 			W_DO(sink.set(current_root));
 			root_change = false;
@@ -900,10 +910,7 @@ btree_m::mr_bulk_load(
 		    
                     DBG(<<"pr->hdr_size " << pr->hdr_size());
                     DBG(<<"pr->body_size " << pr->body_size());
-		    // pin: to debug
-		    cout << "pr->hdr_size " << pr->hdr_size() <<
-			" pr->body_size " << pr->body_size() << endl;
-		    
+		    		    
                     /*
                      *  check uniqueness and sort order
                      *  key is prev, r is curr
@@ -955,7 +962,12 @@ btree_m::mr_bulk_load(
                         } else {
 			    W_DO( sink.put(key, el) );
                         }
-                        skip_last = false;
+			// pin: to debug
+			int value;
+			key.copy_to(&value, sizeof(value));
+			cout << "key: " << value << " el: " << rid << " added" << endl;
+			cout << endl;
+			skip_last = false;
                     } 
 
                     ++uni_cnt;
@@ -963,7 +975,9 @@ btree_m::mr_bulk_load(
 
                 if (page[1-i].is_fixed())  page[1-i].unfix();
                 pr = r;
-
+		pr_s = s;
+		pr_pid = pid;
+		
                 if (!s) break;
             }
             i = 1 - i;        // toggle i
@@ -976,9 +990,10 @@ btree_m::mr_bulk_load(
 
 
     if (!skip_last && pr) {
-        cvec_t key(pr->hdr(), pr->hdr_size());
-        cvec_t el(pr->body(), (int)pr->body_size());
-        cvec_t* real_key = 0;
+	cvec_t key(pr->hdr(), pr->hdr_size());
+	rid_t rid(pr_pid, pr_s);
+	cvec_t el((char*)(&rid), sizeof(rid_t));
+	cvec_t* real_key = 0;
 
 	if(lexify_keys) {    
             W_DO(_scramble_key(real_key, key, nkc, kc));
@@ -1004,7 +1019,7 @@ btree_m::mr_bulk_load(
 	    // TODO: stats of the old root
 	    
 	    // Btree must be empty for bulkload.
-	    W_DO( purge(current_root, true, true) );
+	    //W_DO( purge(current_root, false, true) );
 
 	    // change to new root
 	    W_DO(sink.set(current_root));
@@ -1147,7 +1162,7 @@ btree_m::mr_bulk_load(
 		<< "startKey =" << startKey
 		<< "endKey =" << endKey);
 	    // Btree must be empty for bulkload.
-	    W_DO( purge(current_root, true, true) );
+	    //W_DO( purge(current_root, false, true) );
 	    // update sink
 	    W_DO(sink.set(current_root));
 	}
@@ -1229,6 +1244,8 @@ btree_m::mr_bulk_load_leaf(
     file_p page[2];           // page[i] is current page
 
     const record_t*         pr = 0;        // previous record
+    lpid_t pr_pid; // previous pid
+    slotid_t pr_s = 0; // previous slot
     int                     src_index = 0;
     bool                    skip_last = false;
     
@@ -1276,7 +1293,8 @@ btree_m::mr_bulk_load_leaf(
                 if (pr) {
                     bool insert_one = false;
                     cvec_t key(pr->hdr(), pr->hdr_size());
-                    cvec_t el(pr->body(), (int)pr->body_size());
+		    rid_t rid(pr_pid, pr_s);
+                    cvec_t el((char*)(&rid), sizeof(rid_t));
 
 		    // check for change of the root
 		    cvec_t* real_key = 0;
@@ -1310,7 +1328,7 @@ btree_m::mr_bulk_load_leaf(
 			    << "endKey =" << endKey);
 		     
 			// Btree must be empty for bulkload.
-			W_DO( purge(current_root, true, true) );
+			//W_DO( purge(current_root, false, true) );
 
 			W_DO(sink.set(current_root));
 			root_change = false;
@@ -1397,7 +1415,9 @@ btree_m::mr_bulk_load_leaf(
 
                 if (page[1-i].is_fixed())  page[1-i].unfix();
                 pr = r;
-
+		pr_s = s;
+		pr_pid = pid;
+		
                 if (!s) break;
             }
             i = 1 - i;        // toggle i
@@ -1411,8 +1431,9 @@ btree_m::mr_bulk_load_leaf(
     s--;
     
     if (!skip_last && pr) {
-        cvec_t key(pr->hdr(), pr->hdr_size());
-        cvec_t el(pr->body(), (int)pr->body_size());
+	cvec_t key(pr->hdr(), pr->hdr_size());
+	rid_t rid(pr_pid, pr_s);
+	cvec_t el((char*)(&rid), sizeof(rid_t));
         cvec_t* real_key = 0;
 
 	if(lexify_keys) {    
@@ -1437,7 +1458,7 @@ btree_m::mr_bulk_load_leaf(
 	    // TODO: stats of the old root
 	    
 	    // Btree must be empty for bulkload.
-	    W_DO( purge(current_root, true, true) );
+	    //W_DO( purge(current_root, false, true) );
 
 	    // change to new root
 	    W_DO(sink.set(current_root));

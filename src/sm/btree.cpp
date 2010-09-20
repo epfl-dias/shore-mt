@@ -529,9 +529,8 @@ btree_m::merge_trees(
     lpid_t&             root,         // O- the root after merge
     const lpid_t&       root1,        // I- roots of the btrees to be merged
     const lpid_t&       root2,           
-    cvec_t&             startKey1,    // I- initial keys
-    cvec_t&             startKey2,
-    bool                is_compressed) // I- info for creating the new root page if required
+    cvec_t&             startKey2    // I- initial keys
+		     )
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -542,7 +541,7 @@ btree_m::merge_trees(
 #endif
     
     rc_t rc;
-    rc = btree_impl::_merge_trees(root, root1, root2, startKey1, startKey2, is_compressed);
+    rc = btree_impl::_merge_trees(root, root1, root2, startKey2);
     
     return  rc;
 }

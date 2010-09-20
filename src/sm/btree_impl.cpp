@@ -809,9 +809,7 @@ btree_impl::_merge_trees(
     lpid_t&             root,         // O- the root after merge
     const lpid_t&       root1,        // I- roots of the btrees to be merged
     const lpid_t&       root2,           
-    cvec_t&             start_key1,    // I- initial keys
-    cvec_t&             start_key2,
-    bool                is_compressed // I- info for creating the new root page if required
+    cvec_t&             start_key2    // I- initial key
 #ifdef SM_DORA
     , const bool bIgnoreLatches
 #endif
@@ -839,7 +837,6 @@ btree_impl::_merge_trees(
     w_assert9( root_page_1.is_fixed() );
     w_assert9( root_page_2.is_fixed() );
 
-    // TODO: polish
     int level_1 = root_page_1.level();
     int level_2 = root_page_2.level();
     cvec_t elem_to_insert; // dummy

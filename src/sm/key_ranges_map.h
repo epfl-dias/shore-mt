@@ -143,7 +143,7 @@ public:
 
     // Makes equal length partitions from scratch
     uint makeEqualPartitions(const Key& minKey, const Key& maxKey, const uint numParts, 
-			     vector<lpid_t> roots);
+			     vector<lpid_t>& roots);
 
 
     ////  Map management ////

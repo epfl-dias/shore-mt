@@ -54,7 +54,12 @@ public:
     rc_t fill_ranges_map(key_ranges_map& partitions);
     
     // stores the partitions' info from key_ranges_map in this page
-    rc_t fill_page(key_ranges_map& partitions);    
+    rc_t fill_page(key_ranges_map& partitions);
+
+    // stores the partitions' info from key_ranges_map in this page
+    // this is for initial partitions where partitions have dummy subroot ids
+    // the real subroot ids are in subroots
+    rc_t fill_page(key_ranges_map& partitions, vector<lpid_t>& subroots);    
 
     // stores the newly added partition info
     rc_t add_partition(cvec_t& key, const lpid_t& root);
@@ -83,6 +88,7 @@ public:
     NORET                        ~ranges_m()  {};
 
     static rc_t create(const stid_t stid, lpid_t& pid, const lpid_t& subroot);
+    static rc_t create(const stid_t stid, lpid_t& pid, key_ranges_map& partitions, vector<lpid_t>& subroots);
     static rc_t add_partition(const lpid_t& pid, cvec_t& key, const lpid_t& root);
     static rc_t delete_partition(const lpid_t& pid, const lpid_t& root_to_delete,
 				const lpid_t& root_to_update_old, const lpid_t& root_to_update_new);

@@ -413,6 +413,27 @@ rc_t ss_m::create_mr_index(vid_t                 vid,
     return RCOK;
 }
 
+/*****************************************************************************
+ *  ss_m::create_mr_index(vid, ntype, property, key_desc, cc, stid, ranges)  *
+ *****************************************************************************/
+rc_t ss_m::create_mr_index(vid_t                 vid, 
+			   ndx_t                 ntype, 
+			   store_property_t      property,
+			   const char*           key_desc,
+			   concurrency_t         cc, 
+			   stid_t&               stid,
+			   key_ranges_map&        ranges
+			   )
+{
+    SM_PROLOGUE_RC(ss_m::create_mr_index, not_in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    if(property == t_temporary) {
+	return RC(eBADSTOREFLAGS);
+    }
+    W_DO(_create_mr_index(vid, ntype, property, key_desc, cc, stid, ranges));
+    return RCOK;
+}
+
 /*--------------------------------------------------------------*
  *  ss_m::destroy_mr_index()                                    *
  *--------------------------------------------------------------*/
@@ -663,6 +684,85 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
 	 // create the ranges_p
 	 W_DO( ra->create(stid, root, subroot) );
+
+	 break;
+
+     default:
+        return RC(eBADNDXTYPE);
+    }
+    sinfo_s sinfo(stid.store, t_index, 100/*unused*/, 
+                  ntype,
+                  cc,
+                  root.page, 
+                  count, kcomp);
+    W_DO(dir->insert(stid, sinfo));
+    W_DO(xct_auto.commit());
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_create_mr_index()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_create_mr_index(vid_t                   vid, 
+			    ndx_t                   ntype, 
+			    store_property_t        property,
+			    const char*             key_desc,
+			    concurrency_t           cc,
+			    stid_t&                 stid,
+			    key_ranges_map&          ranges
+			    )
+{
+    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
+
+    FUNC(ss_m::_create_mr_index);
+
+    DBG(<<" vid " << vid);
+    uint4_t count = max_keycomp;
+    key_type_s kcomp[max_keycomp];
+    lpid_t root;
+    lpid_t subroot;
+
+    
+    W_DO(key_type_s::parse_key_type(key_desc, count, kcomp));
+     {
+	 DBG(<<"vid " << vid);
+	 W_DO(io->create_store(vid, 100/*unused*/, _make_store_flag(property), stid));
+	 DBG(<<" stid " << stid);
+     }
+
+
+     // Note: theoretically, some other thread could destroy
+     //       the above store before the following lock request
+     //       is granted.  The only forseable way for this to
+     //       happen would be due to a bug in a vas causing
+     //       it to destroy the wrong store.  We make no attempt
+     //       to prevent this.
+     W_DO(lm->lock(stid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
+
+     if( (cc != t_cc_none) && (cc != t_cc_file) &&
+	 (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+	 (cc != t_cc_im)
+	 ) return RC(eBADCCLEVEL);
+
+     vector<lpid_t> roots;
+     bool isCompressed = kcomp[0].compressed != 0;
+     for(uint i=0; i< ranges.getNumPartitions(); i++) {
+	 lpid_t root;
+	 W_DO(bt->create(stid, root, isCompressed));
+	 roots.push_back(root);
+     }
+    
+     switch (ntype)  {
+     case t_mrbtree_regular:
+     case t_uni_mrbtree_regular:
+     case t_mrbtree_leaf:
+     case t_uni_mrbtree_leaf:
+     case t_mrbtree_partition:
+     case t_uni_mrbtree_partition:
+	 
+	 // create the ranges_p based on ranges
+	 W_DO( ra->create(stid, root, ranges, roots) );
 
 	 break;
 
@@ -1241,13 +1341,11 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
     DBG(<<" stid " << stid);
 
     lock_mode_t                index_mode = NL; // lock mode needed on index
-    latch_mode_t latch = LATCH_EX;
     
 #ifdef SM_DORA
     // IP: DORA inserts using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
       index_mode = NL;
-      latch = LATCH_NL;
     } else {
 #endif
 
@@ -1425,7 +1523,7 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key)
     W_DO( sd->partitions().deletePartitionByKey(*real_key, root1, root2, start_key1, start_key2) );
 
     // update tree  
-    W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );
+    W_DO( bt->merge_trees(root, root1, root2, start_key2) );
 
     // update key_ranges_map if necessary
     if( root != root1) {
@@ -1468,7 +1566,7 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2)
     W_DO( sd->partitions().deletePartition(root1, root2, start_key1, start_key2) );
 
     // update tree  
-    W_DO( bt->merge_trees(root, root1, root2, start_key1, start_key2, sinfo.kc[0].compressed != 0) );
+    W_DO( bt->merge_trees(root, root1, root2, start_key2) );
 
     // update key_ranges_map if necessary
     if( root != root1) {

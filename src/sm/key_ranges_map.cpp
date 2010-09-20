@@ -113,7 +113,7 @@ key_ranges_map::~key_ranges_map()
  ******************************************************************/
 
 uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey, 
-                                         const uint numParts, vector<lpid_t> roots)
+                                         const uint numParts, vector<lpid_t>& roots)
 {
     assert (minKey<=maxKey);
 

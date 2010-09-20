@@ -102,9 +102,7 @@ protected:
         lpid_t&                         root,			      	    
         const lpid_t&                   root1,
 	const lpid_t&                   root2,
-	cvec_t&                         startKey1,
-	cvec_t&                         startKey2,
-	bool                            is_compressed
+	cvec_t&                         startKey2
 #ifdef SM_DORA
 	, const bool bIgnoreLatches = false
 #endif
