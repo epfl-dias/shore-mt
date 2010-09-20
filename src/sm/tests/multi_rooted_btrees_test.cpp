@@ -822,7 +822,7 @@ smthread_user_t::no_init()
     //W_DO(mr_index_test3()); // ok
     //W_DO(mr_index_test4()); //
     //W_DO(mr_index_test5()); // ok
-    W_DO(mr_index_test6()); // ok
+    //W_DO(mr_index_test6()); // ok
     return RCOK;
 }
 

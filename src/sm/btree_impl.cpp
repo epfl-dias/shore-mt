@@ -489,8 +489,7 @@ btree_impl::_split_tree(
     rc_t            rc;
   
     // TODO: don't let tree split when root is a leaf page, i'm not sure why we said this now ???
-    //       if root.is_leaf is ok, then you should update prev/next values for root too 
-     
+         
     latch_mode_t latch = LATCH_SH;
 #ifdef SM_DORA
     // pin: use lowest latch mode for DORA
@@ -532,7 +531,13 @@ btree_impl::_split_tree(
 	latch = LATCH_NL;
     }
 #endif
-    
+
+    // to be used for updating prev/next pointers
+    btree_p next_page;
+    shpid_t next_page_id;
+    lpid_t next_page_pid;
+    next_page_pid._stid = root_old._stid;
+	
     // special case for first one
     // pid0 is rec.child here while for the other's it's new_tree_page.pid
     W_DO( page.fix(pid, latch) );
@@ -548,20 +553,23 @@ btree_impl::_split_tree(
 			  ));
 	W_DO( page.shift(ret_slot, new_tree_page) );
 	pid0 = new_tree_page.pid().page;
-	// update prev/next pointers if leaf page
+	// update prev/next pointers
+	next_page_id = page.next();
+	W_DO( page.link_up(page.prev(), 0) );
+	W_DO( new_tree_page.link_up(0, next_page_id) );
+	if(next_page_id != 0) {
+	    next_page_pid.page = next_page_id;
+	    W_DO( next_page.fix(next_page_pid, latch) );
+	    W_DO( next_page.link_up(pid0, next_page.next()) );
+	    next_page.unfix();
+	}
 	if(page.is_leaf()) {
-	    btree_p next_page;
-	    shpid_t next_page_id = page.next();
-	    W_DO( page.link_up(page.prev(), pid0) );
-	    W_DO( new_tree_page.link_up(pid.page, next_page_id) );
-	    if(next_page_id != 0) {
-		lpid_t next_page_pid(pid._stid, next_page_id);
-		W_DO( next_page.fix(next_page_pid, latch) );
-		W_DO( next_page.link_up(pid0, next_page.next()) );
-		next_page.unfix();
-	    }
+	    // special case for leaf pages; set pid0 to 0
+	    // if we don't do this it gets a dummy value
 	    W_DO( new_tree_page.set_pid0(0) );
 	}
+	// set the root of the new page to root_new
+	W_DO( new_tree_page.set_root(root_new.page) );
 	new_tree_page.unfix();
     }
     page.unfix();
@@ -582,6 +590,18 @@ btree_impl::_split_tree(
 	W_DO( page.shift(ret_slot, new_tree_page) );
 	page.unfix();
 	pid0 = new_tree_page.pid().page;
+	// update prev/next pointers
+	next_page_id = page.next();
+	W_DO( page.link_up(page.prev(), 0) );
+	W_DO( new_tree_page.link_up(0, next_page_id) );
+	if(next_page_id != 0) {
+	    next_page_pid.page = next_page_id;
+	    W_DO( next_page.fix(next_page_pid, latch) );
+	    W_DO( next_page.link_up(pid0, next_page.next()) );
+	    next_page.unfix();
+	}
+	// set the root of the new page to root_new
+	W_DO( new_tree_page.set_root(root_new.page) );
 	new_tree_page.unfix();
     }
     
@@ -711,6 +731,74 @@ btree_impl::_split_heap(
 
 /******************************************************************
  *
+ *  btree_impl::_link_after_merge()
+ *  After merge of btrees we have to set the prev/next values of
+ *  pages properly. We also have to update the root of the pages in
+ *  the merged tree. This function is to be called from _merge_trees
+ *  for the above purposes.
+ *
+ ******************************************************************/
+
+rc_t btree_impl::_link_after_merge(lpid_t root,
+				   shpid_t p1, shpid_t p2,
+				   bool set_root1
+#ifdef SM_DORA
+				   , const bool bIgnoreLatches
+#endif
+				   ) 
+{
+    latch_mode_t latch = LATCH_EX;
+#ifdef SM_DORA
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+#endif
+
+    stid_t stid = root._stid;
+    lpid_t current_p1(stid, p1);
+    lpid_t current_p2(stid, p2);
+    btree_p page1;
+    btree_p page2;
+
+    W_DO( page1.fix(current_p1, latch) );
+    W_DO( page2.fix(current_p2, latch) );
+    
+    w_assert9( page1.level() == page2.level() );
+
+    // update prev/next values
+    W_DO( page1.link_up(page1.prev(), p2) );
+    W_DO( page2.link_up(p1, page2.next()) );
+    
+    // update root value
+    if(set_root1) {
+	W_DO( page1.set_root(root.page) );
+    } else {
+	W_DO( page2.set_root(root.page) );
+    }
+    
+    // go update next level
+    if(!page1.is_leaf()) {
+	shpid_t new_p1 = page1.child(page1.nrecs());
+	shpid_t new_p2 = page2.pid0();
+	
+	page1.unfix();
+	page2.unfix();
+
+	W_DO( _link_after_merge(root, new_p1, new_p2, set_root1
+#ifdef SM_DORA
+				, bIgnoreLatches
+#endif
+				) );
+    } else {
+	page1.unfix();
+	page2.unfix();
+    }
+
+    return RCOK;
+}
+
+/******************************************************************
+ *
  *  btree_impl::_merge_trees()
  *  Mrbtree modification after deleting a new partition
  *
@@ -729,8 +817,6 @@ btree_impl::_merge_trees(
 #endif
 			)    
 {
-    // TODO: update the root pages of all the pages below when you move them;
-    //       not sure whether this is necessary now, so i didn't do
     // TODO: deallocate the page you don't use anymore
     // TODO: here you affect two partitions, depending on the thread causing this merge operation
     //       you should block the other thread for not modifiying its partition
@@ -759,6 +845,7 @@ btree_impl::_merge_trees(
     cvec_t elem_to_insert; // dummy
     if ( level_1 < level_2 ) { // root2 has a higher level than root1
 	                       // put root1 into appropriate slot in btree with root2
+	root = root2;
 	// pin: to debug
 	cout << "root1.level < root2.level" << endl;
 	cvec_t elem_to_insert; // dummy
@@ -774,21 +861,28 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( page_to_insert.insert( start_key2, elem_to_insert,
-					 0, root_page_2.pid0()) );
+	    W_DO( page_to_insert.insert( start_key2, elem_to_insert, 0, root_page_2.pid0()) );
 	    W_DO( page_to_insert.set_pid0( root1.page ) );
+	    W_DO( _link_after_merge(root, root1.page, page_to_insert.child(0), true
+#ifdef SM_DORA
+				    , bIgnoreLatches
+#endif
+				    ) );
 	    page_to_insert.unfix();
 	}
 	else {
-	    W_DO( root_page_2.insert(start_key2, elem_to_insert,
-				     0, root_page_2.pid0()) );
+	    W_DO( root_page_2.insert(start_key2, elem_to_insert, 0, root_page_2.pid0()) );
 	    W_DO( root_page_2.set_pid0( root1.page ) );
+	    W_DO( _link_after_merge(root, root1.page, root_page_2.child(0), true
+#ifdef SM_DORA
+				    , bIgnoreLatches
+#endif
+				    ) );
 	}
-	root = root2;
-	root_page_1.set_root(root.page);
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
+	root = root1;
 	// pin: to debug
 	cout << "root1.level > root2.level" << endl;
 	// find the page to insert the other tree
@@ -803,14 +897,22 @@ btree_impl::_merge_trees(
 		pid.page = rec.child();
 		W_DO( page_to_insert.fix(pid, LATCH_EX) );
 	    }
-	    W_DO( page_to_insert.insert( start_key2, elem_to_insert,
-					 page_to_insert.nrecs(), root2.page) );
+	    W_DO( page_to_insert.insert( start_key2, elem_to_insert, page_to_insert.nrecs(), root2.page) );
+	    W_DO( _link_after_merge(root, page_to_insert.child(page_to_insert.nrecs()-2), root2.page, false
+#ifdef SM_DORA
+				    , bIgnoreLatches
+#endif
+				    ) );
 	    page_to_insert.unfix();
 	}
-	else W_DO( root_page_1.insert( start_key2, elem_to_insert,
-				       root_page_1.nrecs(), root2.page) );
-	root = root1;
-	root_page_2.set_root(root.page);
+	else {
+	    W_DO( root_page_1.insert( start_key2, elem_to_insert, root_page_1.nrecs(), root2.page) );
+	    W_DO( _link_after_merge(root, root_page_1.child(root_page_1.nrecs()-2), root2.page, false
+#ifdef SM_DORA
+				    , bIgnoreLatches
+#endif
+				    ) );
+	}
     }
     else { // both btrees have the same height
 	   // append root2 entries to root1
@@ -818,13 +920,17 @@ btree_impl::_merge_trees(
 
 	// pin: to debug
 	cout << "root1.level == root2.level" << endl;
-
+	int nrecs = root_page_1.nrecs();
 	W_DO( root_page_1.insert( start_key2, elem_to_insert,
 				  root_page_1.nrecs(), root_page_2.pid0()) );
  	W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
 	root = root1;
+	W_DO( _link_after_merge(root, root_page_1.child(nrecs-1), root_page_1.child(nrecs), false
+#ifdef SM_DORA
+				    , bIgnoreLatches
+#endif
+				    ) );
 
-	root_page_2.set_root(root.page);
     }
 
     root_page_1.unfix();

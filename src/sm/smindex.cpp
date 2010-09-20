@@ -845,26 +845,16 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
      case t_mrbtree_partition:
      case t_uni_mrbtree_partition:
     
-	cout << endl;
-	sd->partitions().printPartitions();
-	cout << endl;
 	sd->partitions().getAllPartitions(pidVec);
-	cout << "Partition " << i << endl;
-	bt->print(pidVec[i], k);
-	for(i = 1; i < pidVec.size(); i++) {
-	    sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy, last);
+	for(i = 0; i < pidVec.size(); i++) {
+	    cout << "Partition " << i << endl;
+	    bt->print(pidVec[i], k);
+	    sd->partitions().getBoundaries(pidVec[i], stop_key, dummy, last);
 	    W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
 	    key->copy_to(&value, sizeof(value));
 	    cout << "Start Key was " << value << endl;
 	    cout << endl;
-	    cout << "Partition " << i << endl;
-	    bt->mr_print(pidVec[i], k, true, stop_key);
 	}
-	sd->partitions().getBoundaries(pidVec[i-1], stop_key, dummy, last);
-	W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
-	key->copy_to(&value, sizeof(value));
-	cout << "Start Key was " << value << endl;
-	cout << endl;
 		
 	break;
 
@@ -1302,7 +1292,6 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key
 
 	// pin: to debug
 	cout << "root_old " << root_old << "root_new " << root_new << endl;
-	//TODO: not sure this is necessary W_DO( bt->link(root_old, root_new, latch) );
 	break;
 	
     default:

@@ -109,7 +109,16 @@ protected:
 	, const bool bIgnoreLatches = false
 #endif
 						    );
-    // --
+    static rc_t                       _link_after_merge(
+					    lpid_t root,
+					    shpid_t p1,
+					    shpid_t p2,
+					    bool set_root1
+#ifdef SM_DORA
+					    , const bool bIgnoreLatches = false
+#endif
+							);
+// --
 
     static rc_t                        _alloc_page(
         const lpid_t&                     root,
