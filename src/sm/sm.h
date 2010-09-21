@@ -2456,7 +2456,8 @@ public:
                 store_property_t      property,
                 const char*           key_desc,
                 concurrency_t         cc, 
-                stid_t&               stid
+                stid_t&               stid,
+		const bool            bIgnoreLatches = false
     );
 
     /**\brief Create a MR-B+-Tree index based on initial partitions.
@@ -2484,7 +2485,8 @@ public:
                 const char*           key_desc,
                 concurrency_t         cc, 
                 stid_t&               stid,
-		key_ranges_map&       ranges
+		key_ranges_map&       ranges,
+		const bool            bIgnoreLatches = false
     );
 
     /**\brief Destroy a Multi-rooted B+-Tree index.
@@ -2516,7 +2518,8 @@ public:
         const stid_t*             source,
         sm_du_stats_t&            stats,
         bool                      sort_duplicates = true,
-        bool                      lexify_keys = true
+        bool                      lexify_keys = true,
+	const bool                bIgnoreLatches = false
     );
 
     /**\brief Bulk-load a  Multi-rooted B+-Tree index from a single data source.
@@ -2539,7 +2542,8 @@ public:
         const stid_t&             source,
         sm_du_stats_t&            stats,
         bool                      sort_duplicates = true,
-        bool                      lexify_keys = true
+        bool                      lexify_keys = true,
+	const bool                bIgnoreLatches = false
     );
 
     /**\brief Bulk-load a Multi-rooted B+-Tree index from a single data stream.
@@ -2574,11 +2578,8 @@ public:
     static rc_t            create_mr_assoc(
         stid_t                   stid, 
         cvec_t&             key, 
-        const vec_t&             el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&             el,
+        const bool             bIgnoreLocks = false);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -2590,11 +2591,8 @@ public:
     static rc_t            destroy_mr_assoc(
         stid_t                   stid, 
         cvec_t&             key,
-        const vec_t&             el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&             el,
+        const bool             bIgnoreLocks = false);
 
     /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
      * \ingroup SSMBTREE
@@ -2606,7 +2604,8 @@ public:
     static rc_t            destroy_mr_all_assoc(
         stid_t                  stid, 
         cvec_t&            key,
-        int&                    num_removed
+        int&                    num_removed,
+	const bool              bIgnoreLatches = false
     );
 
     /**\brief Find an entry associated with a key in a Multi-rooted B+-Tree index. 
@@ -2632,10 +2631,8 @@ public:
 				      cvec_t&            key, 
 				      void*                   el, 
 				      smsize_t&               elen, 
-				      bool&                   found
-#ifdef SM_DORA
-				      , const bool             bIgnoreLocks = false
-#endif
+				      bool&                   found,
+				      const bool             bIgnoreLocks = false
 				      );
     
 
@@ -2662,11 +2659,8 @@ public:
      * @param[in] key      The startKey of the new partition.
      */
     static rc_t add_partition_init(stid_t stid,
-				   cvec_t& key
-#ifdef SM_DORA
-				   , const bool bIgnoreLocks = false
-#endif
-				   );
+				   cvec_t& key,
+				   const bool bIgnoreLocks = false);
     
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -2675,11 +2669,8 @@ public:
      * @param[in] key      The startKey of the new partition.
      */
     static rc_t add_partition(stid_t stid,
-			      cvec_t& key
-#ifdef SM_DORA
-			      , const bool bIgnoreLocks = false
-#endif
-			      );
+			      cvec_t& key,
+			      const bool bIgnoreLocks = false);
 
     /**\brief Delete the partition that contains the given key and add it to its previous partition
      * in a Multi-rooted B+-Tree index.  
@@ -2689,7 +2680,8 @@ public:
      * @param[in] key      The key whose partition is going to be deleted.
      */
     static rc_t delete_partition(stid_t stid,
-				 cvec_t& key);
+				 cvec_t& key,
+				 const bool bIgnoreLatches = false);
 
     /**\brief Delete the partition that is kept by the tree with the root and add it to its previous partition
      * in a Multi-rooted B+-Tree index.  
@@ -2699,7 +2691,8 @@ public:
      * @param[in] root     The root of the tree which keeps the partition to be deleted.
      */
     static rc_t delete_partition(stid_t stid,
-				 lpid_t& root);
+				 lpid_t& root,
+				 const bool bIgnoreLatches = false);
 
     // --
 
@@ -3542,7 +3535,8 @@ private:
         store_property_t      property,
         const char*           key_desc,
         concurrency_t         cc,
-        stid_t&               stid
+        stid_t&               stid,
+	const bool            bIgnoreLatches
     );
 
     static rc_t            _create_mr_index(
@@ -3552,7 +3546,8 @@ private:
         const char*           key_desc,
         concurrency_t         cc,
         stid_t&               stid,
-	key_ranges_map&       ranges
+	key_ranges_map&       ranges,
+	const bool            bIgnoreLatches
     );
 
     static rc_t            _destroy_mr_index(const stid_t& iid); 
@@ -3563,7 +3558,8 @@ private:
         const stid_t*         source,
         sm_du_stats_t&        stats,
         bool                  sort_duplicates = true,
-        bool                  lexify_keys = true
+        bool                  lexify_keys = true,
+	const bool            bIgnoreLatches = false
     );
 
     static rc_t            _bulkld_mr_index(
@@ -3577,36 +3573,28 @@ private:
     static rc_t            _create_mr_assoc(
         const stid_t  &        stid, 
         cvec_t&           key, 
-        const vec_t&           el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&           el,
+        const bool             bIgnoreLocks);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
         cvec_t&          key,
-        const vec_t&          el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&          el,
+        const bool             bIgnoreLocks);
 
     static rc_t            _destroy_mr_all_assoc(
         const stid_t&        stid, 
         cvec_t&         key,
-        int&                 num_removed
+        int&                 num_removed,
+	const bool          bIgnoreLatches
     );
     static rc_t            _find_mr_assoc(
         const stid_t&        stid, 
         cvec_t&         key, 
         void*                el, 
         smsize_t&            elen, 
-        bool&                found
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        bool&                found,
+        const bool             bIgnoreLocks);
     
     static rc_t _make_equal_partitions(stid_t stid,
 				       cvec_t& minKey,
@@ -3614,24 +3602,20 @@ private:
 				       uint numParts);
 
     static rc_t _add_partition_init(stid_t stid,
-				    cvec_t& key
-#ifdef SM_DORA
-				    , const bool bIgnoreLocks = false
-#endif
-				    );
+				    cvec_t& key,
+				    const bool bIgnoreLocks);
     
     static rc_t _add_partition(stid_t stid,
-			       cvec_t& key
-#ifdef SM_DORA
-			       , const bool bIgnoreLocks = false
-#endif
-			       );
+			       cvec_t& key,
+			       const bool bIgnoreLocks);
     
     static rc_t _delete_partition(stid_t stid,
-				  cvec_t& key);
+				  cvec_t& key,
+				  const bool bIgnoreLatches);
 
     static rc_t _delete_partition(stid_t stid,
-				  lpid_t& root);
+				  lpid_t& root,
+				  const bool bIgnoreLatches);
     // --
 
     // below method overloaded for rtree

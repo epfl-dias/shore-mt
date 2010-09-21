@@ -88,13 +88,15 @@ btree_p::distribute(
     bool&     left_heavy,    // O-  true if insert should go to left
     slotid_t&     snum,        // IO- slot of insertion after split
     smsize_t    addition,    // I-  # bytes intended to insert
-    int     factor)        // I-  % that should remain
+    int     factor,        // I-  % that should remain
+    const bool bIgnoreLatches)
 {
     w_assert3(is_fixed());
-    w_assert3(latch_mode() == LATCH_EX);
     w_assert3(rsib.is_fixed());
-    w_assert3(rsib.latch_mode() == LATCH_EX);
-
+    if(!bIgnoreLatches) {
+	w_assert3(latch_mode() == LATCH_EX);
+	w_assert3(rsib.latch_mode() == LATCH_EX);
+    }
     w_assert1(snum >= 0 && snum <= nrecs());
     /*
      *  Assume we have already inserted the tuple into slot snum
@@ -180,21 +182,21 @@ btree_p::distribute(
  *
  *********************************************************************/
 rc_t
-btree_p::_unlink(btree_p &rsib
-#ifdef SM_DORA
-		 , const bool bIgnoreLatches
-#endif
-		 )
+btree_p::_unlink(btree_p &rsib, const bool bIgnoreLatches)
 {
     DBG(<<" unlinking page: "  << pid()
     << " nrecs " << nrecs()
     );
     w_assert3(is_fixed());
-    w_assert3(latch_mode() == LATCH_EX);
+    if(!bIgnoreLatches) {
+	w_assert3(latch_mode() == LATCH_EX);
+    }
     if(rsib.is_fixed()) {
         // might not have a right sibling
         w_assert3(rsib.is_fixed());
-        w_assert3(rsib.latch_mode() == LATCH_EX);
+	if(!bIgnoreLatches) {
+	    w_assert3(rsib.latch_mode() == LATCH_EX);
+	}
     }
     lpid_t  lsib_pid = pid(); // get vol, store
     lsib_pid.page = prev();
@@ -221,11 +223,9 @@ btree_p::_unlink(btree_p &rsib
         if(lsib_pid.page) {
             INC_TSTAT(bt_links);
 	    latch_mode_t mode = LATCH_EX;
-#ifdef SM_DORA
 	    if(bIgnoreLatches) {
 		mode = LATCH_NL;
 	    }
-#endif	    
             W_DO( lsib.fix(lsib_pid, mode) ); 
             SSMTEST("btree.unlink.3");
             W_DO( lsib.link_up(lsib.prev(), rsib_page) );
@@ -244,14 +244,11 @@ btree_p::unlink_and_propagate(
     const cvec_t&     elem,
     btree_p&          rsib,
     lpid_t&           parent_pid,
-    lpid_t const&     root_pid
-#ifdef SM_DORA
-    , const bool bIgnoreLatches
-#endif
-			      )
+    lpid_t const&     root_pid,
+    const bool bIgnoreLatches)
 {
 #if W_DEBUG_LEVEL > 2
-b    W_DO(log_comment("start unlink_and_propagate"));
+    W_DO(log_comment("start unlink_and_propagate"));
 #endif 
     w_assert3(this->is_fixed());
     w_assert3(rsib.is_fixed() || next() == 0);
@@ -273,7 +270,7 @@ b    W_DO(log_comment("start unlink_and_propagate"));
          * remove this page if it's not the root
          */
 
-        X_DO(_unlink(rsib), anchor);
+        X_DO(_unlink(rsib, bIgnoreLatches), anchor);
         w_assert3( !rsib.is_fixed());
         w_assert3( !is_fixed());
 
@@ -294,11 +291,9 @@ b    W_DO(log_comment("start unlink_and_propagate"));
             w_assert3( ! is_fixed());
 
 	    latch_mode_t mode = LATCH_EX;
-#ifdef SM_DORA
 	    if(bIgnoreLatches) {
 		mode = LATCH_NL;
 	    }
-#endif
             X_DO(parent.fix(parent_pid, mode), anchor);
             X_DO(parent.search(key, elem, found_key, total_match, slot), anchor)
 
@@ -313,7 +308,7 @@ b    W_DO(log_comment("start unlink_and_propagate"));
             }
 
             X_DO(btree_impl::_propagate(root_pid, key, elem, 
-                        child_pid, lev, true), anchor);
+					child_pid, lev, true, bIgnoreLatches), anchor);
             parent.unfix();
         }
         SSMTEST("btree.propagate.d.1");

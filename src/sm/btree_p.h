@@ -158,11 +158,8 @@ public:
                         const cvec_t&     elem,
                         btree_p&        rsib,
                         lpid_t&        parent_pid,
-                        const lpid_t&    root_pid
-#ifdef SM_DORA
-			, const bool bIgnoreLatches = false
-#endif
-					  );
+                        const lpid_t&    root_pid,
+			const bool bIgnoreLatches = false);
     rc_t             cut_page(lpid_t &child, slotid_t slot);
     
     rc_t            distribute(
@@ -170,7 +167,8 @@ public:
     bool&                 left_heavy,
     slotid_t&             snum,
     smsize_t              addition, 
-    int                   factor);
+    int                   factor,
+    const bool            bIgnoreLatches);
 
     void             print(sortorder::keytype kt = sortorder::kt_b,
                             bool print_elem=false);
@@ -215,11 +213,7 @@ public:
     static smsize_t         overhead_requirement_per_entry;
 
 private:
-    rc_t            _unlink(btree_p &
-#ifdef SM_DORA
-			    , const bool bIgnoreLatches = false
-#endif
-			    );
+    rc_t            _unlink(btree_p &, const bool bIgnoreLatches = false);
     rc_t            _clr_flag(flag_t, bool compensate=false);
     rc_t            _set_flag(flag_t, bool compensate=false);
     rc_t            _set_hdr(const btctrl_t& new_hdr);

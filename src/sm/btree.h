@@ -97,7 +97,8 @@ public:
     static rc_t                        create(
         const stid_t &              stid,
         lpid_t&                     root,
-        bool                        compressed
+        bool                        compressed,
+	const bool                  bIgnoreLatches = false
         );
     static rc_t                        bulk_load(
         const lpid_t&                     root,
@@ -130,7 +131,8 @@ public:
         concurrency_t                     cc,
         btree_stats_t&                    stats,
         bool                              sort_duplicates = true,
-        bool                              lexify_keys   = true
+        bool                              lexify_keys   = true,
+	const bool                        bIgnoreLatches = false
         );
     static rc_t                        mr_bulk_load(
         key_ranges_map&                   partitions,
@@ -150,7 +152,8 @@ public:
         concurrency_t                     cc,
         btree_stats_t&                    stats,
         bool                              sort_duplicates = true,
-        bool                              lexify_keys   = true
+        bool                              lexify_keys   = true,
+	const bool                        bIgnoreLatches = false
         );
     static rc_t                        mr_bulk_load_leaf(
         key_ranges_map&                   partitions,
@@ -163,25 +166,29 @@ public:
     static rc_t                        split_tree(
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
-        const cvec_t&                     key);
+        const cvec_t&                     key,
+	const bool                        bIgnoreLatches);
     static rc_t                        merge_trees(
-       lpid_t&                            root,
+        lpid_t&                           root,
         const lpid_t&                     root1,
 	const lpid_t&                     root2,
-       cvec_t&                           startKey2);
-        static rc_t                    mr_insert(
+        cvec_t&                           startKey2,
+	const bool                        bIgnoreLatches);
+    static rc_t                    mr_insert(
         const lpid_t&                     root,
 	bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key,
         const cvec_t&                     elem,
-        int                               split_factor = 50);
+        int                               split_factor = 50,
+	const bool                        bIgnoreLatches = false);
     static rc_t                        mr_remove(
         const lpid_t&                    root,
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                    key,
-        const cvec_t&                    elem);
+        const cvec_t&                    elem,
+	const bool                        bIgnoreLatches);
     static rc_t                        mr_remove_key(
         const lpid_t&                    root,
         int                              nkc,
@@ -189,7 +196,8 @@ public:
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                    key,
-        int&                             num_removed);
+        int&                             num_removed,
+	const bool                       bIgnoreLatches);
     static rc_t                        mr_lookup(
         const lpid_t&                    root, 
         bool                             unique,
@@ -197,15 +205,8 @@ public:
         const cvec_t&                    key_to_find, 
         void*                            el, 
         smsize_t&                        elen,
-        bool&                            found);
-    static void                        mr_print(
-					 const lpid_t& root, 
-					 sortorder::keytype kt,
-					 bool print_elem,
-					 cvec_t& last_page);
-    static rc_t                        link(lpid_t prev,
-					    lpid_t next,
-					    latch_mode_t latch);
+        bool&                            found,
+	const bool                       bIgnoreLatches);
     // --
     static rc_t                        insert(
         const lpid_t&                     root,
@@ -271,16 +272,14 @@ public:
         cmp_t                            cond1,
         cmp_t                           cond2,
         const cvec_t&                    bound2,
-        lock_mode_t                    mode = SH);
-    static rc_t                        fetch_reinit(cursor_t& cursor); 
-    static rc_t                        fetch(cursor_t& cursor
-#ifdef SM_DORA
-					     , const bool bIgnoreLatches = false
-#endif
-					     );
-    static rc_t                        is_empty(const lpid_t& root, bool& ret);
+        lock_mode_t                    mode = SH,
+	const bool bIgnoreLatches = false);
+    static rc_t                        fetch_reinit(cursor_t& cursor, const bool bIgnoreLatches = false); 
+    static rc_t                        fetch(cursor_t& cursor,
+					     const bool bIgnoreLatches = false);
+    static rc_t                        is_empty(const lpid_t& root, bool& ret, const bool bIgnoreLatches = false);
     static rc_t                        purge(const lpid_t& root, bool check_empty, 
-                                     bool forward_processing);
+					     bool forward_processing, const bool bIgnoreLatches = false);
     static rc_t                 get_du_statistics(
         const lpid_t&                    root, 
         btree_stats_t&                btree_stats,

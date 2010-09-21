@@ -115,13 +115,13 @@ elm_cmp(const void *_r1, const void *_r2)
 class btsink_t : private btree_m {
 public:
     // -- mrbt
-                 btsink_t() {};
+    btsink_t() {_bIgnoreLatches = false; }
     // --
     NORET        btsink_t(const lpid_t& root, rc_t& rc);
     NORET        ~btsink_t() {};
 
     // -- mrbt
-    rc_t        set(const lpid_t& root);
+    rc_t        set(const lpid_t& root, const bool bIgnoreLatches = false);
     rc_t        put_mr_leaf(const cvec_t& key, const cvec_t& el, bool& new_leaf);
     // --
     rc_t        put(const cvec_t& key, const cvec_t& el);
@@ -142,6 +142,10 @@ private:
     slotid_t        _slot[20];        // current slot in each page of the path
     shpid_t        _left_most[20];        // id of left most page in each level
     int         _top;                // top of the stack
+
+    // -- mrbt
+    bool _bIgnoreLatches;
+    //
 
     rc_t        _add_page(int i, shpid_t pid0);
 };
@@ -167,7 +171,8 @@ btree_impl::_handle_dup_keys(
     lpid_t&             pid,            // IO- last pid
     int                 nkc,
     const key_type_s*   kc,
-    bool                lexify_keys
+    bool                lexify_keys,
+    const bool          bIgnoreLatches
     )
 {
     count = 0;
@@ -226,7 +231,11 @@ btree_impl::_handle_dup_keys(
     }
 
     while (!eof && !eod) {
-        W_DO( pages[page_cnt].fix(pid, LATCH_SH) );
+	latch_mode_t latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    latch = LATCH_NL;
+	}
+        W_DO( pages[page_cnt].fix(pid, latch) );
         s = 0;
         while ((s = pages[page_cnt].next_slot(s)))  {
             W_COERCE( pages[page_cnt].get_rec(s, r) );
@@ -319,7 +328,8 @@ rc_t
 btree_m::purge(
     const lpid_t&         root,                // I-  root of btree
     bool                check_empty,
-    bool                forward_processing
+    bool                forward_processing,
+    const bool          bIgnoreLatches
     )
 {
     if (check_empty)  {
@@ -329,7 +339,7 @@ btree_m::purge(
          * away the contents of the btree.)
          */
         bool flag;
-        W_DO( is_empty(root, flag) );
+        W_DO( is_empty(root, flag, bIgnoreLatches) );
         if (! flag)  {
             DBG(<<"eNDXNOTEMPTY");
             return RC(eNDXNOTEMPTY);
@@ -363,7 +373,11 @@ btree_m::purge(
     }
 
     btree_p page;
-    X_DO( page.fix(root, LATCH_EX), anchor );
+    if(bIgnoreLatches) {
+	X_DO( page.fix(root, LATCH_NL), anchor );
+    } else { 
+	X_DO( page.fix(root, LATCH_EX), anchor );
+    }
     X_DO( page.set_hdr(root.page, 1, 0, 
         (page.is_compressed()?btree_p::t_compressed:btree_p::t_none)
         ), anchor );
@@ -761,7 +775,8 @@ btree_m::mr_bulk_load(
     concurrency_t        cc_unused,        // I-  concurrency control mechanism
     btree_stats_t&       _stats,                 // O-  index stats
     bool                 sort_duplicates, // I - default is true
-    bool                 lexify_keys   // I - default is true
+    bool                 lexify_keys,   // I - default is true
+    const bool           bIgnoreLatches // I - default is false
     )                
 {
 
@@ -807,6 +822,11 @@ btree_m::mr_bulk_load(
     bool root_change = false;
     bool first_root = true;
     bool last_root = false;
+    // latch mode
+    latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
     
     for(src_index = 0; src_index < nsrcs; src_index++) {
 	// pin: to debug
@@ -824,7 +844,7 @@ btree_m::mr_bulk_load(
 	    cout << "\tpid: " << pid << endl;
             
 	    // for each page ...
-            W_DO( page[i].fix(pid, LATCH_SH) );
+            W_DO( page[i].fix(pid, latch) );
             w_assert3(page[i].pid() == pid);
 
             slotid_t s = page[i].next_slot(0);
@@ -904,7 +924,7 @@ btree_m::mr_bulk_load(
 			// Btree must be empty for bulkload. // pin: no it doesn't check this now
 			//W_DO( purge(current_root, false, true) );
 
-			W_DO(sink.set(current_root));
+			W_DO(sink.set(current_root, bIgnoreLatches));
 			root_change = false;
 		    }
 		    
@@ -932,9 +952,9 @@ btree_m::mr_bulk_load(
                              */
                             int dup_cnt;
                             W_DO( btree_impl::_handle_dup_keys(&sink, s, &page[1-i],
-                                                   &page[i], dup_cnt, r, pid,
-                                                   nkc, kc,
-                                                   lexify_keys) );
+							       &page[i], dup_cnt, r, pid,
+							       nkc, kc,
+							       lexify_keys, bIgnoreLatches) );
                             cnt += dup_cnt;
                             eof = (pid==lpid_t::null);
                             skip_last = eof;
@@ -1022,7 +1042,7 @@ btree_m::mr_bulk_load(
 	    //W_DO( purge(current_root, false, true) );
 
 	    // change to new root
-	    W_DO(sink.set(current_root));
+	    W_DO(sink.set(current_root, bIgnoreLatches));
 	    root_change = false;
 	}
 
@@ -1216,8 +1236,8 @@ btree_m::mr_bulk_load_leaf(
     concurrency_t        cc_unused,        // I-  concurrency control mechanism
     btree_stats_t&       _stats,                 // O-  index stats
     bool                 sort_duplicates, // I - default is true
-    bool                 lexify_keys   // I - default is true
-    )                
+    bool                 lexify_keys,   // I - default is true
+    const bool           bIgnoreLatches) // I - default is false                
 {
 
     // keep compiler quiet about unused parameters
@@ -1258,6 +1278,11 @@ btree_m::mr_bulk_load_leaf(
     bool root_change = false;
     bool first_root = true;
     bool last_root = false;
+    // latch mode
+    latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
     
     lpid_t               pid;
     slotid_t s;
@@ -1271,7 +1296,7 @@ btree_m::mr_bulk_load_leaf(
               rc = fi->next_page(pid, eof, NULL /* allocated only*/))     {
             
 	    // for each page ...
-            W_DO( page[i].fix(pid, LATCH_SH) );
+            W_DO( page[i].fix(pid, latch) );
             w_assert3(page[i].pid() == pid);
 
             s = page[i].next_slot(0);
@@ -1330,7 +1355,7 @@ btree_m::mr_bulk_load_leaf(
 			// Btree must be empty for bulkload.
 			//W_DO( purge(current_root, false, true) );
 
-			W_DO(sink.set(current_root));
+			W_DO(sink.set(current_root, bIgnoreLatches));
 			root_change = false;
 		    }
 		    
@@ -1358,9 +1383,9 @@ btree_m::mr_bulk_load_leaf(
                              */
                             int dup_cnt;
                             W_DO( btree_impl::_handle_dup_keys(&sink, s, &page[1-i],
-                                                   &page[i], dup_cnt, r, pid,
-                                                   nkc, kc,
-                                                   lexify_keys) );
+							       &page[i], dup_cnt, r, pid,
+							       nkc, kc,
+							       lexify_keys, bIgnoreLatches) );
                             cnt += dup_cnt;
                             eof = (pid==lpid_t::null);
                             skip_last = eof;
@@ -1400,7 +1425,7 @@ btree_m::mr_bulk_load_leaf(
 			    W_DO( page[i].shift( s, &new_page) );
 			    page[i].unfix();
 			    new_page.unfix();
-			    W_DO( page[i].fix(pid, LATCH_SH) );
+			    W_DO( page[i].fix(pid, latch) );
 			    if(lexify_keys) {
 				W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
 			    } else {
@@ -1461,7 +1486,7 @@ btree_m::mr_bulk_load_leaf(
 	    //W_DO( purge(current_root, false, true) );
 
 	    // change to new root
-	    W_DO(sink.set(current_root));
+	    W_DO(sink.set(current_root, bIgnoreLatches));
 	    root_change = false;
 	}
 
@@ -1482,7 +1507,7 @@ btree_m::mr_bulk_load_leaf(
 	    W_DO( page[i].shift(s, &new_page) );
 	    page[i].unfix();
 	    new_page.unfix();
-	    W_DO( page[i].fix(pid, LATCH_SH) );
+	    W_DO( page[i].fix(pid, latch) );
 	    if(lexify_keys) {
 		W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
 	    } else {
@@ -1550,7 +1575,7 @@ btsink_t::btsink_t(const lpid_t& root, rc_t& rc)
     btree_p rp;
     rc = rp.fix(root, LATCH_SH);
     if (rc.is_error())  return;
-    
+    _bIgnoreLatches = false;
     _is_compressed = rp.is_compressed();
     rc = _add_page(0, 0);
     _left_most[0] = _page[0].pid().page;
@@ -1559,14 +1584,15 @@ btsink_t::btsink_t(const lpid_t& root, rc_t& rc)
 // -- mrbt
 /*********************************************************************
  *
- *  btsink_t::set(root_pid)
+ *  btsink_t::set(root_pid, bIgnoreLatches)
  *
  *  To update the sink for bulk loading as roots change in mrbtrees.
  *  Resets the sink.
  *
  *********************************************************************/
-rc_t btsink_t::set(const lpid_t& root)
-{ 
+rc_t btsink_t::set(const lpid_t& root, const bool bIgnoreLatches)
+{
+    _bIgnoreLatches = bIgnoreLatches;
     _is_compressed = false;
     _height = 0;
     _num_pages = 0;
@@ -1576,7 +1602,9 @@ rc_t btsink_t::set(const lpid_t& root)
 
     rc_t rc;
     btree_p rp;
-    rc = rp.fix(root, LATCH_SH);
+    if(_bIgnoreLatches)
+	    rc = rp.fix(root, LATCH_NL);
+    else rc = rp.fix(root, LATCH_SH);
     if (!rc.is_error()) {
 	_is_compressed = rp.is_compressed();
 	rc = _add_page(0, 0);
@@ -1612,8 +1640,11 @@ btsink_t::map_to_root()
      *  Fix root page
      */
     btree_p rp;
-    X_DO( rp.fix(_root, LATCH_EX), anchor );
-
+    if(_bIgnoreLatches) {
+	    X_DO( rp.fix(_root, LATCH_NL), anchor );
+    } else {
+	X_DO( rp.fix(_root, LATCH_EX), anchor );
+    }
     lpid_t child_pid;
     {
         btree_p cp = _page[_top];
@@ -1682,11 +1713,11 @@ btsink_t::_add_page(const int i, shpid_t pid0)
          *  Allocate a new page.  I/O layer turns logging on when
          *  necessary
          */
-        X_DO( btree_impl::_alloc_page(_root, 
+        X_DO( btree_impl::_alloc_page(_bIgnoreLatches, _root, 
                 i+1, (_page[i].is_fixed() ? _page[i].pid() : _root), 
                 _page[i], pid0,
                 false, _is_compressed,
-                bulk_loaded_store_type), anchor );
+		bulk_loaded_store_type), anchor );
 
     
         /*
