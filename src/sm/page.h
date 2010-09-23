@@ -85,6 +85,12 @@ protected:
     typedef page_s::slot_length_t slot_length_t;
 
 public:
+    // -- mrbt test
+    static pthread_mutex_t _glmutex;
+    static ofstream _accesses;
+    static timeval curr_time;
+    // --
+    
     enum {
         data_sz = page_s::data_sz,
         max_slot = data_sz / sizeof(slot_t) + 2
