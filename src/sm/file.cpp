@@ -2057,9 +2057,38 @@ file_m::_truncate_large(file_p& page, slotid_t slot, uint4_t amount)
 
 // -- mrbt
 
+MAKEPAGECODE(file_mrbt_p, file_p)
+
+rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags, 
+			 store_flag_t store_flags)
+{
+    // template taken from file_p
+
+    w_assert3(tag == t_file_mrbt_p);
+
+    /* first, don't log it */
+    W_DO( page_p::_format(pid, tag, flags, store_flags) );
+
+    // always set the store_flag here -- see comments 
+    // in bf::fix(), which sets the store flags to st_regular
+    // for all pages, and lets the type-specific store manager
+    // override (because only file pages can be insert_file)
+    //
+    // persistent_part().set_page_storeflags(store_flags);
+    this->set_store_flags(store_flags); // through the page_p, through the bfcb_t
+
+    // initialize header
+    cvec_t hdr;
+    lpid_t owner;
+    hdr.put((char*)(&owner), sizeof(lpid_t));
+    W_COERCE(page_p::reclaim(0, hdr, true));
+
+    return RCOK;
+}
+
 /*********************************************************************
  *
- *  file_p::shift(idx, rsib)
+ *  file_mrbt_p::shift(idx, rsib)
  *
  *  Shift all entries starting at "idx" to first entry of page "rsib".
  *  Stolen from zkeyed_p. Adapted to file_p.

@@ -1685,11 +1685,10 @@ again:
 	// pin: we can't ignore latches here since this heap page might be pointed by some other leaf page
 	W_DO(heap_page.fix(rid.pid, LATCH_EX));
 	lpid_t owner_leaf;
-	lpid_t dummy_leaf(0, 0, 0);
 	heap_page.get_owner(owner_leaf);
 	if(owner_leaf == leaf.pid()) { // CASE 1 ; do nothing
 	    
-	} else if(owner_leaf == dummy_leaf) { // CASE 2 ; set heap_page owner
+	} else if(owner_leaf.page == 0) { // CASE 2 ; set heap_page owner
 	    heap_page.set_owner(leaf.pid());
 	} else { // CASE 3 ; move record
 	    // first try to put it into a page that is already pointed by this leaf

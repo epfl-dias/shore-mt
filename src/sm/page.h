@@ -113,12 +113,13 @@ public:
         t_file_p           = 6,        // file page
         t_rtree_base_p     = 7,        // rtree base class page
         t_rtree_p          = 8,        // rtree page
-        t_lgdata_p         = 9,       // large record data page
+        t_lgdata_p         = 9,        // large record data page
         t_lgindex_p        = 10,       // large record index page
 	// -- mrbt
 	t_ranges_p         = 11,       // key-ranges info page
+	t_file_mrbt_p      = 12,       // file page that has an owner
 	// --
-        t_any_p            = 12        // indifferent
+        t_any_p            = 13        // indifferent
     };
     enum page_flag_t {
         t_virgin        = 0x02,        // newly allocated page
