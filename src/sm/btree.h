@@ -167,7 +167,11 @@ public:
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
         const cvec_t&                     key,
+	lpid_t&                           leaf,
 	const bool                        bIgnoreLatches);
+    static rc_t                        split_heap(
+        const lpid_t&                   leaf,
+	const bool bIgnoreLatches = false);
     static rc_t                        merge_trees(
         lpid_t&                           root,
         const lpid_t&                     root1,

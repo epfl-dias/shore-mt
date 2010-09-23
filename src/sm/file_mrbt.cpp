@@ -376,27 +376,31 @@ file_m::_create_rec(
 rc_t
 file_m::create_rec_in_given_page(
     smsize_t              len_hint,
+    sdesc_t&              sd,
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid, // output
-    file_p&               page,
-    bool&                 space_found,
-    const bool            bIgnoreLatches
+    file_p&               page       
+#ifdef SM_DORA
+    , const bool          bIgnoreParents
+#endif
 )
 {
     smsize_t        space_needed;
     recflags_t      rec_impl; 
-    space_found = true;
+
     {
         /*
          * compute space needed, record implementation
          */
+        w_assert3(fid == sd.stid());
         smsize_t est_data_len = MAX((uint4_t)data.size(), len_hint);
         rec_impl = file_p::choose_rec_implementation( hdr.size(), 
                                                   est_data_len,
                                                   space_needed);
     }
-    DBG(<<"create_rec with policy " << int(policy)
+
+    DBG(<<"create_rec "
         << " space_needed=" << space_needed
         << " rec_impl=" << int(rec_impl)
         << " page is fixed=" << page.is_fixed()
@@ -405,31 +409,26 @@ file_m::create_rec_in_given_page(
     { // open scope for hu
         slotid_t        slot = 0;
 
-        histoid_update_t hu(page);
+        DBGTHRD(<<"About to copy sd");
+        histoid_update_t hu(&sd);
 
         if(page.is_fixed()) {
-            w_assert2(policy == t_append);
-	    w_assert2(bIgnoreLatches || page.latch_mode() == LATCH_EX);
-	    
+
             rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
 
             if(rc.is_error()) {
                 page.unfix();
                 DBG(<<"rc=" << rc);
-                if (rc.err_num() != eRECWONTFIT) {
-                    // error we can't handle
-                    return RC_AUGMENT(rc);
-                }
+		// pin: you might do something diff here but this should be ok for now
+                return rc;
                 w_assert3(!page.is_fixed());
-		space_found = false;
-		return RCOK;
             } else {
                 DBG(<<"acquired slot " << slot);
-		w_assert2(page.is_fixed());
-                hu.replace_page(&page); // ???
+                w_assert2(page.is_fixed());
+                hu.replace_page(&page);
 #if W_DEBUG_LEVEL > 2
                 {
-		    w_assert3(bIgnoreLatches || page.latch_mode() == LATCH_EX);
+                    w_assert3(page.latch_mode() == LATCH_EX);
                     space_bucket_t b = page.bucket();
                     if((page.page_bucket_info.old() != b) && 
                         page.page_bucket_info.initialized()) {
@@ -438,119 +437,25 @@ file_m::create_rec_in_given_page(
                 }
 #endif
             }
-        } 
-
+        }
 
         // split into 2 parts so we don't hog the histoid, and
         // so we don't run into double-acquiring it in append_rec.
 
-	w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+        w_assert2(page.is_fixed() && page.latch_mode() == LATCH_EX);
 
-        W_DO(_create_rec_in_slot(page, slot, hdr, data, false, rid, bIgnoreLatches));
+        W_DO(_create_rec_in_slot(page, slot, rec_impl, hdr, data, sd, false, rid));
 
-        w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+        w_assert2(page.is_fixed() && page.latch_mode() == LATCH_EX);
 
         hu.update();
     } // close scope for hu
 
-    return RCOK;
-}
-
-rc_t
-file_m::destroy_rec_slot(const rid_t& rid, const bool bIgnoreLatches)
-{
-    file_p       page;
-
-    DBGTHRD(<<"destroy_rec_slot");
-    if(bIgnoreLatches) {
-        W_DO(_locate_page(rid, page, LATCH_NL));
-    } else {
-	W_DO(_locate_page(rid, page, LATCH_EX));
+    if(rec_impl == t_large_0) {
+        W_DO(append_rec(rid, data, sd));
     }
-
-    /*
-     * Find or create a histoid for this store.
-     */
-    w_assert2(page.is_fixed());
-    w_assert2(page.is_latched_by_me());
-    w_assert2(page.is_mine());
-
-    W_DO( page.destroy_rec(rid.slot) ); // does a page_mark for the slot
-
-    if (page.rec_count() == 0) {
-        DBG(<<"Now free page");
-        w_assert2(page.is_fixed());
-        W_DO(_free_page(page));
-        return RCOK;
-    } 
-
-    DBG(<<"Update page utilization");
-    /*
-     *  Update the page's utilization info in the
-     *  cache.
-     *  (page_p::unfix updates the extent's histogram info)
-     */
-    histoid_update_t hu(page);
-    hu.update();
     return RCOK;
 }
-
-rc_t
-file_m::_create_rec_in_slot(
-    file_p         &page,
-    slotid_t       slot,
-    const vec_t&   hdr,
-    const vec_t&   data,
-    bool           do_append,
-    rid_t&        rid, // out
-    const bool    bIgnoreLatches
-)
-{
-    FUNC(_create_rec_in_slot);
-    w_assert2(page.is_fixed() && page.is_file_p());
-
-    // if bIgnoreLatches = false
-          // page is already in the file and locked IX or EX
-          // slot is already locked EX 
-    rid.pid = page.pid();
-    rid.slot = slot;
-
-    w_assert3(rid.slot >= 1);
-
-    /*
-     * create the record header and ...
-     */
-    rc_t             rc;
-    rectag_t         tag;
-    tag.hdr_len = hdr.size();
-
-    // it is small, so put the data in as well
-    tag.flags = t_small;
-    tag.body_len = data.size();
-    w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
-    rc = page.fill_slot(rid.slot, tag, hdr, data, 100);
-    if (rc.is_error())  {
-	
-#if W_DEBUG_LEVEL >= 2
-	fprintf(stderr, 
-		"line %d : hdr.sz %lld data.sz %lld usable %d, %d, nfree %d,%d\n", 
-                __LINE__, 
-                (long long) hdr.size(), (long long) data.size(), 
-                page.usable_space(),
-                page.usable_space_for_slots(), 
-                page.nfree(), page.nrsvd()
-		);
-#endif
-
-	w_assert1(rc.err_num() != eRECWONTFIT); // NEH changed to assert1
-	return RC_AUGMENT(rc);
-    }
-    
-    w_assert3(page.is_fixed());
-
-    return RCOK;
-}
-
 // --
 
 rc_t
@@ -2066,7 +1971,7 @@ file_m::_truncate_large(file_p& page, slotid_t slot, uint4_t amount)
  *
  *********************************************************************/
 rc_t
-file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
+file_p::shift(slotid_t idx, file_p* rsib)
 {
     FUNC(file_p::shift);
     w_assert1(idx >= 0 && idx < nrecs());
@@ -2116,6 +2021,7 @@ file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
     return rc.reset();
 
 }
+
 // --
 
 rc_t

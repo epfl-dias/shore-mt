@@ -1417,19 +1417,23 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
     W_DO( sd->partitions().addPartition(*real_key, root_new) );
     W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
 
+    lpid_t leaf;
     // split the btree
     switch (sd->sinfo().ntype) {
     case t_mrbtree_regular:
     case t_uni_mrbtree_regular:
 	
-	W_DO(bt->split_tree(root_old, root_new, *real_key, bIgnoreLatches));
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
 
         break;
 
     case t_mrbtree_leaf:
     case t_uni_mrbtree_leaf:
 	
-	// TODO: call corresponding split tree function
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
+	if(leaf.page != 0) {
+	    W_DO(bt->split_heap(leaf, bIgnoreLatches));
+	}
 	break;
 	
     case t_mrbtree_partition:

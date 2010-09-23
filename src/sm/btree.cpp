@@ -489,6 +489,7 @@ btree_m::split_tree(
     const lpid_t&        root_old,          // I-  root of btree
     const lpid_t&        root_new,           // I- root of the new btree
     const cvec_t&        key,              // I-  which key
+    lpid_t&              leaf,
     const bool           bIgnoreLatches)                
 {
 #if BTREE_LOG_COMMENT_ON
@@ -502,7 +503,35 @@ btree_m::split_tree(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_split_tree(root_old, root_new, key, bIgnoreLatches);
+    rc = btree_impl::_split_tree(root_old, root_new, key, leaf, bIgnoreLatches);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::split_tree(root_old, root_new, key)
+ *
+ *  Split from the tree starting from the given key.
+ *
+ *********************************************************************/
+rc_t
+btree_m::split_heap(
+        const lpid_t&                   leaf,
+	const bool bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "heap split " << leaf;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    rc_t rc;
+
+    DBGTHRD(<<"");    
+    rc = btree_impl::_split_heap(leaf, bIgnoreLatches);
     
     return  rc;
 }

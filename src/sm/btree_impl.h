@@ -87,11 +87,11 @@ protected:
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
         const cvec_t&                   key,
+	lpid_t&                         leaf,
 	const bool                      bIgnoreLatches);
     
     static rc_t                        _split_heap(
         const lpid_t&                   leaf,
-	rc_t (*ptr_dir_access)(const stid_t&, sdesc_t*&, lock_mode_t), 			
 	const bool bIgnoreLatches = false);
 
     static rc_t                        _merge_trees(
@@ -107,6 +107,15 @@ protected:
 					    shpid_t p2,
 					    bool set_root1,
 					    const bool bIgnoreLatches);
+
+    static rc_t                        _insert_leaf(
+        const lpid_t&                     root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+        const cvec_t&                     elem,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false);
 // --
 
     static rc_t                        _alloc_page(

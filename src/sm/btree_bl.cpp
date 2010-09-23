@@ -1225,6 +1225,7 @@ btree_m::mr_bulk_load(
  *  Statistics regarding the bulkload is returned in stats.
  *
  *********************************************************************/
+
 rc_t
 btree_m::mr_bulk_load_leaf(
     key_ranges_map&      partitions,          // I-  mrbtree partitions
@@ -1422,7 +1423,7 @@ btree_m::mr_bulk_load_leaf(
 						      new_page_id,
 						      new_page,
 						      true) );
-			    W_DO( page[i].shift( s, &new_page) );
+			    // TODO: W_DO( page[i].shift( s, &new_page) );
 			    page[i].unfix();
 			    new_page.unfix();
 			    W_DO( page[i].fix(pid, latch) );
@@ -1504,7 +1505,7 @@ btree_m::mr_bulk_load_leaf(
 				      new_page_id,
 				      new_page,
 				      true) );
-	    W_DO( page[i].shift(s, &new_page) );
+	    // TODO: W_DO( page[i].shift(s, &new_page) );
 	    page[i].unfix();
 	    new_page.unfix();
 	    W_DO( page[i].fix(pid, latch) );

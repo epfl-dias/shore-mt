@@ -110,11 +110,6 @@ public:
 #endif
         );
 
-    // -- mrbt
-    // pin: made this public
-    rc_t                destroy_rec(slotid_t idx);
-    //
-    
 #define DUMMY_CLUSTER_ID 0
 
 private:
@@ -134,6 +129,7 @@ private:
         const vec_t&        data,
         int                 pff);
 
+    rc_t                destroy_rec(slotid_t idx);
     rc_t                append_rec(slotid_t idx, const vec_t& data);
     rc_t                truncate_rec(slotid_t idx, uint4_t amount);
     rc_t                set_rec_len(slotid_t idx, uint4_t new_len);
@@ -192,10 +188,6 @@ public:
         smsize_t                   est_data_len,
         smsize_t&                  rec_size);
 
-    // -- mrbt
-    rc_t            shift(slotid_t snum, file_p* rsib);
-    //
-    
 private:
     /*
      *        Disable these since files do not have prev and next
@@ -261,18 +253,18 @@ public:
                         bool forward_alloc = true
                         );
 
+    // -- mrbt
     static rc_t create_rec_in_given_page(
 				smsize_t            len_hint,
-                                sdesc_t&            sd,
-                                const vec_t&        hdr,
+				const vec_t&        hdr,
                                 const vec_t&        data,
                                 rid_t&              rid,
-                                file_p&             page        // input
-#ifdef SM_DORA
-                                , const bool        bIgnoreParents = false
-#endif
-                    );
-    
+                                file_p&             page,        // input
+				bool&               space_found,
+                                const bool        bIgnoreParents = false);
+
+    static rc_t destroy_rec_slot(const rid_t& rid, const bool bIgnoreLatches = false);
+    // --
 
     static rc_t destroy_rec(const rid_t& rid);
 
@@ -402,6 +394,17 @@ protected:
                     rid_t&              rid // out
                     );
 
+    // -- mrbt
+    static rc_t _create_rec_in_slot(
+                    file_p&             page,
+                    slotid_t            slot,
+		    const vec_t&        hdr,
+                    const vec_t&        data,
+		    bool                do_append,
+                    rid_t&              rid, // out
+                    const bool          bIgnoreLatches = false);
+    // --
+
     static rc_t _undo_alloc_file_page(file_p& page);
     static rc_t _free_page(file_p& page);
     static rc_t _alloc_page(stid_t fid, 
@@ -426,6 +429,41 @@ private:
     file_m(const file_m&);
     file_m& operator=(const file_m&);
 };
+
+// -- mrbt
+class file_mrbt_p : public file_p {
+    friend class file__m;
+    friend class pin_i;
+
+public:
+    // free space on file_mrbt_p is file_p less file_mrbt_p owner btree leaf page id
+    enum { data_sz = file_p::data_sz - align(sizeof(lpid_t)) };
+
+    MAKEPAGE(file_mrbt_p, file_p, 1);          // Macro to install basic functions from page_p.
+
+    rc_t                 set_owner(const lpid_t& new_owner);
+    rc_t                 get_owner(lpid_t &owner) const;
+
+    // -- mrbt
+    rc_t                 shift(slotid_t snum, file_mrbt_p* rsib);
+    //
+
+};
+
+inline rc_t file_mrbt_p::set_owner(const lpid_t& owner)
+{
+    cvec_t owner_vec;
+    owner_vec.put(&owner, sizeof(lpid_t));
+    W_DO(file_p::overwrite(0, sizeof(file_p_hdr_t), owner_vec));
+    return RCOK;
+}
+
+inline rc_t file_mrbt_p::get_owner(lpid_t& owner) const
+{
+    owner = *((lpid_t*)file_p::tuple_addr(0));
+    return RCOK;
+}
+// --
 
 inline bool file_p::is_file_p() const
 {
