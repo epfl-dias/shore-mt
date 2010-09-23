@@ -113,7 +113,7 @@ protected:
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-        const cvec_t&                     elem,
+        vec_t&                     elem,
         int                             split_factor = 50,
 	const bool bIgnoreLatches = false);
 // --

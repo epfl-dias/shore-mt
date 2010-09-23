@@ -462,6 +462,7 @@ class rtree_m;
 class sort_stream_i;
 // -- mrbt
 class ranges_m;
+class key_ranges_map;
 // --
 
 /**\addtogroup SSMSP  

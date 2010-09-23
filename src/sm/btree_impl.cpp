@@ -716,7 +716,7 @@ btree_impl::_split_heap(
 							   bIgnoreLatches) );
 		    }
 		    // delete the record from its prev page
-		    W_DO( file_m::destroy_rec_slot(rid) );
+		    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
 		    // update rid in leaf_page
 		    btrec_t btree_rec(leaf_page, slot_map[rid]);
 		    cvec_t elem;
@@ -937,7 +937,7 @@ btree_impl::_insert_leaf(
     bool                unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    const cvec_t&        el,                // I-  which element
+    vec_t&        el,                // I-  which element
     int                 split_factor,        // I-  tune split in %
     const bool bIgnoreLatches)
 {
@@ -1692,46 +1692,60 @@ again:
 	} else if(owner_leaf == dummy_leaf) { // CASE 2 ; set heap_page owner
 	    heap_page.set_owner(leaf.pid());
 	} else { // CASE 3 ; move record
+	    // first try to put it into a page that is already pointed by this leaf
+	    // otherwise create a new heap page and put the record there
+	    
 	    // 0. get the record from the heap page
 	    record_t* rec_to_move;
 	    W_DO( heap_page.get_rec(rid.slot, rec_to_move) );
+	    vec_t hdr;
+	    vec_t data;
+	    rid_t new_rid;
+	    hdr.put((*rec_to_move).hdr(), (*rec_to_move).hdr_size());
+	    data.put((*rec_to_move).body(), (*rec_to_move).body_size());
 	    // 1. try to find a file page with empty slot and pointed by leaf
 	    fix_latch = LATCH_EX;
 	    if(bIgnoreLatches) {
 		fix_latch = LATCH_NL;
 	    }
-	    file_p current_heap_page;
+	    file_mrbt_p current_heap_page;
 	    bool space_found = true;
 	    slotid_t slot;
-	    for(uint i=0; leaf.nrecs(); i++) {
+	    for(uint i=0; !space_found && i < leaf.nrecs(); i++) {
 		// get the rec from the leaf_page
 		btrec_t rec_leaf(leaf, i);
 		rid_t current_rid;
 		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
 		// move it to new page
-		vec_t hdr;
-		vec_t data;
-		rid_t new_rid;
-		hdr.put((*rec_to_move).hdr(), (*rec_to_move).hdr_size());
-		data.put((*rec_to_move).body(), (*rec_to_move).body_size());
-		/*W_DO( file_m::create_rec_in_given_page((*rec_to_move).hdr_size() + (*rec_to_move).body_size(),
+		W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
+		W_DO( file_m::create_rec_in_given_page((*rec_to_move).hdr_size() + (*rec_to_move).body_size(),
 						       hdr,
 						       data,
 						       new_rid,
-						       new_page,
+						       current_heap_page,
+						       space_found,
+						       bIgnoreLatches) );		
+	    }
+	    if(!space_found) {
+		lpid_t new_page_id;
+		W_DO( file_m::_alloc_page(rid.pid._stid,
+					  lpid_t::eof,
+					  new_page_id,
+					  current_heap_page,
+					  true) );
+		W_DO( current_heap_page.set_owner(leaf.pid()) );
+		// retry the insert
+		W_DO( file_m::create_rec_in_given_page((*rec_to_move).hdr_size() + (*rec_to_move).body_size(),
+						       hdr,
+						       data,
+						       new_rid,
+						       current_heap_page,
 						       space_found,
 						       bIgnoreLatches) );
-
-		
-
-
-
-		W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
-		W_DO( file_m::create_rec_in_given_page() )
-
-		W_DO(current_heap_page.find_and_lock_next_slot(,slot));
-		*/
 	    }
+	    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
+	    // update rid
+	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}
  	
         /*
