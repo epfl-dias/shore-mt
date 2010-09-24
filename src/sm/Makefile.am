@@ -111,7 +111,7 @@ libsm_a_SOURCES      =  \
 	file.cpp \
 	histo.cpp \
 	key_ranges_map.cpp keyed.cpp zkeyed.cpp \
-	ranges_p.cpp \	
+	ranges_p.cpp \
 	lexify.cpp \
 	lgrec.cpp \
 	lid.cpp \
