@@ -189,7 +189,10 @@ echo "---------------------------------------------------------"
 ## /bin/rm -f ./log/* ./volumes/* tmp-out
 ## execute "log_exceed " log_exceed-out
 
-echo "---------------------------------------------------------"
-echo "running multi-rooted btrees tests"
-execute "multi_rooted_btrees_test -i " multi-rooted-out
+#echo "---------------------------------------------------------"
+#echo "running multi-rooted btrees tests"
+#execute "multi_rooted_btrees_test -i " multi-rooted-out
 
+echo "---------------------------------------------------------"
+echo "running multi-rooted btrees tests with second design"
+execute "multi_rooted_btrees_test2 -i " multi-rooted-out2
