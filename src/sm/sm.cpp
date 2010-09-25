@@ -1769,6 +1769,7 @@ ss_m::config_info(sm_config_info_t& info)
 
         std::cerr << " sizeof rectag_t " << sizeof(rectag_t) << std::endl;
         std::cerr << " file_p::data_sz " << file_p::data_sz << std::endl;
+	std::cerr << " file_mrbt_p::data_sz " << file_mrbt_p::data_sz << std::endl;
         std::cerr << " sizeof file_p_hdr_t " << sizeof(file_p_hdr_t) << std::endl;
     }
 #endif
@@ -3317,6 +3318,9 @@ ss_m::gather_xct_stats(sm_stats_info_t& _stats, bool reset)
 
                 "t_lgdata_p",
                 "t_lgindex_p",
+		"t_ranges_p",
+
+		"t_file_mrbt_p",
                 "t_any_p",
                 "none"
                 };

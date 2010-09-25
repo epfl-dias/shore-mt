@@ -672,11 +672,11 @@ btree_impl::_split_heap(
 	    if( (uint) heap_page.num_slots() > (iter->second).size() ) {
 		// have to move some records from the heap_page
 		if(first) { // create the new heap page for the first record move
-		    W_DO( file_m::_alloc_page((iter->first)._stid,
-					      lpid_t::eof,
-					      new_page_id,
-					      new_page,
-					      true) );
+		    W_DO( file_m::_alloc_mrbt_page((iter->first)._stid,
+						   lpid_t::eof,
+						   new_page_id,
+						   new_page,
+						   true) );
 		    W_DO( new_page.set_owner(leaf) );
 		    first = false;
 		}
@@ -692,28 +692,28 @@ btree_impl::_split_heap(
 		    rid_t new_rid;
 		    hdr.put((*rec).hdr(), (*rec).hdr_size());
 		    data.put((*rec).body(), (*rec).body_size());
-		    W_DO( file_m::create_rec_in_given_page((*rec).hdr_size() + (*rec).body_size(),
-							   hdr,
-							   data,
-							   new_rid,
-							   new_page,
-							   space_found,
-							   bIgnoreLatches) );
+		    W_DO( file_m::create_mrbt_rec_in_given_page(0,
+								hdr,
+								data,
+								new_rid,
+								new_page,
+								space_found,
+								bIgnoreLatches) );
 		    if(!space_found) { // we have to create a new heap_page
-			W_DO( file_m::_alloc_page((iter->first)._stid,
-						  lpid_t::eof,
-						  new_page_id,
-						  new_page,
-						  true) );
+			W_DO( file_m::_alloc_mrbt_page((iter->first)._stid,
+						       lpid_t::eof,
+						       new_page_id,
+						       new_page,
+						       true) );
 			W_DO( new_page.set_owner(leaf) );
 			// retry the insert
-			W_DO( file_m::create_rec_in_given_page((*rec).hdr_size() + (*rec).body_size(),
-							   hdr,
-							   data,
-							   new_rid,
-							   new_page,
-							   space_found,
-							   bIgnoreLatches) );
+			W_DO( file_m::create_mrbt_rec_in_given_page(0,
+								    hdr,
+								    data,
+								    new_rid,
+								    new_page,
+								    space_found,
+								    bIgnoreLatches) );
 		    }
 		    // delete the record from its prev page
 		    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
@@ -1709,38 +1709,37 @@ again:
 	    }
 	    file_mrbt_p current_heap_page;
 	    bool space_found = true;
-	    slotid_t slot;
-	    for(uint i=0; !space_found && i < leaf.nrecs(); i++) {
+	    for(int i=0; !space_found && i < leaf.nrecs(); i++) {
 		// get the rec from the leaf_page
 		btrec_t rec_leaf(leaf, i);
 		rid_t current_rid;
 		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
 		// move it to new page
 		W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
-		W_DO( file_m::create_rec_in_given_page((*rec_to_move).hdr_size() + (*rec_to_move).body_size(),
-						       hdr,
-						       data,
-						       new_rid,
-						       current_heap_page,
-						       space_found,
-						       bIgnoreLatches) );		
+		W_DO( file_m::create_mrbt_rec_in_given_page(0,
+							    hdr,
+							    data,
+							    new_rid,
+							    current_heap_page,
+							    space_found,
+							    bIgnoreLatches) );		
 	    }
 	    if(!space_found) {
 		lpid_t new_page_id;
-		W_DO( file_m::_alloc_page(rid.pid._stid,
-					  lpid_t::eof,
-					  new_page_id,
-					  current_heap_page,
-					  true) );
+		W_DO( file_m::_alloc_mrbt_page(rid.pid._stid,
+					       lpid_t::eof,
+					       new_page_id,
+					       current_heap_page,
+					       true) );
 		W_DO( current_heap_page.set_owner(leaf.pid()) );
 		// retry the insert
-		W_DO( file_m::create_rec_in_given_page((*rec_to_move).hdr_size() + (*rec_to_move).body_size(),
-						       hdr,
-						       data,
-						       new_rid,
-						       current_heap_page,
-						       space_found,
-						       bIgnoreLatches) );
+		W_DO( file_m::create_mrbt_rec_in_given_page(0,
+							    hdr,
+							    data,
+							    new_rid,
+							    current_heap_page,
+							    space_found,
+							    bIgnoreLatches) );
 	    }
 	    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
 	    // update rid

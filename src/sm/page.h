@@ -730,7 +730,7 @@ page_p::discard()
 inline bool
 page_p::rsvd_mode(tag_t t) 
 {
-    if (t == t_file_p) {
+    if (t == t_file_p || t == t_file_mrbt_p) {
         return true;
     }
     return false;

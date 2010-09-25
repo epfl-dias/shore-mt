@@ -3341,6 +3341,7 @@ vol_t::check_store_page(const lpid_t &pid, page_p::tag_t tag)
         case page_p::t_btree_p:
         case page_p::t_rtree_p:
         case page_p::t_file_p:
+        case page_p::t_file_mrbt_p:
             if (t != tag) error++;
             break;
 

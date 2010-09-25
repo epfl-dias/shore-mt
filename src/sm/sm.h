@@ -3107,6 +3107,74 @@ public:
         bool&                    should_forward 
     );
 
+    // -- mrbt
+    /**\addtogroup SSMFILE
+     * This functions are for the heap file that are used in MRBtree design
+     * when it is enforced that a heap file is pointed by only one leaf page
+     * or sub-btree, because for these two designs the file_mrbt_p should be
+     * used instead of file_p. The only difference between these two page
+     * types is that file_mrbt_p keeps the id of the leaf page or the btree
+     * root page that points to it. So it has less space for data than file_p.
+     * Other than the file page type difference the below functions are same as
+     * the above file management functions.
+     */
+    
+    static rc_t            create_mrbt_file( 
+        vid_t                   vid, 
+        stid_t&                 fid,
+        store_property_t        property,
+        shpid_t                 cluster_hint = 0
+    ); 
+
+    static rc_t            destroy_mrbt_file(const stid_t& fid); 
+
+    static rc_t            create_mrbt_rec(
+        const stid_t&            fid, 
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    ); 
+
+    static rc_t            destroy_mrbt_rec(const rid_t& rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+                                       );
+
+    static rc_t            update_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             data);
+
+    static rc_t            update_mrbt_rec_hdr(
+        const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             hdr);
+
+    static rc_t            append_mrbt_rec(
+        const rid_t&             rid, 
+        const vec_t&             data,
+	const bool               bIgnoreLatches = false
+                );
+
+    static rc_t            truncate_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 amount,
+	const bool               bIgnoreLatches = false
+    );
+
+    static rc_t            truncate_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 amount,
+        bool&                    should_forward,
+	const bool               bIgnoreLatches = false
+    );
+    // --
+    
 #ifdef OLDSORT_COMPATIBILITY
     typedef ssm_sort::key_info_t key_info_t;
 
@@ -3729,6 +3797,39 @@ private:
             bool&                should_forward
         );
 
+    // -- mrbt
+    static rc_t            _create_mrbt_file(
+        vid_t                 vid, 
+        stid_t&               fid,
+        store_property_t     property,
+        shpid_t              cluster_hint = 0
+    ); 
+
+    static rc_t            _create_mrbt_rec(
+        const stid_t&            fid, 
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+        ); 
+
+    static rc_t            _append_mrbt_rec(
+        const rid_t&             rid, 
+        const vec_t&             data,
+	const bool               bIgnoreLatches
+        );
+
+    static rc_t            _truncate_mrbt_rec(
+            const rid_t&         rid, 
+            smsize_t             amount,
+            bool&                should_forward,
+	    const bool           bIgnoreLatches
+        );
+    // --
+    
     static rc_t            _draw_rtree(const stid_t& stid, ostream &);
 
     static rc_t            _rtree_stats(
