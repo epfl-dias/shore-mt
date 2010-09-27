@@ -264,6 +264,10 @@ uint key_ranges_map::_distributeSpace(const char* A,
  * @brief: Splits the partition where "key" belongs to two partitions. 
  *         The start of the second partition is the "key".
  *
+ * @param:   cvec_t key     - The starting key of the new partition (Input)
+ * @param:   lpid_t newRoot - The root of the sub-tree which maps to the new partition (Input)
+ *
+ *
  ******************************************************************/
 
 w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& newRoot)
@@ -301,6 +305,14 @@ w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
  * @brief: Deletes a partition, by merging it with the partition which
  *         is before that, based either on a partition identified or
  *         a key.
+ *
+ * @param: cvec_t key    - The key which is in the partition to be deleted
+ *                         (Input for deletePartitionByKey) 
+ * @param: lpid_t root1  - The root of the merged partition which has the lower key values (Output)
+ * @param: lpid_t root2  - The root of the merged partition which has the lower key values (Output)
+ *                         (Also input for deletePartition)
+ * @param: cvec_t startKey1 - The start key of the partition that maps to root1 (Output)
+ * @param: cvec_t startKey2 - The start key of the partition that maps to root2 (Output)
  *
  * @note:  Here the startKey1 < startKey2 but in the map they startKey2
  *         comes before startKey1.
@@ -388,7 +400,11 @@ w_rc_t key_ranges_map::deletePartition(lpid_t& root1, lpid_t& root2,
  *
  * @fn:    getPartitionByKey()
  *
- * @brief: Returns the partition which a particular key belongs to
+ * @brief: Returns the root page id, "pid", of the partition which a
+ *         particular "key" belongs to
+ *
+ * @param: cvec_t key    - Input
+ * @param: lpid_t pid    - Output
  *
  ******************************************************************/
 
@@ -413,6 +429,12 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
 /****************************************************************** 
  *
  * @fn:    getPartitions()
+ *
+ * @param: cvec_t key1    - The start key for the partitions list (Input)
+ * @param: bool key1Included - Indicates whether key1 should be included or not (Input)
+ * @param: cvec_t key2    - The end key for the partitions list (Input)
+ * @param: bool key2Included - Indicates whether key2 should be included or not (Input)
+ * @param: vector<lpid_t> pidVec  - The list of partitions' root ids (Output)
  *
  * @brief: Returns the list of partitions that cover one of the key ranges:
  *         [key1, key2], (key1, key2], [key1, key2), or (key1, key2) 
@@ -457,7 +479,9 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
  *
  * @fn:    getAllPartitions()
  *
- * @brief: Returns the list of all root ids in partitions 
+ * @brief: Returns the list of the root ids of all partitions
+ *
+ * @param: vector<lpid_t> pidVec    - Output 
  *
  ******************************************************************/
 
@@ -477,6 +501,9 @@ w_rc_t key_ranges_map::getAllPartitions(vector<lpid_t>& pidVec)
 /****************************************************************** 
  *
  * @fn:    getBoundaries()
+ *
+ * @param: lpid_t pid    - The root of the partition whose boundaries is returned (Input)
+ * @param: pair<cvec_t, cvec_t> - The boundaries (Output)
  *
  * @brief: Returns the range boundaries of a partition in a pair
  *
@@ -518,6 +545,12 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange)
  *
  * @fn:    getBoundaries()
  *
+ * @param: lpid_t pid    - The root of the partition whose boundaries is returned (Input)
+ * @param: cvec_t startKey - The start key of the partition's key-range (Output)
+ * @param: cvec_t endKey  - The end key of the partition's key-range (Output)
+ * @param: bool last      - Indicates whether the partition is the last one,
+ *                          the one with the highest key values (Output)
+ *
  * @brief: Returns the range boundaries of a partition in start&end key
  *
  ******************************************************************/
@@ -542,19 +575,17 @@ w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKe
     }
 
     startKey.set(iter->first, sizeof(iter->first));
-    cout << "startkey " << iter->first << endl;
     if( iter != _keyRangesMap.begin() ) {
 	iter--;
         endKey.set(iter->first, sizeof(iter->first));
     }
     else if(_maxKey == NULL) {
-	cout << "maxKey isn't set" << endl;
 	last = true;
     }
     else {
+	last = true;
 	endKey.set(_maxKey, sizeof(_maxKey));
     }
-    cout << "endkey " << endKey << endl;
     return (RCOK);
 }
 
@@ -589,6 +620,9 @@ w_rc_t key_ranges_map::getBoundariesVec(vector< pair<char*,char*> >& keyBoundari
 /****************************************************************** 
  *
  * @fn:    updateRoot()
+ *
+ * @param: cvec_t key    - The root of the partition that keeps this key is updated (Input)
+ * @param: lpid_t root   - New root value for the updated partition (Input)
  *
  * @brief: Updates the root of the partition starting with key
  *
