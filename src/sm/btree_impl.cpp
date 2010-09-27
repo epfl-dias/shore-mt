@@ -563,7 +563,7 @@ btree_impl::_split_tree(
 	    // special case for leaf pages; set pid0 to 0
 	    // if we don't do this it gets a dummy value
 	    W_DO( new_tree_page.set_pid0(0) );
-	    leaf = pid;
+	    leaf = new_tree_page.pid();
 	}
 	// set the root of the new page to root_new
 	W_DO( new_tree_page.set_root(root_new.page) );
@@ -629,7 +629,7 @@ btree_impl::_split_heap(
     const lpid_t&       leaf,
     const bool bIgnoreLatches)
 {
-
+    
     FUNC(btree_impl::_split_heap);
 
     DBGTHRD(<<"_split_heap: " << " leaf= " << leaf );
@@ -651,16 +651,16 @@ btree_impl::_split_heap(
     // 1. collect info on the heap_pages
     map<lpid_t, vector<rid_t> > recs_map;
     map<rid_t, slotid_t> slot_map;
-    for(uint i=0; leaf_page.nrecs(); i++) {
+    for(int i=0; i < leaf_page.nrecs(); i++) {
 	btrec_t rec(leaf_page, i);
 	rid_t rid;
 	rec.elem().copy_to(&rid, sizeof(rid_t));
+	cout << rid << endl;
 	recs_map[rid.pid].push_back(rid);
 	slot_map[rid] = i;
     }
 
     // 2. determine the heap pages that needs to be split
-    vector<lpid_t> pages_to_split;
     file_mrbt_p heap_page;
     file_mrbt_p new_page;
     lpid_t new_page_id;
@@ -668,66 +668,70 @@ btree_impl::_split_heap(
     bool first = true;
     bool space_found = true;
     for(map<lpid_t, vector<rid_t> >::iterator iter = recs_map.begin(); iter != recs_map.end(); iter++) {
-	    W_DO( heap_page.fix(iter->first, latch) );
-	    if( (uint) heap_page.num_slots() > (iter->second).size() ) {
-		// have to move some records from the heap_page
-		if(first) { // create the new heap page for the first record move
+	W_DO( heap_page.fix(iter->first, latch) );
+	if( (uint) heap_page.num_slots() > (iter->second).size() ) {
+	    // have to move some records from the heap_page
+	    if(first) { // create the new heap page for the first record move
+		W_DO( file_m::_alloc_mrbt_page((iter->first)._stid,
+					       lpid_t::eof,
+					       new_page_id,
+					       new_page,
+					       true) );
+		W_DO( new_page.set_owner(leaf) );
+		first = false;
+	    }
+	    // move the recs pointed by the leaf page 
+	    for(uint i=0; i < (iter->second).size(); i++) {
+		rid = (iter->second)[i];
+		// get the rec from the heap_page
+		record_t* rec;
+		W_DO( heap_page.get_rec(rid.slot, rec) );
+		// move it to new page
+		vec_t hdr_vec;
+		vec_t data_vec;
+		char* hdr = (char*) malloc((*rec).hdr_size());
+		memcpy(hdr, (*rec).hdr(), (*rec).hdr_size());
+		char* data = (char*) malloc((*rec).body_size());
+		memcpy(data, (*rec).body(), (*rec).body_size());
+		rid_t new_rid;
+		hdr_vec.put(hdr, (*rec).hdr_size());
+		data_vec.put(data, (*rec).body_size());
+		W_DO( file_m::create_mrbt_rec_in_given_page(0,
+							    hdr_vec,
+							    data_vec,
+							    new_rid,
+							    new_page,
+							    space_found,
+							    bIgnoreLatches) );
+		if(!space_found) { // we have to create a new heap_page
 		    W_DO( file_m::_alloc_mrbt_page((iter->first)._stid,
 						   lpid_t::eof,
 						   new_page_id,
 						   new_page,
 						   true) );
 		    W_DO( new_page.set_owner(leaf) );
-		    first = false;
-		}
-		// move the recs pointed by the leaf page 
-		for(uint i=0; i < (iter->second).size(); i++) {
-		    rid = (iter->second)[i];
-		    // get the rec from the heap_page
-		    record_t* rec;
-		    W_DO( heap_page.get_rec(rid.slot, rec) );
-		    // move it to new page
-		    vec_t hdr;
-		    vec_t data;
-		    rid_t new_rid;
-		    hdr.put((*rec).hdr(), (*rec).hdr_size());
-		    data.put((*rec).body(), (*rec).body_size());
+		    // retry the insert
 		    W_DO( file_m::create_mrbt_rec_in_given_page(0,
-								hdr,
-								data,
+								hdr_vec,
+								data_vec,
 								new_rid,
 								new_page,
 								space_found,
 								bIgnoreLatches) );
-		    if(!space_found) { // we have to create a new heap_page
-			W_DO( file_m::_alloc_mrbt_page((iter->first)._stid,
-						       lpid_t::eof,
-						       new_page_id,
-						       new_page,
-						       true) );
-			W_DO( new_page.set_owner(leaf) );
-			// retry the insert
-			W_DO( file_m::create_mrbt_rec_in_given_page(0,
-								    hdr,
-								    data,
-								    new_rid,
-								    new_page,
-								    space_found,
-								    bIgnoreLatches) );
-		    }
-		    // delete the record from its prev page
-		    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
-		    // update rid in leaf_page
-		    btrec_t btree_rec(leaf_page, slot_map[rid]);
-		    cvec_t elem;
-		    elem.put((char*)(&new_rid), sizeof(rid_t));
-		    W_DO( leaf_page.overwrite(slot_map[rid], btree_rec.klen(), elem) ); 
 		}
-	    } else { // we don't have to move recs from this heap page but update its hdr
-		W_DO( heap_page.set_owner(leaf) );
+		// delete the record from its prev page
+		W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
+		// update rid in leaf_page
+		btrec_t btree_rec(leaf_page, slot_map[rid]);
+		cvec_t elem;
+		elem.put((char*)(&new_rid), sizeof(rid_t));
+		W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
 	    }
-	    heap_page.unfix();
+	} else { // we don't have to move recs from this heap page but update its hdr
+	    W_DO( heap_page.set_owner(leaf) );
 	}
+	heap_page.unfix();
+    }
 
     new_page.unfix();
 
