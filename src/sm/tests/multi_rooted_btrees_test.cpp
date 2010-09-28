@@ -347,7 +347,7 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    const vec_t el((char*)(&new_key), sizeof(new_key));
+    vec_t el((char*)(&new_key), sizeof(new_key));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
@@ -357,7 +357,7 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    const vec_t el2((char*)(&new_key), sizeof(new_key));
+    vec_t el2((char*)(&new_key), sizeof(new_key));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
@@ -627,7 +627,7 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
     key.copy_to(&hdrcontents, sizeof(hdrcontents));
     cout << "Key: "  << hdrcontents << endl;
     cout << "key size " << key.size() << endl;
-    const vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
+    vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
     cout << "El: " << cursor->rid() << endl;
     cout << "El size "  << el.size() << endl;
 

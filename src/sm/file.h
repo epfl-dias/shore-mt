@@ -258,7 +258,7 @@ public:
 
     // -- mrbt
         static rc_t create_mrbt_rec_at_end(
-                        file_p&                page, // in-out 
+                        file_mrbt_p&                page, // in-out 
                         uint4_t         len_hint,
                         const vec_t&         hdr,
                         const vec_t&         data,
@@ -392,7 +392,7 @@ protected:
                                 pg_policy_t     mask,
                                 sdesc_t&        sd,
                                 smsize_t        space_needed, 
-                                file_p&         page,       // output
+                                file_mrbt_p&         page,       // output
                                 slotid_t&       slot        // output
 #ifdef SM_DORA
                                 , const bool    bIgnoreParents = false
@@ -424,7 +424,7 @@ protected:
                                 const vec_t&        hdr,
                                 const vec_t&        data,
                                 rid_t&              rid,
-                                file_p&             page        // in-output
+                                file_mrbt_p&             page        // in-output
 #ifdef SM_DORA
                                 , const bool        bIgnoreParents = false
 #endif
@@ -490,7 +490,7 @@ protected:
     // -- mrbt
     static rc_t _alloc_mrbt_page(stid_t fid, 
 				 const lpid_t& near, lpid_t& pid,
-				 file_p &page,
+				 file_mrbt_p &page,
 				 bool   search_file
 				 );
     // --
@@ -541,12 +541,14 @@ inline rc_t file_mrbt_p::set_owner(const lpid_t& owner)
     cvec_t owner_vec;
     owner_vec.put(&owner, sizeof(lpid_t));
     W_DO(file_p::overwrite(0, sizeof(file_p_hdr_t), owner_vec));
+    //W_DO(file_p::overwrite(0, 0, owner_vec));
     return RCOK;
 }
 
 inline rc_t file_mrbt_p::get_owner(lpid_t& owner) const
 {
-    owner = *((lpid_t*)file_p::tuple_addr(0));
+    owner = *((lpid_t*)(((char*)file_p::tuple_addr(0))+sizeof(file_p_hdr_t)));
+    //owner = *((lpid_t*)file_p::tuple_addr(0));
     return RCOK;
 }
 

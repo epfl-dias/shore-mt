@@ -312,7 +312,7 @@ file_m::create_rec_at_end(
 // -- mrbt
 rc_t 
 file_m::create_mrbt_rec_at_end(
-        file_p&         page, // in-out -- caller might have it fixed
+        file_mrbt_p&         page, // in-out -- caller might have it fixed
         uint4_t         len_hint,
         const vec_t&    hdr,
         const vec_t&    data,
@@ -423,7 +423,7 @@ file_m::_create_rec(
         } 
 
         if(!have_page) {
-            W_DO(_find_slotted_mrbt_page_with_space(fid, policy, sd, 
+            W_DO(_find_slotted_page_with_space(fid, policy, sd, 
                                                space_needed, page, slot
 #ifdef SM_DORA
                                                , bIgnoreParents
@@ -474,7 +474,7 @@ file_m::_create_mrbt_rec(
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid,
-    file_p&               page        // in-output
+    file_mrbt_p&               page        // in-output
 #ifdef SM_DORA
     , const bool          bIgnoreParents
 #endif
@@ -548,12 +548,12 @@ file_m::_create_mrbt_rec(
         } 
 
         if(!have_page) {
-            W_DO(_find_slotted_page_with_space(fid, policy, sd, 
-                                               space_needed, page, slot
+            W_DO(_find_slotted_mrbt_page_with_space(fid, policy, sd, 
+						    space_needed, page, slot
 #ifdef SM_DORA
-                                               , bIgnoreParents
+						    , bIgnoreParents
 #endif
-                                               ));
+						    ));
             hu.replace_page(&page);
         }
 
@@ -1027,7 +1027,7 @@ file_m::_find_slotted_mrbt_page_with_space(
     // mask & t_append == t_append means strict append semantics.
     sdesc_t&            sd,
     smsize_t            space_needed, 
-    file_p&             page,        // output
+    file_mrbt_p&             page,        // output
     slotid_t&           slot        // output
 #ifdef SM_DORA
     , const bool bIgnoreParents
@@ -2517,7 +2517,7 @@ file_m::_alloc_mrbt_page(
     stid_t fid,
     const lpid_t& near_p,
     lpid_t& allocPid,
-    file_p &page,         // leave it fixed here
+    file_mrbt_p &page,         // leave it fixed here
     bool search_file     // if false, it indicates strict append
 )
 {
@@ -2858,9 +2858,28 @@ MAKEPAGECODE(file_mrbt_p, file_p)
 rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags, 
 			 store_flag_t store_flags)
 {
-    // template taken from file_p
-
+    // pin: to debug
+    cout << endl;
+    cout << "file_mrbt_p" << endl;
+    
+    // pin: taken from file_p::format
+    
     w_assert3(tag == t_file_mrbt_p);
+
+    file_p_hdr_t ctrl;
+
+/* NOTE: We tried to put DEADBEEF into file page headers
+ *  when the page was deleted so we could use asserts about
+ *  pages (not being deleted).
+ * The problem is that set_hdr was never used before; never worked.
+ *  Using set: either reclaim or overwrite, depending on whether
+ *  the slot exists. It should exist if formatted, so we don't want
+ *  to reclaim it, but I had problems using overwrite too, and I don't
+ *  know why.
+ */
+    ctrl.cluster = DUMMY_CLUSTER_ID;                // dummy cluster ID
+    vec_t file_p_hdr_vec;
+    file_p_hdr_vec.put(&ctrl, sizeof(ctrl));
 
     /* first, don't log it */
     W_DO( page_p::_format(pid, tag, flags, store_flags) );
@@ -2874,13 +2893,28 @@ rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags,
     this->set_store_flags(store_flags); // through the page_p, through the bfcb_t
 
     // initialize header
-    cvec_t hdr;
     lpid_t owner;
-    hdr.put((char*)(&owner), sizeof(lpid_t));
-    W_COERCE(page_p::reclaim(0, hdr, true));
+    // pin: to debug
+    cout << "initial owner" << owner << endl;
+    file_p_hdr_vec.put((char*)(&owner), sizeof(lpid_t));
+    W_COERCE(page_p::reclaim(0, file_p_hdr_vec, false/*don't log_it*/));
 
+    /* Now, log as one (combined) record: -- 2nd 0 arg 
+     * is to handle special case of reclaim */
+    rc_t rc = log_page_format(*this, 0, 0, &file_p_hdr_vec); // file_p
+    if(rc.is_error()) {
+        discard();
+        return rc;
+    }
+
+    // pin: to debug
+    lpid_t owner_test;
+    get_owner(owner_test);
+    cout << "owner after hdr is set " << owner_test << endl;
+    cout << endl;
+	
     return RCOK;
-}
+ }
 
 /*********************************************************************
  *

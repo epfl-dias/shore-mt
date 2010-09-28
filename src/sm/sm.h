@@ -2579,7 +2579,7 @@ public:
     static rc_t            create_mr_assoc(
         stid_t                   stid, 
         cvec_t&             key, 
-        const vec_t&             el,
+        vec_t&             el,
         const bool             bIgnoreLocks = false);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
@@ -3642,7 +3642,7 @@ private:
     static rc_t            _create_mr_assoc(
         const stid_t  &        stid, 
         cvec_t&           key, 
-        const vec_t&           el,
+        vec_t&           el,
         const bool             bIgnoreLocks);
 
     static rc_t            _destroy_mr_assoc(

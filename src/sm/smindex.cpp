@@ -496,7 +496,7 @@ rc_t ss_m::print_mr_index(stid_t stid)
 /*--------------------------------------------------------------*
  *  ss_m::create_mr_assoc()                                     *
  *--------------------------------------------------------------*/
-rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, const vec_t& el, const bool bIgnoreLocks)
+rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, vec_t& el, const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
     W_DO(_create_mr_assoc(stid, key, el, bIgnoreLocks));
@@ -937,7 +937,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
  *--------------------------------------------------------------*/
 rc_t ss_m::_create_mr_assoc(const stid_t&        stid, 
 			    cvec_t&         key, 
-			    const vec_t&         el,
+			    vec_t&         el,
 			    const bool bIgnoreLocks)
 {
 
@@ -980,26 +980,37 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
 	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
 	sd->sinfo().ntype == t_uni_mrbtree_partition;
-    
+
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));	
+
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
 
     case t_mrbtree_regular:
     case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
 
-	// TODO: here btree insert is the same but need to change the actual record insert to a file
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));	
  	W_DO(bt->mr_insert(sd->root(*real_key), 
 			   is_unique, 
 			   cc,
 			   *real_key, el, 50, bIgnoreLocks));
         break;
 
+    case t_mrbtree_leaf:
+    case t_uni_mrbtree_leaf:
+
+	W_DO(bt->mr_insert_leaf(sd->root(*real_key), 
+				is_unique, 
+				cc,
+				*real_key, el, 50, bIgnoreLocks));
+	break;
+
+    case t_mrbtree_partition:
+    case t_uni_mrbtree_partition:
+
+	// TODO: call the right insert function
+	break;
+	
     case t_rtree:
         fprintf(stderr, "rtrees indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
@@ -1429,8 +1440,12 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
 
     case t_mrbtree_leaf:
     case t_uni_mrbtree_leaf:
-	
+
+	// pin: to debug
+	cout << "before split tree; leaf " << leaf << endl;
 	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
+	// pin: to debug
+	cout << "leaf " << leaf << endl;
 	if(leaf.page != 0) {
 	    W_DO(bt->split_heap(leaf, bIgnoreLatches));
 	}

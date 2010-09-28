@@ -492,7 +492,6 @@ btree_impl::_split_tree(
     DBGTHRD(<<"_split_tree: " << " key=" << key );
 
     btree_p         root_page_new;
-    rc_t            rc;
   
     // TODO: don't let tree split when root is a leaf page, i'm not sure why we said this now ???
          
@@ -634,9 +633,6 @@ btree_impl::_split_heap(
 
     DBGTHRD(<<"_split_heap: " << " leaf= " << leaf );
 
-    btree_p         root_page_new;
-    rc_t            rc;
-  
     latch_mode_t latch = LATCH_EX;
     if(bIgnoreLatches) {
 	latch = LATCH_NL;
@@ -655,7 +651,6 @@ btree_impl::_split_heap(
 	btrec_t rec(leaf_page, i);
 	rid_t rid;
 	rec.elem().copy_to(&rid, sizeof(rid_t));
-	cout << rid << endl;
 	recs_map[rid.pid].push_back(rid);
 	slot_map[rid] = i;
     }
@@ -737,6 +732,131 @@ btree_impl::_split_heap(
 
     leaf_page.unfix();
 	
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_split_heap(leaf_split, leaf_new)
+ * 
+ *  Called after _split_leaf
+ *  When a page split happens the record's whose assocs are moved to
+ *  the new heap page has to be moved to another heap page to
+ *  satisfy the 2nd design constraints in MRBT.
+ *  (the other split function is called for this)
+ *  If the _split_leaf happened for a root page then leaf_split
+ *  is also a new page so the owner of the old heap pages should be
+ *  updated. (handled in this function)
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_split_heap(
+    const lpid_t&       leaf_split, // I - split leaf page
+    const lpid_t&       leaf_new, // I - newly created leaf page
+    const bool          was_root, // I - indicates whether the root page of this
+                                  //     tree was a leaf page before the leaf split
+    const bool bIgnoreLatches)
+{
+    
+    FUNC(btree_impl::_split_heap);
+
+    DBGTHRD(<<"_split_heap: " << " leaf_split = " << leaf_split
+	    <<" leaf_new: " << leaf_new);
+
+    // 0. update the owner of the heap pages pointed by leaf_split_page
+    //    if it got the entries of the root page
+    if(was_root) {
+	set<lpid_t> old_pages;
+	btree_p leaf_split_page;
+	if(bIgnoreLatches) {
+	    W_DO( leaf_split_page.fix(leaf_split, LATCH_NL) );
+	} else {
+	    W_DO( leaf_split_page.fix(leaf_split, LATCH_SH) );
+	}
+	for(int i=0; i < leaf_split_page.nrecs(); i++) {
+	    btrec_t rec(leaf_split_page, i);
+	    rid_t rid;
+	    rec.elem().copy_to(&rid, sizeof(rid_t));
+	    old_pages.insert(rid.pid);
+	}
+	leaf_split_page.unfix();
+	file_mrbt_p heap_page;
+	for(set<lpid_t>::iterator iter = old_pages.begin(); iter != old_pages.end(); iter++) {
+	    if(bIgnoreLatches) {
+		W_DO( heap_page.fix(*iter, LATCH_NL) );
+	    } else {
+		W_DO( heap_page.fix(*iter, LATCH_EX) );
+	    }
+	    W_DO( heap_page.set_owner(leaf_split) );
+	    heap_page.unfix();
+	}
+    }
+
+    W_DO( _split_heap(leaf_new, bIgnoreLatches) );
+	
+    return RCOK;
+}
+
+/*********************************************************************
+ * 
+ *  btree_impl::_split_leaf_and_heap(root, page, key, el, split_factor)
+ *  Does the same things with _split_leaf but in the end has a call
+ *  to _split_heap.
+ *
+ *********************************************************************/
+rc_t
+btree_impl::_split_leaf_and_heap(
+    lpid_t const &        root_pid,         // I - root of tree
+    btree_p&              leaf,         // I - page to be split
+    const cvec_t&         key,        // I-  which key causes split
+    const cvec_t&         el,        // I-  which element causes split
+    int                   split_factor,
+    const bool bIgnoreLatches)        
+{
+    w_assert9(leaf.is_fixed());
+    w_assert9(!bIgnoreLatches || leaf.latch_mode() == LATCH_EX);
+
+    lpid_t leaf_split = leaf.pid();
+    bool was_root = (root_pid == leaf_split);
+	
+    lsn_t         anchor;         // serves as savepoint too
+    xct_t*         xd = xct();
+
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
+    if (xd)  anchor = xd->anchor();
+
+#if BTREE_LOG_COMMENT_ON
+    W_DO(log_comment("start leaf split"));
+#endif 
+
+    int            addition = key.size() + el.size() + 2;
+    lpid_t         rsib_pid;
+    lpid_t         leaf_pid = leaf.pid();;
+    int            level = leaf.level();
+    {
+        bool         left_heavy;
+        slotid_t     slot=1; // use 1 to leave at least one
+                             // record in the left page.
+        w_assert9(leaf.nrecs()>0);
+
+        X_DO( __split_page(leaf, rsib_pid,  left_heavy,
+			   slot, addition, split_factor, bIgnoreLatches), anchor );
+        leaf.unfix();
+    }
+
+    X_DO(_propagate(root_pid, key, el, leaf_pid, level, false /*not delete*/, bIgnoreLatches), anchor);
+
+#if BTREE_LOG_COMMENT_ON
+    W_DO(log_comment("end leaf split"));
+#endif 
+    if (xd)  {
+        SSMTEST("btree.propagate.s.1");
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
+    }
+
+    W_DO( _split_heap(leaf_split, rsib_pid, was_root) );
+    
     return RCOK;
 }
 
@@ -941,7 +1061,7 @@ btree_impl::_insert_leaf(
     bool                unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    vec_t&        el,                // I-  which element
+    cvec_t&        el,                // I-  which element
     int                 split_factor,        // I-  tune split in %
     const bool bIgnoreLatches)
 {
@@ -1355,8 +1475,8 @@ again:
                         w_assert2(!parent.is_fixed());
                         w_assert2(leaf.is_fixed());
                         w_assert2(tree_root.is_fixed());
-                        W_DO( _split_leaf(tree_root.pid(), leaf, key, 
-					  el, split_factor, bIgnoreLatches) );
+                        W_DO( _split_leaf_and_heap(tree_root.pid(), leaf, key, 
+						   el, split_factor, bIgnoreLatches) );
                         SSMTEST("btree.insert.3");
 
                         tree_root.unfix();
@@ -1681,20 +1801,30 @@ again:
 	// Check for leaf-heap page mapping
 	// Three cases;
 	// 1) The record is already in a heap page pointed by this leaf
-	// 2) The record is in a heap page which is not owned by anybody
+	// 2) The record is in a heap page which is not pointed by any leaf
 	// 3) The record's heap page is pointed by another leaf page
 	rid_t rid;
 	el.copy_to(&rid, sizeof(rid_t));
+	// pin: to debug
+	cout << "create assoc for " << rid << endl;
 	file_mrbt_p heap_page;
 	// pin: we can't ignore latches here since this heap page might be pointed by some other leaf page
 	W_DO(heap_page.fix(rid.pid, LATCH_EX));
 	lpid_t owner_leaf;
 	heap_page.get_owner(owner_leaf);
+	// pin: to debug
+	cout << "record's heap page owner: " << owner_leaf << endl; 
 	if(owner_leaf == leaf.pid()) { // CASE 1 ; do nothing
-	    
+	    // pin: to debug
+	    cout << "owner_leaf == leaf.pid()" << endl;
 	} else if(owner_leaf.page == 0) { // CASE 2 ; set heap_page owner
+	    // pin: to debug
+	    cout << "owner_leaf.page == 0" << endl;
 	    heap_page.set_owner(leaf.pid());
 	} else { // CASE 3 ; move record
+	    // pin: to debug
+	    cout << "owner_leaf != leaf.pid()" << endl;
+	    
 	    // first try to put it into a page that is already pointed by this leaf
 	    // otherwise create a new heap page and put the record there
 	    
@@ -1706,6 +1836,7 @@ again:
 	    rid_t new_rid;
 	    hdr.put((*rec_to_move).hdr(), (*rec_to_move).hdr_size());
 	    data.put((*rec_to_move).body(), (*rec_to_move).body_size());
+
 	    // 1. try to find a file page with empty slot and pointed by leaf
 	    fix_latch = LATCH_EX;
 	    if(bIgnoreLatches) {

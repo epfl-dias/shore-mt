@@ -186,6 +186,14 @@ public:
         const cvec_t&                     elem,
         int                               split_factor = 50,
 	const bool                        bIgnoreLatches = false);
+   static rc_t                    mr_insert_leaf(
+        const lpid_t&                     root,
+	bool                              unique,
+        concurrency_t                     cc,
+        const cvec_t&                     key,
+        cvec_t&                     elem,
+        int                               split_factor = 50,
+	const bool                        bIgnoreLatches = false);
     static rc_t                        mr_remove(
         const lpid_t&                    root,
         bool                             unique,

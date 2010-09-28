@@ -67,9 +67,9 @@
 #include <page_h.h>
 
 // -- mrbt test
-pthread_mutex_t page_p::_glmutex = PTHREAD_MUTEX_INITIALIZER;
-ofstream page_p::_accesses("page_accesses.txt");
-timeval page_p::curr_time;
+//pthread_mutex_t page_p::_glmutex = PTHREAD_MUTEX_INITIALIZER;
+//ofstream page_p::_accesses("page_accesses.txt");
+//timeval page_p::curr_time;
 // --
 
 w_base_t::w_base_t::uint4_t
@@ -823,11 +823,11 @@ page_p::_fix(
     store_flag_t        ret_store_flags = store_flags;
 
     // -- mrbt test
-    pthread_mutex_lock(&_glmutex);
-    gettimeofday(&curr_time, NULL);
-    _accesses << "Page: " << pid << " Thread: " << pthread_self() << " Latch mode: " << m
-	      << " Time: sec-> " << curr_time.tv_sec << " usec-> " << curr_time.tv_usec << endl;
-    pthread_mutex_unlock(&_glmutex);
+    //pthread_mutex_lock(&_glmutex);
+    //gettimeofday(&curr_time, NULL);
+    //_accesses << "Page: " << pid << " Thread: " << pthread_self() << " Latch mode: " << m
+    //	      << " Time: sec-> " << curr_time.tv_sec << " usec-> " << curr_time.tv_usec << endl;
+    //pthread_mutex_unlock(&_glmutex);
     // --
     
     if (store_flags & st_insert_file)  {

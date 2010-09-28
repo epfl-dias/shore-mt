@@ -61,6 +61,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
+// -- mrbt
+#include <set>
+// --
+
 #ifndef BTREE_H
 #include "btree.h"
 #endif
@@ -94,6 +98,12 @@ protected:
         const lpid_t&                   leaf,
 	const bool bIgnoreLatches = false);
 
+    static rc_t                        _split_heap(
+        const lpid_t&                   leaf_split,
+	const lpid_t&                   leaf_new,
+	const bool                      was_root,
+	const bool bIgnoreLatches = false);
+    
     static rc_t                        _merge_trees(
         lpid_t&                         root,			      	    
         const lpid_t&                   root1,
@@ -113,9 +123,17 @@ protected:
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-        vec_t&                     elem,
+        cvec_t&                     elem,
         int                             split_factor = 50,
 	const bool bIgnoreLatches = false);
+
+    static rc_t                 _split_leaf_and_heap(
+        const lpid_t&                    root_pid,         // I - root of tree
+        btree_p&                    leaf,         // I - page to be split
+        const cvec_t&                    key,        // I-  which key causes split
+        const cvec_t&                    el,                // I-  which element causes split
+        int                             split_factor,
+	const bool bIgnoreLatches);
 // --
 
     static rc_t                        _alloc_page(

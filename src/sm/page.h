@@ -86,9 +86,9 @@ protected:
 
 public:
     // -- mrbt test
-    static pthread_mutex_t _glmutex;
-    static ofstream _accesses;
-    static timeval curr_time;
+    //static pthread_mutex_t _glmutex;
+    //static ofstream _accesses;
+    //static timeval curr_time;
     // --
     
     enum {

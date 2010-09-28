@@ -340,6 +340,60 @@ btree_m::mr_insert(
 
 /*********************************************************************
  *
+ *  btree_m::mr_insert_leaf(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as mr_insert except we might need to relocate records to enforce
+ *  a heap page to be pointed by only one leaf page.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert_leaf(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    cvec_t&        el,                // I-  which element
+    int                  split_factor,        // I-  tune split in %
+    const bool           bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el.size() > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el.size());
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_insert_leaf(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ *
  *  btree_m::mr_remove(root, unique, cc, key, el)
  *
  *  Same as normal btree remove except there is no scrambling of the 
