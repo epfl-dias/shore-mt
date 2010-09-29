@@ -752,13 +752,12 @@ btree_impl::_split_heap(
 
 rc_t
 btree_impl::_split_heap(
-    const lpid_t&       leaf_split, // I - split leaf page
+    lpid_t&       leaf_split, // I - split leaf page
     const lpid_t&       leaf_new, // I - newly created leaf page
     const bool          was_root, // I - indicates whether the root page of this
                                   //     tree was a leaf page before the leaf split
     const bool bIgnoreLatches)
 {
-    
     FUNC(btree_impl::_split_heap);
 
     DBGTHRD(<<"_split_heap: " << " leaf_split = " << leaf_split
@@ -767,13 +766,18 @@ btree_impl::_split_heap(
     // 0. update the owner of the heap pages pointed by leaf_split_page
     //    if it got the entries of the root page
     if(was_root) {
+	latch_mode_t latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    latch = LATCH_NL;
+	}
+	btree_p leaf_split_root;
+	W_DO( leaf_split_root.fix(leaf_split, latch) );
+
+	leaf_split.page = leaf_split_root.pid0();
+
 	set<lpid_t> old_pages;
 	btree_p leaf_split_page;
-	if(bIgnoreLatches) {
-	    W_DO( leaf_split_page.fix(leaf_split, LATCH_NL) );
-	} else {
-	    W_DO( leaf_split_page.fix(leaf_split, LATCH_SH) );
-	}
+	W_DO( leaf_split_page.fix(leaf_split, latch) );
 	for(int i=0; i < leaf_split_page.nrecs(); i++) {
 	    btrec_t rec(leaf_split_page, i);
 	    rid_t rid;
@@ -782,12 +786,12 @@ btree_impl::_split_heap(
 	}
 	leaf_split_page.unfix();
 	file_mrbt_p heap_page;
+	latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    latch = LATCH_NL;
+	}
 	for(set<lpid_t>::iterator iter = old_pages.begin(); iter != old_pages.end(); iter++) {
-	    if(bIgnoreLatches) {
-		W_DO( heap_page.fix(*iter, LATCH_NL) );
-	    } else {
-		W_DO( heap_page.fix(*iter, LATCH_EX) );
-	    }
+	    W_DO( heap_page.fix(*iter, latch) );
 	    W_DO( heap_page.set_owner(leaf_split) );
 	    heap_page.unfix();
 	}
@@ -816,9 +820,6 @@ btree_impl::_split_leaf_and_heap(
 {
     w_assert9(leaf.is_fixed());
     w_assert9(!bIgnoreLatches || leaf.latch_mode() == LATCH_EX);
-
-    lpid_t leaf_split = leaf.pid();
-    bool was_root = (root_pid == leaf_split);
 	
     lsn_t         anchor;         // serves as savepoint too
     xct_t*         xd = xct();
@@ -847,6 +848,7 @@ btree_impl::_split_leaf_and_heap(
 
     X_DO(_propagate(root_pid, key, el, leaf_pid, level, false /*not delete*/, bIgnoreLatches), anchor);
 
+    
 #if BTREE_LOG_COMMENT_ON
     W_DO(log_comment("end leaf split"));
 #endif 
@@ -855,7 +857,7 @@ btree_impl::_split_leaf_and_heap(
         xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
     }
 
-    W_DO( _split_heap(leaf_split, rsib_pid, was_root) );
+    W_DO( _split_heap(leaf_pid, rsib_pid, root_pid == leaf_pid) );
     
     return RCOK;
 }
@@ -1805,45 +1807,40 @@ again:
 	// 3) The record's heap page is pointed by another leaf page
 	rid_t rid;
 	el.copy_to(&rid, sizeof(rid_t));
-	// pin: to debug
-	cout << "create assoc for " << rid << endl;
 	file_mrbt_p heap_page;
 	// pin: we can't ignore latches here since this heap page might be pointed by some other leaf page
 	W_DO(heap_page.fix(rid.pid, LATCH_EX));
 	lpid_t owner_leaf;
 	heap_page.get_owner(owner_leaf);
-	// pin: to debug
-	cout << "record's heap page owner: " << owner_leaf << endl; 
 	if(owner_leaf == leaf.pid()) { // CASE 1 ; do nothing
-	    // pin: to debug
-	    cout << "owner_leaf == leaf.pid()" << endl;
+	
 	} else if(owner_leaf.page == 0) { // CASE 2 ; set heap_page owner
-	    // pin: to debug
-	    cout << "owner_leaf.page == 0" << endl;
 	    heap_page.set_owner(leaf.pid());
 	} else { // CASE 3 ; move record
-	    // pin: to debug
-	    cout << "owner_leaf != leaf.pid()" << endl;
-	    
+	    	    
 	    // first try to put it into a page that is already pointed by this leaf
 	    // otherwise create a new heap page and put the record there
 	    
 	    // 0. get the record from the heap page
 	    record_t* rec_to_move;
 	    W_DO( heap_page.get_rec(rid.slot, rec_to_move) );
-	    vec_t hdr;
-	    vec_t data;
+	    vec_t hdr_vec;
+	    vec_t data_vec;
+	    char* hdr = (char*) malloc((*rec_to_move).hdr_size());
+	    memcpy(hdr, (*rec_to_move).hdr(), (*rec_to_move).hdr_size());
+	    char* data = (char*) malloc((*rec_to_move).body_size());
+	    memcpy(data, (*rec_to_move).body(), (*rec_to_move).body_size());
 	    rid_t new_rid;
-	    hdr.put((*rec_to_move).hdr(), (*rec_to_move).hdr_size());
-	    data.put((*rec_to_move).body(), (*rec_to_move).body_size());
-
+	    hdr_vec.put(hdr, (*rec_to_move).hdr_size());
+	    data_vec.put(data, (*rec_to_move).body_size());
+	    
 	    // 1. try to find a file page with empty slot and pointed by leaf
 	    fix_latch = LATCH_EX;
 	    if(bIgnoreLatches) {
 		fix_latch = LATCH_NL;
 	    }
 	    file_mrbt_p current_heap_page;
-	    bool space_found = true;
+	    bool space_found = false;
 	    for(int i=0; !space_found && i < leaf.nrecs(); i++) {
 		// get the rec from the leaf_page
 		btrec_t rec_leaf(leaf, i);
@@ -1852,8 +1849,8 @@ again:
 		// move it to new page
 		W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
 		W_DO( file_m::create_mrbt_rec_in_given_page(0,
-							    hdr,
-							    data,
+							    hdr_vec,
+							    data_vec,
 							    new_rid,
 							    current_heap_page,
 							    space_found,
@@ -1869,8 +1866,8 @@ again:
 		W_DO( current_heap_page.set_owner(leaf.pid()) );
 		// retry the insert
 		W_DO( file_m::create_mrbt_rec_in_given_page(0,
-							    hdr,
-							    data,
+							    hdr_vec,
+							    data_vec,
 							    new_rid,
 							    current_heap_page,
 							    space_found,
@@ -1880,6 +1877,7 @@ again:
 	    // update rid
 	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}
+	heap_page.unfix();
  	
         /*
          *  Do the insert.

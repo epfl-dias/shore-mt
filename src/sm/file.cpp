@@ -724,7 +724,7 @@ file_m::_create_mrbt_rec_in_slot(
 
     // if bIgnoreLatches = false
           // page is already in the file and locked IX or EX
-          // slot is already locked EX 
+          // slot is already locked EX
     rid.pid = page.pid();
     rid.slot = slot;
 
@@ -2858,10 +2858,6 @@ MAKEPAGECODE(file_mrbt_p, file_p)
 rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags, 
 			 store_flag_t store_flags)
 {
-    // pin: to debug
-    cout << endl;
-    cout << "file_mrbt_p" << endl;
-    
     // pin: taken from file_p::format
     
     w_assert3(tag == t_file_mrbt_p);
@@ -2894,8 +2890,6 @@ rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags,
 
     // initialize header
     lpid_t owner;
-    // pin: to debug
-    cout << "initial owner" << owner << endl;
     file_p_hdr_vec.put((char*)(&owner), sizeof(lpid_t));
     W_COERCE(page_p::reclaim(0, file_p_hdr_vec, false/*don't log_it*/));
 
@@ -2907,12 +2901,6 @@ rc_t file_mrbt_p::format(const lpid_t& pid, tag_t tag, uint4_t flags,
         return rc;
     }
 
-    // pin: to debug
-    lpid_t owner_test;
-    get_owner(owner_test);
-    cout << "owner after hdr is set " << owner_test << endl;
-    cout << endl;
-	
     return RCOK;
  }
 

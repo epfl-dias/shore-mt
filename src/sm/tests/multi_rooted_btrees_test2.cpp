@@ -133,6 +133,8 @@ public:
     w_rc_t mr_index_test6();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
+    rid_t rid_last1;
+    rid_t rid_last2;
     // --
     w_rc_t scan_the_file();
     w_rc_t scan_the_root_index();
@@ -208,12 +210,12 @@ smthread_user_t::create_the_file()
 
     char* dummy = new char[_rec_size];
     memset(dummy, '\0', _rec_size);
-    vec_t data(dummy, _rec_size);
-
-    for(int j=1; j < _num_rec; j++)
+    vec_t data(dummy, sizeof(int));
+    int j = 1;
+    for(; j < _num_rec; j++)
     {
         {
-            w_ostrstream o(dummy, _rec_size);
+            w_ostrstream o(dummy, sizeof(int));
             o << j << ends;
             w_assert1(o.c_str() == dummy);
         }
@@ -221,12 +223,43 @@ smthread_user_t::create_the_file()
         int i = j;
         const vec_t hdr(&i, sizeof(i));
         W_COERCE(ssm->create_mrbt_rec(info.fid, hdr,
-				      _rec_size, data, rid));
+				      data.size(), data, rid));
         cout << "Creating rec " << j << endl;
         if (j == 0) {
             info.first_rid = rid;
         }        
     }
+    
+    j = 1000;
+    {
+	w_ostrstream o1(dummy, sizeof(int));
+	o1 << j << ends;
+	w_assert1(o1.c_str() == dummy);
+    }
+    // header contains record #
+    int i1 = j;
+    const vec_t hdr1(&i1, sizeof(i1));
+    W_COERCE(ssm->create_mrbt_rec(info.fid, hdr1,
+				  data.size(), data, rid));
+    cout << "Creating rec " << j << endl;
+    rid_last1.pid = rid.pid;
+    rid_last1.slot = rid.slot;
+
+    j = 0;
+    {
+	w_ostrstream o2(dummy, sizeof(int));
+	o2 << j << ends;
+	w_assert1(o2.c_str() == dummy);
+    }
+    // header contains record #
+    int i2 = j;
+    const vec_t hdr2(&i2, sizeof(i2));
+    W_COERCE(ssm->create_mrbt_rec(info.fid, hdr2,
+				  data.size(), data, rid));
+    cout << "Creating rec " << j << endl;
+    rid_last2.pid = rid.pid;
+    rid_last2.slot = rid.slot;
+    
     cout << "Created all. First rid " << info.first_rid << endl;
     delete [] dummy;
     info.num_rec = _num_rec;
@@ -330,7 +363,6 @@ rc_t smthread_user_t::mr_index_test2()
 
     W_DO(print_the_mr_index(stid));
 
-	
     int key = 700;
     cvec_t key_vec((char*)(&key), sizeof(key));
     cout << "ssm->add_partition(stid = " << stid
@@ -347,7 +379,7 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el((char*)(&new_key), sizeof(new_key));
+    vec_t el((char*)(&rid_last1), sizeof(rid_t));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
@@ -357,7 +389,7 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el2((char*)(&new_key), sizeof(new_key));
+    vec_t el2((char*)(&rid_last2), sizeof(rid_t));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
@@ -623,7 +655,7 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
       retval = rc.err_num();
       return rc;
     }
-    if(eof) break;
+    if(i == 999 || eof) break;
     
     cout << "Record " << i << "/" << _num_rec << endl;
     cvec_t       key(cursor->hdr(), cursor->hdr_size());
@@ -742,6 +774,7 @@ smthread_user_t::scan_the_file()
         const char *body = cursor->body();
         w_assert1(cursor->body_size() == _rec_size);
         cout << "Record body "  << body << endl;
+	cout << "Record body size " << cursor->body_size() << endl;
         i++;
     } while (!eof);
     w_assert1(i == _num_rec-1);
@@ -821,12 +854,12 @@ smthread_user_t::no_init()
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
     //W_DO(mr_index_test0()); // ok
-    //W_DO(mr_index_test1()); // ok 
-    W_DO(mr_index_test2()); // 
-    //W_DO(mr_index_test3()); // 
+    //W_DO(mr_index_test1()); // ok
+    W_DO(mr_index_test2()); // ok 
+    //W_DO(mr_index_test3()); // ok
     //W_DO(mr_index_test4()); //
-    //W_DO(mr_index_test5()); // 
-    //W_DO(mr_index_test6()); // 
+    //W_DO(mr_index_test5()); // ok
+    //W_DO(mr_index_test6()); // ok
     return RCOK;
 }
 

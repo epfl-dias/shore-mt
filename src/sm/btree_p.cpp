@@ -1041,13 +1041,12 @@ btree_p::print(
 
     if ( is_leaf())  {
         if(print_elem) {
-        cout << ", elen="  << r.elen() << " bytes: " << r.elem();
+	    rid_t rid;
+	    r.elem().copy_to(&rid, sizeof(rid_t));
+	    cout << ", elen="  << r.elen() << " bytes: " << rid;
         }
     } else {
-	if(print_elem) {
-	    cout << ", elen="  << r.elen() << " bytes: " << r.elem();
-        }
-        cout << ", pid = " << r.child();
+	cout << ", pid = " << r.child();
     }
     cout << ">" << endl;
     }

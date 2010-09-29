@@ -922,7 +922,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	    cout << "Start Key was " << value << endl;
 	    cout << endl;
 	}
-		
+
 	break;
 
     default:
@@ -1366,8 +1366,6 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
 	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
 	W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
 
-	// pin: to debug
-	cout << "root_old " << root_old << "root_new " << root_new << endl;
 	break;
 	
     default:
@@ -1441,11 +1439,7 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
     case t_mrbtree_leaf:
     case t_uni_mrbtree_leaf:
 
-	// pin: to debug
-	cout << "before split tree; leaf " << leaf << endl;
 	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
-	// pin: to debug
-	cout << "leaf " << leaf << endl;
 	if(leaf.page != 0) {
 	    W_DO(bt->split_heap(leaf, bIgnoreLatches));
 	}

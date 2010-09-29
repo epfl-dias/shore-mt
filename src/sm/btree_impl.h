@@ -99,7 +99,7 @@ protected:
 	const bool bIgnoreLatches = false);
 
     static rc_t                        _split_heap(
-        const lpid_t&                   leaf_split,
+        lpid_t&                   leaf_split,
 	const lpid_t&                   leaf_new,
 	const bool                      was_root,
 	const bool bIgnoreLatches = false);
