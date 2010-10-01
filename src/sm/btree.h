@@ -142,7 +142,7 @@ public:
         bool                              unique,
         concurrency_t                      cc,
         btree_stats_t&                    stats);
-    static rc_t                        mr_bulk_load_leaf(
+    static rc_t                        mr_bulk_load_l(
         key_ranges_map&                   partitions,
         int                               nsrcs,
         const stid_t*                     src,
@@ -155,7 +155,7 @@ public:
         bool                              lexify_keys   = true,
 	const bool                        bIgnoreLatches = false
         );
-    static rc_t                        mr_bulk_load_leaf(
+    static rc_t                        mr_bulk_load_l(
         key_ranges_map&                   partitions,
         sort_stream_i&                    sorted_stream,
         int                               nkc,
@@ -169,15 +169,19 @@ public:
         const cvec_t&                     key,
 	lpid_t&                           leaf,
 	const bool                        bIgnoreLatches);
-    static rc_t                        split_heap(
+    static rc_t                        relocate_recs_l(
         const lpid_t&                   leaf,
+	const bool bIgnoreLatches = false);
+    static rc_t                        relocate_recs_p(
+        const lpid_t&                   root,
 	const bool bIgnoreLatches = false);
     static rc_t                        merge_trees(
         lpid_t&                           root,
         const lpid_t&                     root1,
 	const lpid_t&                     root2,
         cvec_t&                           startKey2,
-	const bool                        bIgnoreLatches);
+	const bool                        bIgnoreLatches,
+	const bool                        update_owner = false);
     static rc_t                    mr_insert(
         const lpid_t&                     root,
 	bool                              unique,
@@ -186,7 +190,15 @@ public:
         const cvec_t&                     elem,
         int                               split_factor = 50,
 	const bool                        bIgnoreLatches = false);
-   static rc_t                    mr_insert_leaf(
+   static rc_t                    mr_insert_l(
+        const lpid_t&                     root,
+	bool                              unique,
+        concurrency_t                     cc,
+        const cvec_t&                     key,
+        cvec_t&                     elem,
+        int                               split_factor = 50,
+	const bool                        bIgnoreLatches = false);
+    static rc_t                    mr_insert_p(
         const lpid_t&                     root,
 	bool                              unique,
         concurrency_t                     cc,

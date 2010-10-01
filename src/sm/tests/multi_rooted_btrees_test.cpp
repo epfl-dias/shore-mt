@@ -259,7 +259,7 @@ rc_t smthread_user_t::mr_index_test0()
 
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     
@@ -282,7 +282,7 @@ rc_t smthread_user_t::mr_index_test1()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
 
@@ -321,7 +321,7 @@ rc_t smthread_user_t::mr_index_test2()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     
@@ -380,7 +380,7 @@ rc_t smthread_user_t::mr_index_test3()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
     
@@ -473,7 +473,7 @@ rc_t smthread_user_t::mr_index_test4()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
 
@@ -516,7 +516,7 @@ rc_t smthread_user_t::mr_index_test5()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
 
@@ -564,7 +564,7 @@ rc_t smthread_user_t::mr_index_test6()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
-    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree_regular, smlevel_3::t_regular, 
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
 

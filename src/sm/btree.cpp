@@ -340,14 +340,14 @@ btree_m::mr_insert(
 
 /*********************************************************************
  *
- *  btree_m::mr_insert_leaf(root, unique, cc, key, el, split_factor)
+ *  btree_m::mr_insert_l(root, unique, cc, key, el, split_factor)
  *
  *  Same as mr_insert except we might need to relocate records to enforce
  *  a heap page to be pointed by only one leaf page.
  *
  *********************************************************************/
 rc_t
-btree_m::mr_insert_leaf(
+btree_m::mr_insert_l(
     const lpid_t&        root,                // I-  root of btree
     bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
@@ -379,7 +379,61 @@ btree_m::mr_insert_leaf(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    rc = btree_impl::_insert_leaf(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    rc = btree_impl::_insert_l(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_insert_p(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as mr_insert except we might need to relocate records to enforce
+ *  a heap page to be pointed by only one sub-tree.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert_p(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    cvec_t&        el,                // I-  which element
+    int                  split_factor,        // I-  tune split in %
+    const bool           bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el.size() > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el.size());
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_insert_p(root, unique, cc, key, el, split_factor, bIgnoreLatches);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
             // retries++; // for debugging
@@ -564,20 +618,18 @@ btree_m::split_tree(
 
 /*********************************************************************
  *
- *  btree_m::split_tree(root_old, root_new, key)
- *
- *  Split from the tree starting from the given key.
+ *  btree_m::relocate_recs_l(leaf)
  *
  *********************************************************************/
 rc_t
-btree_m::split_heap(
+btree_m::relocate_recs_l(
         const lpid_t&                   leaf,
 	const bool bIgnoreLatches)
 {
 #if BTREE_LOG_COMMENT_ON
     {
         w_ostrstream s;
-        s << "heap split " << leaf;
+        s << "relocate records " << leaf;
         W_DO(log_comment(s.c_str()));
     }
 #endif
@@ -585,7 +637,33 @@ btree_m::split_heap(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_split_heap(leaf, bIgnoreLatches);
+    rc = btree_impl::_relocate_recs_l(leaf, bIgnoreLatches);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::relocate_recs_p(root)
+ *
+ *********************************************************************/
+rc_t
+btree_m::relocate_recs_p(
+        const lpid_t&                   root,
+	const bool bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "relocate records " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    rc_t rc;
+
+    DBGTHRD(<<"");    
+    rc = btree_impl::_relocate_recs_p(root, bIgnoreLatches);
     
     return  rc;
 }
@@ -603,7 +681,8 @@ btree_m::merge_trees(
     const lpid_t&       root1,        // I- roots of the btrees to be merged
     const lpid_t&       root2,           
     cvec_t&             startKey2,    // I- initial keys
-    const bool          bIgnoreLatches)
+    const bool          bIgnoreLatches,
+    const bool          update_owner)
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -614,7 +693,7 @@ btree_m::merge_trees(
 #endif
     
     rc_t rc;
-    rc = btree_impl::_merge_trees(root, root1, root2, startKey2, bIgnoreLatches);
+    rc = btree_impl::_merge_trees(root, root1, root2, startKey2, bIgnoreLatches, update_owner);
     
     return  rc;
 }

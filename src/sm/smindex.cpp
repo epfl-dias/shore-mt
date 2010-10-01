@@ -636,12 +636,12 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 ) return RC(eBADCCLEVEL);
 
      switch (ntype)  {
-     case t_mrbtree_regular:
-     case t_uni_mrbtree_regular:
-     case t_mrbtree_leaf:
-     case t_uni_mrbtree_leaf:
-     case t_mrbtree_partition:
-     case t_uni_mrbtree_partition:
+     case t_mrbtree:
+     case t_uni_mrbtree:
+     case t_mrbtree_l:
+     case t_uni_mrbtree_l:
+     case t_mrbtree_p:
+     case t_uni_mrbtree_p:
 	 
 	 // create one subtree initially
 	 //compress prefixes only if the first part is compressed
@@ -720,12 +720,12 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
      }
     
      switch (ntype)  {
-     case t_mrbtree_regular:
-     case t_uni_mrbtree_regular:
-     case t_mrbtree_leaf:
-     case t_uni_mrbtree_leaf:
-     case t_mrbtree_partition:
-     case t_uni_mrbtree_partition:
+     case t_mrbtree:
+     case t_uni_mrbtree:
+     case t_mrbtree_l:
+     case t_uni_mrbtree_l:
+     case t_mrbtree_p:
+     case t_uni_mrbtree_p:
 	 
 	 // create the ranges_p based on ranges
 	 W_DO( ra->create(stid, root, ranges, roots) );
@@ -756,12 +756,12 @@ rc_t ss_m::_destroy_mr_index(const stid_t& iid)
 
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     switch (sd->sinfo().ntype)  {
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 	 
         W_DO(io->destroy_store(iid));
         break;
@@ -793,15 +793,15 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
 
     switch (sd->sinfo().ntype) {
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
+    case t_mrbtree:
+    case t_uni_mrbtree:
 	
     	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
         W_DO(bt->mr_bulk_load(sd->partitions(), 
 			      nsrcs,
 			      source,
 			      sd->sinfo().nkc, sd->sinfo().kc,
-			      sd->sinfo().ntype == t_uni_mrbtree_regular, 
+			      sd->sinfo().ntype == t_uni_mrbtree, 
 			      (concurrency_t)sd->sinfo().cc,
 			      _stats.btree,
 			      sort_duplicates,
@@ -810,14 +810,14 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
 			      ));
         break;
 
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
 	
 	// TODO: call corresponding bulk loading function
 	break;
 	
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 
 	// TODO: call corresponding bulk loading function
 	break;
@@ -853,23 +853,23 @@ rc_t ss_m::_bulkld_mr_index(const stid_t&         stid,
 
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     switch (sd->sinfo().ntype) {
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
+    case t_mrbtree:
+    case t_uni_mrbtree:
 	// TODO: _stats.btree, you might want to add mrbtree here too but this is not a priority
 	W_DO(bt->mr_bulk_load(sd->partitions(), sorted_stream,
 			      sd->sinfo().nkc, sd->sinfo().kc,
-			      sd->sinfo().ntype == t_uni_mrbtree_regular, 
+			      sd->sinfo().ntype == t_uni_mrbtree, 
 			      (concurrency_t)sd->sinfo().cc, _stats.btree));
         break;
 
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
 	
 	// TODO: call corresponding bulk loading function
 	break;
 	
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 
 	// TODO: call corresponding bulk loading function
 	break;
@@ -905,12 +905,12 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     bool last = false;
     
     switch (sd->sinfo().ntype) {
-    case t_mrbtree_regular:
-     case t_uni_mrbtree_regular:
-     case t_mrbtree_leaf:
-     case t_uni_mrbtree_leaf:
-     case t_mrbtree_partition:
-     case t_uni_mrbtree_partition:
+    case t_mrbtree:
+     case t_uni_mrbtree:
+     case t_mrbtree_l:
+     case t_uni_mrbtree_l:
+     case t_mrbtree_p:
+     case t_uni_mrbtree_p:
     
 	sd->partitions().getAllPartitions(pidVec);
 	for(i = 0; i < pidVec.size(); i++) {
@@ -977,9 +977,9 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
-    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
-	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
-	sd->sinfo().ntype == t_uni_mrbtree_partition;
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
+	sd->sinfo().ntype == t_uni_mrbtree_l ||
+	sd->sinfo().ntype == t_uni_mrbtree_p;
 
     W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));	
 
@@ -987,8 +987,8 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
 
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
+    case t_mrbtree:
+    case t_uni_mrbtree:
 
  	W_DO(bt->mr_insert(sd->root(*real_key), 
 			   is_unique, 
@@ -996,19 +996,22 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			   *real_key, el, 50, bIgnoreLocks));
         break;
 
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
 
-	W_DO(bt->mr_insert_leaf(sd->root(*real_key), 
-				is_unique, 
-				cc,
-				*real_key, el, 50, bIgnoreLocks));
+	W_DO(bt->mr_insert_l(sd->root(*real_key), 
+			     is_unique, 
+			     cc,
+			     *real_key, el, 50, bIgnoreLocks));
 	break;
 
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 
-	// TODO: call the right insert function
+	W_DO(bt->mr_insert_p(sd->root(*real_key), 
+			     is_unique, 
+			     cc,
+			     *real_key, el, 50, bIgnoreLocks));
 	break;
 	
     case t_rtree:
@@ -1070,20 +1073,20 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
-    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
-	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
-	sd->sinfo().ntype == t_uni_mrbtree_partition;
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
+	sd->sinfo().ntype == t_uni_mrbtree_l ||
+	sd->sinfo().ntype == t_uni_mrbtree_p;
 	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
 
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
     
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_remove(sd->root(*real_key), 
@@ -1150,20 +1153,20 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num, bool
         if (lock_mode == EX) cc = t_cc_none;
     }
 
-    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
-	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
-	sd->sinfo().ntype == t_uni_mrbtree_partition;
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
+	sd->sinfo().ntype == t_uni_mrbtree_l ||
+	sd->sinfo().ntype == t_uni_mrbtree_p;
 	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
 
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 	
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_remove_key(sd->root(*real_key), 
@@ -1232,20 +1235,20 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
     if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
 
-    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree_regular ||
-	sd->sinfo().ntype == t_uni_mrbtree_leaf ||
-	sd->sinfo().ntype == t_uni_mrbtree_partition;
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
+	sd->sinfo().ntype == t_uni_mrbtree_l ||
+	sd->sinfo().ntype == t_uni_mrbtree_p;
 	
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
 
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
     
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
         W_DO(bt->mr_lookup(sd->root(*real_key), 
@@ -1352,12 +1355,12 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
 
     // split the btree
     switch (sd->sinfo().ntype) {
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:	
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:	
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 
 	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLocks));
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
@@ -1429,26 +1432,27 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
     lpid_t leaf;
     // split the btree
     switch (sd->sinfo().ntype) {
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
+    case t_mrbtree:
+    case t_uni_mrbtree:
 	
 	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
 
         break;
 
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
 
 	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
 	if(leaf.page != 0) {
-	    W_DO(bt->split_heap(leaf, bIgnoreLatches));
+	    W_DO(bt->relocate_recs_l(leaf, bIgnoreLatches));
 	}
 	break;
 	
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 
-	// TODO: call corresponding split tree function
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
+	W_DO(bt->relocate_recs_p(root_new, bIgnoreLatches));
 	break;
 	
     default:
@@ -1490,9 +1494,27 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches
     W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
     W_DO( sd->partitions().deletePartitionByKey(*real_key, root1, root2, start_key1, start_key2) );
 
-    // update tree  
-    W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+    switch (sd->sinfo().ntype) {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
 
+	// update tree  
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+	break;
+
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
+
+	// update tree  
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches, true) );
+	break;
+
+    default:
+        return RC(eBADNDXTYPE);
+    }
+    
     // update key_ranges_map if necessary
     if( root != root1) {
 	W_DO( sd->partitions().updateRoot(start_key1, root) );
@@ -1534,7 +1556,26 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatch
     W_DO( sd->partitions().deletePartition(root1, root2, start_key1, start_key2) );
 
     // update tree  
-    W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+        switch (sd->sinfo().ntype) {
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+
+	// update tree  
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+	break;
+
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
+
+	// update tree  
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches, true) );
+	break;
+
+    default:
+        return RC(eBADNDXTYPE);
+    }
 
     // update key_ranges_map if necessary
     if( root != root1) {
@@ -2330,12 +2371,12 @@ ss_m::_get_store_info(
     case t_btree:
     case t_uni_btree:
 	// --mrbt
-    case t_mrbtree_regular:
-    case t_uni_mrbtree_regular:
-    case t_mrbtree_leaf:
-    case t_uni_mrbtree_leaf:
-    case t_mrbtree_partition:
-    case t_uni_mrbtree_partition:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
 	// --
         W_DO( key_type_s::get_key_type(info.keydescr, 
 				       info.keydescrlen,

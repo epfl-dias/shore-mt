@@ -38,7 +38,8 @@ check_PROGRAMS     = file_scan$(EXEEXT) \
 		    rtree_example$(EXEEXT) \
 		    htab$(EXEEXT) \
 		    multi_rooted_btrees_test$(EXEEXT) \
-                    multi_rooted_btrees_test2$(EXEEXT)	
+                    multi_rooted_btrees_test2$(EXEEXT) \
+                    multi_rooted_btrees_test3$(EXEEXT)	
 
 TESTS = testall
 
@@ -54,6 +55,7 @@ vtable_example_SOURCES      = vtable_example.cpp init_config_options.cpp
 rtree_example_SOURCES      = rtree_example.cpp init_config_options.cpp 
 multi_rooted_btrees_test_SOURCES      = multi_rooted_btrees_test.cpp init_config_options.cpp
 multi_rooted_btrees_test2_SOURCES      = multi_rooted_btrees_test2.cpp init_config_options.cpp
+multi_rooted_btrees_test3_SOURCES      = multi_rooted_btrees_test3.cpp init_config_options.cpp
 htab_SOURCES      = htab.cpp
 
 LDADD      = \

@@ -193,6 +193,10 @@ echo "---------------------------------------------------------"
 #echo "running multi-rooted btrees tests"
 #execute "multi_rooted_btrees_test -i " multi-rooted-out
 
+#echo "---------------------------------------------------------"
+#echo "running multi-rooted btrees tests with second design"
+#execute "multi_rooted_btrees_test2 -i " multi-rooted-out2
+
 echo "---------------------------------------------------------"
-echo "running multi-rooted btrees tests with second design"
-execute "multi_rooted_btrees_test2 -i " multi-rooted-out2
+echo "running multi-rooted btrees tests with third design"
+execute "multi_rooted_btrees_test3 -i " multi-rooted-out3

@@ -94,11 +94,15 @@ protected:
 	lpid_t&                         leaf,
 	const bool                      bIgnoreLatches);
     
-    static rc_t                        _split_heap(
+    static rc_t                        _relocate_recs_l(
         const lpid_t&                   leaf,
 	const bool bIgnoreLatches = false);
 
-    static rc_t                        _split_heap(
+    static rc_t                        _relocate_recs_p(
+        const lpid_t&                   root,
+	const bool bIgnoreLatches = false);
+
+    static rc_t                        _relocate_recs_l(
         lpid_t&                   leaf_split,
 	const lpid_t&                   leaf_new,
 	const bool                      was_root,
@@ -109,7 +113,8 @@ protected:
         const lpid_t&                   root1,
 	const lpid_t&                   root2,
 	cvec_t&                         startKey2,
-	const bool                      bIgnoreLatches);
+	const bool                      bIgnoreLatches,
+	const bool                      update_owner);
     
     static rc_t                       _link_after_merge(
 					    lpid_t root,
@@ -118,7 +123,12 @@ protected:
 					    bool set_root1,
 					    const bool bIgnoreLatches);
 
-    static rc_t                        _insert_leaf(
+    static rc_t                       _update_owner(
+					    lpid_t new_owner,
+					    lpid_t old_owner,
+					    const bool bIgnoreLatches);
+
+    static rc_t                        _insert_l(
         const lpid_t&                     root,
         bool                             unique,
         concurrency_t                    cc,
@@ -127,7 +137,16 @@ protected:
         int                             split_factor = 50,
 	const bool bIgnoreLatches = false);
 
-    static rc_t                 _split_leaf_and_heap(
+    static rc_t                        _insert_p(
+        const lpid_t&                     root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+        cvec_t&                     elem,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false);
+
+    static rc_t                 _split_leaf_and_relocate_recs(
         const lpid_t&                    root_pid,         // I - root of tree
         btree_p&                    leaf,         // I - page to be split
         const cvec_t&                    key,        // I-  which key causes split

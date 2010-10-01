@@ -122,7 +122,7 @@ public:
 
     // -- mrbt
     rc_t        set(const lpid_t& root, const bool bIgnoreLatches = false);
-    rc_t        put_mr_leaf(const cvec_t& key, const cvec_t& el, bool& new_leaf);
+    rc_t        put_mr_l(const cvec_t& key, const cvec_t& el, bool& new_leaf);
     // --
     rc_t        put(const cvec_t& key, const cvec_t& el);
     rc_t        map_to_root();
@@ -1211,7 +1211,7 @@ btree_m::mr_bulk_load(
 
 /*********************************************************************
  *
- *  btree_m::mr_bulk_load_leaf(root, ...)
+ *  btree_m::mr_bulk_load_l(root, ...)
  *
  *  Bulk load a mrbtree at root using records from store src.
  *
@@ -1227,7 +1227,7 @@ btree_m::mr_bulk_load(
  *********************************************************************/
 
 rc_t
-btree_m::mr_bulk_load_leaf(
+btree_m::mr_bulk_load_l(
     key_ranges_map&      partitions,          // I-  mrbtree partitions
     int                  nsrcs,                // I- # stores in array above
     const stid_t*        src,                // I-  stores containing new records
@@ -1411,9 +1411,9 @@ btree_m::mr_bulk_load_leaf(
                         ++cnt;
 			bool new_leaf = false;
                         if(lexify_keys) {
-			    W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
+			    W_DO( sink.put_mr_l(*real_key, el, new_leaf) );
                         } else {
-			    W_DO( sink.put_mr_leaf(key, el, new_leaf) );
+			    W_DO( sink.put_mr_l(key, el, new_leaf) );
                         }
 			if(new_leaf && s != 1) {
 			    file_p new_page;
@@ -1428,9 +1428,9 @@ btree_m::mr_bulk_load_leaf(
 			    new_page.unfix();
 			    W_DO( page[i].fix(pid, latch) );
 			    if(lexify_keys) {
-				W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
+				W_DO( sink.put_mr_l(*real_key, el, new_leaf) );
 			    } else {
-				W_DO( sink.put_mr_leaf(key, el, new_leaf) );
+				W_DO( sink.put_mr_l(key, el, new_leaf) );
 			    }
 			}
                         skip_last = false;
@@ -1493,9 +1493,9 @@ btree_m::mr_bulk_load_leaf(
 
 	bool new_leaf = false;
 	if(lexify_keys) {
-	    W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
+	    W_DO( sink.put_mr_l(*real_key, el, new_leaf) );
 	} else {
-	    W_DO( sink.put_mr_leaf(key, el, new_leaf) );
+	    W_DO( sink.put_mr_l(key, el, new_leaf) );
 	}
 	if(new_leaf && s != 1) {
 	    file_p new_page;
@@ -1510,9 +1510,9 @@ btree_m::mr_bulk_load_leaf(
 	    new_page.unfix();
 	    W_DO( page[i].fix(pid, latch) );
 	    if(lexify_keys) {
-		W_DO( sink.put_mr_leaf(*real_key, el, new_leaf) );
+		W_DO( sink.put_mr_l(*real_key, el, new_leaf) );
 	    } else {
-		W_DO( sink.put_mr_leaf(key, el, new_leaf) );
+		W_DO( sink.put_mr_l(key, el, new_leaf) );
 	    }
 	}
 
@@ -1539,14 +1539,14 @@ btree_m::mr_bulk_load_leaf(
 
 /*********************************************************************
  *
- *  btree_m::mr_bulk_load_leaf(root, sorted_stream, unique, cc, stats)
+ *  btree_m::mr_bulk_load_l(root, sorted_stream, unique, cc, stats)
  *
  *  Bulk load a btree at root using records from sorted_stream.
  *  Statistics regarding the bulkload is returned in stats.
  *
  *********************************************************************/
 rc_t
-btree_m::mr_bulk_load_leaf(
+btree_m::mr_bulk_load_l(
     key_ranges_map&      partitions,          // I-  mrbtree partitions
     sort_stream_i&       sorted_stream,        // IO - sorted stream        
     int                  nkc,
@@ -1883,7 +1883,7 @@ btsink_t::put(const cvec_t& key, const cvec_t& el)
 
 /*********************************************************************
  *
- *  btsink_t::put_mr_leaf(key, el)
+ *  btsink_t::put_mr_l(key, el)
  *
  *  Insert a <key el> pair into the page[0] (leaf) of the stack
  *  If no space left on leaf, before adding rec to new leaf, remove recs
@@ -1892,7 +1892,7 @@ btsink_t::put(const cvec_t& key, const cvec_t& el)
  *
  *********************************************************************/
 rc_t
-btsink_t::put_mr_leaf(const cvec_t& key, const cvec_t& el, bool& new_leaf)
+btsink_t::put_mr_l(const cvec_t& key, const cvec_t& el, bool& new_leaf)
 {
     /*
      *  Turn OFF logging. Insertions into btree pages are not logged
