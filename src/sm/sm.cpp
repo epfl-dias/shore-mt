@@ -2250,17 +2250,16 @@ ss_m::dump_locks() {
 
 
 
-#if SLI_HOOKS
 /*--------------------------------------------------------------*
  *  Enable/Disable Shore-SM features                            *
  *--------------------------------------------------------------*/
 
-void ss_m::set_sli_enabled(bool /* enable */) 
+void ss_m::set_sli_enabled(bool enable) 
 {
-    fprintf(stdout, "SLI not supported\n");
-    //lm->set_sli_enabled(enable);
+    lm->set_sli_enabled(enable);
 }
 
+#if OTHER_HOOKS
 void ss_m::set_elr_enabled(bool /* enable */) 
 {
     fprintf(stdout, "ELR not supported\n");

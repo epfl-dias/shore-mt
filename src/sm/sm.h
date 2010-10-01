@@ -2952,11 +2952,11 @@ public:
      *
      *****************************************************************/
 
-#if SLI_HOOKS
     /* enable/disable SLI globally for all threads created after this
        point. Does *NOT* disable SLI for existing threads.
      */
     static void			set_sli_enabled(bool enabled);
+#if OTHER_HOOKS
     static void			set_elr_enabled(bool enabled);
 
     static rc_t			set_log_features(char const* features);

@@ -107,6 +107,28 @@ class lock_head_t;
 class xct_impl; // forward
 class xct_lock_info_t; // forward
 
+/* SLI status types
+
+   NOTE: it *is* possible to invalidate and abandon a request
+   simultaneously; the final state will be sli_invalid or
+   sli_abandoned depending on who finishes first.
+ */
+enum {
+    SLI_INACTIVE=0x10,			// SLI may be stopped on this request
+    SLI_LOCKED=0x100, 			// Somebody is stopping SLI on this request
+    SLI_DEAD=0x1000 			// Somebody has finished stopping SLI
+};
+
+enum sli_status_t {
+    sli_not_inherited =	0,
+    sli_active =	1,
+    sli_inactive =	    SLI_INACTIVE,
+    sli_invalidating =	0 | SLI_INACTIVE | SLI_LOCKED,
+    sli_abandoning =	1 | SLI_INACTIVE | SLI_LOCKED,
+    sli_invalid =	0 | SLI_INACTIVE | SLI_DEAD,
+    sli_abandoned =	1 | SLI_INACTIVE | SLI_DEAD
+};
+
 // typedef     w_list_t<lock_request_t,queue_based_lock_t> request_list_t;
 #define request_list_t w_list_t<lock_request_t,queue_based_lock_t> 
 // typedef     w_list_i<lock_request_t,queue_based_lock_t> request_list_i;
@@ -129,6 +151,7 @@ class xct_lock_info_t; // forward
  */
 class lock_request_t : public w_base_t {
 public:
+    friend class lock_core_m;
     typedef lock_base_t::lmode_t lmode_t; // common/basics.h: lock_mode_t
     typedef lock_base_t::duration_t duration_t; // in common/basics.h
     typedef lock_base_t::status_t status_t; // lock_s.h
@@ -175,7 +198,67 @@ public:
     void              set_num_children(int4_t n) { _num_children=n;}    
     int4_t            inc_num_children() { return ++_num_children; }    
 
+    /* Speculative lock inheritance rules:
+
+       Every request must be either in a transaction list or else in
+       an agent's SLI list.
+
+       If an agent needs to release a lock (perhaps it is dying) it
+       should mark the requests "abandoned" and let other transactions
+       clean up when they find it..
+
+       When a transaction ends, any locks it decides to pass on will
+       be marked "inactive" and the next transaction must (atomically)
+       change the state back to "active" before it can inherit the request.
+
+       An inherited request is really only useful if it's in the lock
+       cache (and we don't have to grab hte lock mutex to figure out
+       we have it)
+
+       When a transaction inherits a lock, it must check whether the
+       lock's parent is properly held, potentially inheriting it as
+       well. It does this by checking the lock cache; if not there SLI
+       isn't helping anyway and the request can be dropped on the
+       floor. For the same reason, a request which gets evicted from
+       the cache makes no effort to notify its inactive descendants
+       that they are no longer valid.
+       
+     */
+    /* SLI state protocol:
+
+       A --> B means a normal transition. A ==> B means the transition is racy and requires CAS
+
+       sli_not_inherited --> sli_inactive	A transaction initiates SLI during lock release
+       
+       sli_inactive ==> sli_active		A transaction successfully reclaims the request
+       sli_inactive ==> sli_invalidating	The lock manager decides to stop SLI
+       sli_inactive ==> sli_abandoning		The agent thread decides to stop SLI
+       
+       sli_invalidating ==> sli_invalid		The lock manager finished stopping SLI first
+       sli_invalidating ==> sli_abandoned	The agent thread raced ahead and finished first
+
+       sli_abandoning ==> sli_abandoned		The agent thread finished stopping SLI first
+       sli_abandoned ==> sli_invalid		The lock manager raced ahead and finished first
+
+       Once the request is successfully abandoned or invalidated it
+       must not be accessed again; the other thread could free it
+       at any time and leave a dangling pointer.
+     */
+    sli_status_t		_sli_status;
+    bool keep_me;
+
     lock_request_t volatile* vthis() { return this; }
+
+    /* perform a CAS on the sli status variable. WARNING: this
+       function doesn't behave like a normal CAS because, on success,
+       it returns what the *new* value is rather than the old
+       one. This is useful for the sli protocols and is safe because
+       no two threads ever try to set the status to the same value.
+     */
+    sli_status_t cas_sli_status(sli_status_t expect, sli_status_t assign) {
+	sli_status_t found = (sli_status_t) atomic_cas_32((unsigned*)&_sli_status, expect, assign);
+	return (found == expect)? assign : found;
+    }
 
     // convert_mode used when we hold lock head mutex
     lmode_t           convert_mode() const { return _convert_mode; } 
@@ -207,12 +290,12 @@ public:
 
     NORET             lock_request_t();
     
-    void              init(
+    lock_request_t*   init(
                           xct_t*        x,
                           lmode_t        m,
                           duration_t    d);
 
-    void              init(
+    lock_request_t*   init(
                           xct_t*        x,
                           bool        is_quark_marker);
 
@@ -225,6 +308,7 @@ public:
 
     lock_head_t*     get_lock_head() const;
     xct_lock_info_t* get_lock_info() const { return _lock_info; }
+    bool		is_reclaimed() { return !(_sli_status & SLI_INACTIVE); }
 
     bool             is_quark_marker() const;
 
@@ -271,6 +355,35 @@ struct lock_x {                      \
         return mutex.is_mine(get_me()); \
     }                                \
 }
+
+struct Int {
+    int value;
+    Int(int v=0) : value(v) { }
+    operator int&() { return value; }
+    int &operator*() { return value; }
+};
+
+struct sli_stats {
+    Int xct_count;
+    
+    // how many locks...
+    Int requested ;	// did we explicitly ask for
+    Int acquired ;	// did we acquire (includes parents but not repeated requests)
+    Int upgraded ;	// did we upgrade?
+
+    Int eligible ;   // ... could we have inherited if we wanted to?
+    Int inherited ;		// ... did we inherit?
+    Int used ;			// ... did the next trx actually use?
+    Int too_weak ;		// ... did we inherit but have to upgrade to use?
+    Int found_late ;		// ... found by searching the lock's request queue?
+    
+    Int purged ;		// ... unused and abandoned by the next purge?
+    Int invalidated ;		// ... invalidated by another thread?
+    Int evicted ;		// ... abandoned because they left cache?
+    Int no_parent ;		// ... abandoned because we couldn't find their parent?
+    Int waited_on ;		// ... abandoned because somebody was waiting for them?
+};
+
 
 /**\brief Shared between transaction (xct_t) and lock manager
  * \details
@@ -377,6 +490,7 @@ public:
     void            set_nonblocking();
     bool            is_nonblocking() const { return _noblock; }
 
+    void print_sli_list();
 private:
     lock_cache_t<lock_cache_size,(lockid_t::cached_granularity+1)>    _lock_cache;
     DEF_LOCK_X_TYPE(2);                // declare & define lock_x type
@@ -394,6 +508,7 @@ public:
      * Public for lock_core_m
      */
     request_list_t  my_req_list[t_num_durations];
+    request_list_t  sli_list;
 
 private:
 
@@ -406,6 +521,12 @@ private:
                                      // in the deadlock detector but running.
     atomic_thread_map_t  _wait_map; // for dreadlocks DLD
 
+public:
+    bool			_sli_enabled; // does the user want to use sli?
+    bool			_sli_purged;
+    sli_stats			stats;
+    
+private:
     // now this is in the thread :
     // lockid_t     hierarchy[lockid_t::NUMLEVELS];
     lockid_t::name_space_t _lock_level;

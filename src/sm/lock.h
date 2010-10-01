@@ -70,6 +70,7 @@ class lock_core_m;
 class lock_m : public lock_base_t {
 public:
 
+    friend class xct_lock_info_t;
     typedef lock_base_t::lmode_t lmode_t;
     typedef lock_base_t::duration_t duration_t;
     typedef lock_base_t::status_t status_t;
@@ -156,6 +157,9 @@ public:
     
     static rc_t                 open_quark();
     static rc_t                 close_quark(bool release_locks);
+
+    static void			set_sli_enabled(bool enable);
+    void 			disable_sli(xct_lock_info_t* theLockInfo);
 
 private:
     lock_core_m*                core() const { return _core; }

@@ -371,6 +371,21 @@ lock_m::close_quark(bool release_locks)
     return RCOK;
 }
 
+void lock_m::disable_sli(xct_lock_info_t* theLockInfo) {
+    /* release any inherited locks. note that the list has newest
+       locks at the front so a forward iterator preserves the
+       hierarchical locking protocol.
+    */
+    W_COERCE(theLockInfo->lock_info_mutex.acquire());
+    request_list_i it(theLockInfo->sli_list);
+    while(lock_request_t* req=it.next()) 
+	_core->sli_abandon_request(req);
+
+    W_COERCE(theLockInfo->lock_info_mutex.release());
+    theLockInfo->_sli_enabled = false;
+}
+
+
 rc_t
 lock_m::_lock(
     const lockid_t&         _n,
