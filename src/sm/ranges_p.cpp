@@ -252,10 +252,8 @@ rc_t ranges_p::delete_partition(const lpid_t& root_to_delete,
 	cvec_t pair_vec;
 	pair_vec.put(pair, page_p::tuple_size(i));
 	// get the root
-	char* current_root = (char*) malloc(sizeof(lpid_t));
-	pair_vec.copy_to(current_root, sizeof(lpid_t));
-	lpid_t current_root_id = *((lpid_t*)current_root);
-	free(current_root);
+	lpid_t current_root_id;
+	pair_vec.copy_to(&current_root_id, sizeof(lpid_t));
 	//
 	if(!root_deleted && current_root_id == root_to_delete) {
 	    slot_to_delete = i; // found the slot for the key to be deleted
@@ -302,7 +300,7 @@ rc_t ranges_p::add_default_partition(cvec_t& key, const lpid_t& root)
    cvec_t hdr;
    hdr.put((char*)(&num_pairs), sizeof(uint4_t));
 
-   W_DO(page_p::reclaim(0, hdr, true));
+   W_DO(page_p::overwrite(0, 0, hdr));
    
    return RCOK;
 }
@@ -310,7 +308,7 @@ rc_t ranges_p::add_default_partition(cvec_t& key, const lpid_t& root)
 rc_t ranges_p::format(const lpid_t& pid, tag_t tag, uint4_t flags, 
 		      store_flag_t store_flags)
 {
-    // template taken from file_p
+    // pin: template taken from file_p
 
     w_assert3(tag == t_ranges_p);
 

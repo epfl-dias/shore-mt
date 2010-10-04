@@ -100,6 +100,7 @@ class smthread_user_t : public smthread_t {
     bool        _initialize_device;
     option_group_t* _options;
     vid_t       _vid;
+    int         _test_no;
 public:
     int         retval;
     
@@ -113,6 +114,7 @@ public:
 	  _initialize_device(false),
 	  _options(NULL),
 	  _vid(1),
+	  _test_no(0),
 	  retval(0) { }
     
     ~smthread_user_t()  { if(_options) delete _options; }
@@ -816,13 +818,29 @@ smthread_user_t::no_init()
     W_COERCE(find_file_info());
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
-    //W_DO(mr_index_test0()); // ok
-    //W_DO(mr_index_test1()); // ok
-    //W_DO(mr_index_test2()); // ok
-    //W_DO(mr_index_test3()); // ok
-    W_DO(mr_index_test4()); //
-    //W_DO(mr_index_test5()); // ok
-    //W_DO(mr_index_test6()); // ok
+    switch(_test_no) {
+    case 0:
+	W_DO(mr_index_test0()); // ok
+	break;
+    case 1:
+	W_DO(mr_index_test1()); // ok
+	break;
+    case 2:
+	W_DO(mr_index_test2()); // ok
+	break;
+    case 3:
+	W_DO(mr_index_test3()); // ok
+	break;
+    case 4:
+	W_DO(mr_index_test4()); //
+	break;
+    case 5:
+	W_DO(mr_index_test5()); // ok
+	break;
+    case 6:
+	W_DO(mr_index_test6()); // ok
+	break;
+    }
     return RCOK;
 }
 
@@ -833,7 +851,7 @@ smthread_user_t::do_work()
       cout << "do init" << endl;
       W_DO(do_init());
     }
-    //else  
+    else  
       W_DO(no_init());
     return RCOK;
 }
@@ -900,7 +918,7 @@ w_rc_t smthread_user_t::handle_options()
 
     // Process the command line: looking for the "-h" flag
     int option;
-    while ((option = getopt(_argc, _argv, "hi")) != -1) {
+    while ((option = getopt(_argc, _argv, "hi0123456")) != -1) {
         switch (option) {
         case 'i' :
             _initialize_device = true;
@@ -910,6 +928,34 @@ w_rc_t smthread_user_t::handle_options()
             usage(options);
             break;
 
+	case '0':
+	    _test_no = 0;
+	    break;
+	    
+	case '1':
+	    _test_no = 1;
+	    break;
+	    
+	case '2':
+	    _test_no = 2;
+	    break;
+	    
+	case '3':
+	    _test_no = 3;
+	    break;
+	    
+	case '4':
+	    _test_no = 4;
+	    break;
+	    
+	case '5':
+	    _test_no = 5;
+	    break;
+		    
+	case '6':
+	    _test_no = 6;
+	    break;
+	    
         default:
             usage(options);
             retval = 1;
@@ -917,6 +963,10 @@ w_rc_t smthread_user_t::handle_options()
             break;
         }
     }
+
+    if(!_initialize_device) 
+	cout << "TEST" << _test_no << endl;
+
     {
         cout << "Checking for required options...";
         /* check that all required options have been set */

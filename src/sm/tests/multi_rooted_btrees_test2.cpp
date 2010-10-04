@@ -40,6 +40,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <cassert>
 #include "sm_vas.h"
 #include "w_getopt.h"
+#include <set>
 ss_m* ssm = 0;
 
 // shorten error code type name
@@ -100,6 +101,7 @@ class smthread_user_t : public smthread_t {
     bool        _initialize_device;
     option_group_t* _options;
     vid_t       _vid;
+    int         _test_no;
 public:
     int         retval;
     
@@ -113,6 +115,7 @@ public:
 	  _initialize_device(false),
 	  _options(NULL),
 	  _vid(1),
+	  _test_no(0),
 	  retval(0) { }
     
     ~smthread_user_t()  { if(_options) delete _options; }
@@ -133,8 +136,6 @@ public:
     w_rc_t mr_index_test6();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
-    rid_t rid_last1;
-    rid_t rid_last2;
     // --
     w_rc_t scan_the_file();
     w_rc_t scan_the_root_index();
@@ -229,36 +230,6 @@ smthread_user_t::create_the_file()
             info.first_rid = rid;
         }        
     }
-    
-    j = 1000;
-    {
-	w_ostrstream o1(dummy, sizeof(int));
-	o1 << j << ends;
-	w_assert1(o1.c_str() == dummy);
-    }
-    // header contains record #
-    int i1 = j;
-    const vec_t hdr1(&i1, sizeof(i1));
-    W_COERCE(ssm->create_mrbt_rec(info.fid, hdr1,
-				  data.size(), data, rid));
-    cout << "Creating rec " << j << endl;
-    rid_last1.pid = rid.pid;
-    rid_last1.slot = rid.slot;
-
-    j = 0;
-    {
-	w_ostrstream o2(dummy, sizeof(int));
-	o2 << j << ends;
-	w_assert1(o2.c_str() == dummy);
-    }
-    // header contains record #
-    int i2 = j;
-    const vec_t hdr2(&i2, sizeof(i2));
-    W_COERCE(ssm->create_mrbt_rec(info.fid, hdr2,
-				  data.size(), data, rid));
-    cout << "Creating rec " << j << endl;
-    rid_last2.pid = rid.pid;
-    rid_last2.slot = rid.slot;
     
     cout << "Created all. First rid " << info.first_rid << endl;
     delete [] dummy;
@@ -372,14 +343,54 @@ rc_t smthread_user_t::mr_index_test2()
 
     W_DO(print_the_mr_index(stid));
 
+    // create two more recs
+    W_DO(ssm->begin_xct());
 
+    rid_t rid1;
+    rid_t rid2;
+    
+    char* dummy = new char[_rec_size];
+    memset(dummy, '\0', _rec_size);
+    vec_t data(dummy, sizeof(int));
+    int j = 1000;
+    {
+	w_ostrstream o1(dummy, sizeof(int));
+	o1 << j << ends;
+	w_assert1(o1.c_str() == dummy);
+    }
+    // header contains record #
+    int i1 = j;
+    const vec_t hdr1(&i1, sizeof(i1));
+    W_COERCE(ssm->create_mrbt_rec(_fid, hdr1,
+				  data.size(), data, rid1));
+    cout << "Creating rec " << j << endl;
+    
+    j = 0;
+    {
+	w_ostrstream o2(dummy, sizeof(int));
+	o2 << j << ends;
+	w_assert1(o2.c_str() == dummy);
+    }
+    // header contains record #
+    int i2 = j;
+    const vec_t hdr2(&i2, sizeof(i2));
+    W_COERCE(ssm->create_mrbt_rec(_fid, hdr2,
+				  data.size(), data, rid2));
+    cout << "Creating rec " << j << endl;
+    
+    delete [] dummy;
+
+    W_DO(ssm->commit_xct());
+
+    
+    // create two more assocs 
     W_DO(ssm->begin_xct());
     cout << "ssm->create_mr_assoc" << endl;
     int new_key = 1000;
     cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el((char*)(&rid_last1), sizeof(rid_t));
+    vec_t el((char*)(&rid1), sizeof(rid_t));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
@@ -389,7 +400,7 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el2((char*)(&rid_last2), sizeof(rid_t));
+    vec_t el2((char*)(&rid2), sizeof(rid_t));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
@@ -647,6 +658,7 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
   pin_i*      cursor(NULL);
   bool        eof(false);
   int         i(0);
+  set<int>    inserted;
   
   do {
     w_rc_t rc = scan.next(cursor, 0, eof);
@@ -661,19 +673,22 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
     cvec_t       key(cursor->hdr(), cursor->hdr_size());
     int         hdrcontents;
     key.copy_to(&hdrcontents, sizeof(hdrcontents));
-    cout << "Key: "  << hdrcontents << endl;
-    cout << "key size " << key.size() << endl;
-    vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
-    cout << "El: " << cursor->rid() << endl;
-    cout << "El size "  << el.size() << endl;
-
-    const char *body = cursor->body();
-    w_assert1(cursor->body_size() == _rec_size);
-    cout << "Record body "  << body << endl;
-
-    W_DO(ssm->create_mr_assoc(stid, key, el));
-
-    i++;
+    if(inserted.find(hdrcontents) == inserted.end() && hdrcontents != 0 && hdrcontents != 1000) {
+	cout << "Key: "  << hdrcontents << endl;
+	cout << "key size " << key.size() << endl;
+	vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
+	cout << "El: " << cursor->rid() << endl;
+	cout << "El size "  << el.size() << endl;
+	
+	const char *body = cursor->body();
+	//w_assert1(cursor->body_size() == _rec_size);
+	cout << "Record body "  << body << endl;
+	
+	W_DO(ssm->create_mr_assoc(stid, key, el));
+	
+	i++;
+	inserted.insert(hdrcontents);
+    }
   } while (!eof);
   w_assert1(i == _num_rec-1);
 
@@ -772,12 +787,12 @@ smthread_user_t::scan_the_file()
         cout << "Record hdr "  << hdrcontents << endl;
 
         const char *body = cursor->body();
-        w_assert1(cursor->body_size() == _rec_size);
+        //w_assert1(cursor->body_size() == _rec_size);
         cout << "Record body "  << body << endl;
 	cout << "Record body size " << cursor->body_size() << endl;
         i++;
     } while (!eof);
-    w_assert1(i == _num_rec-1);
+    //    w_assert1(i == _num_rec-1);
 
     W_DO(ssm->commit_xct());
     return RCOK;
@@ -853,13 +868,29 @@ smthread_user_t::no_init()
     W_COERCE(find_file_info());
     W_COERCE(scan_the_root_index());
     W_DO(scan_the_file());
-    //W_DO(mr_index_test0()); // ok
-    //W_DO(mr_index_test1()); // ok
-    W_DO(mr_index_test2()); // ok 
-    //W_DO(mr_index_test3()); // ok
-    //W_DO(mr_index_test4()); //
-    //W_DO(mr_index_test5()); // ok
-    //W_DO(mr_index_test6()); // ok
+    switch(_test_no) {
+    case 0:
+	W_DO(mr_index_test0()); // ok
+	break;
+    case 1:
+	W_DO(mr_index_test1()); // ok
+	break;
+    case 2:
+	W_DO(mr_index_test2()); // ok
+	break;
+    case 3:
+	W_DO(mr_index_test3()); // ok
+	break;
+    case 4:
+	W_DO(mr_index_test4()); //
+	break;
+    case 5:
+	W_DO(mr_index_test5()); // ok
+	break;
+    case 6:
+	W_DO(mr_index_test6()); // ok
+	break;
+    }
     return RCOK;
 }
 
@@ -870,7 +901,7 @@ smthread_user_t::do_work()
       cout << "do init" << endl;
       W_DO(do_init());
     }
-    //else  
+    else  
       W_DO(no_init());
     return RCOK;
 }
@@ -937,7 +968,7 @@ w_rc_t smthread_user_t::handle_options()
 
     // Process the command line: looking for the "-h" flag
     int option;
-    while ((option = getopt(_argc, _argv, "hi")) != -1) {
+    while ((option = getopt(_argc, _argv, "hi0123456")) != -1) {
         switch (option) {
         case 'i' :
             _initialize_device = true;
@@ -947,6 +978,34 @@ w_rc_t smthread_user_t::handle_options()
             usage(options);
             break;
 
+	case '0':
+	    _test_no = 0;
+	    break;
+	    
+	case '1':
+	    _test_no = 1;
+	    break;
+	    
+	case '2':
+	    _test_no = 2;
+	    break;
+	    
+	case '3':
+	    _test_no = 3;
+	    break;
+	    
+	case '4':
+	    _test_no = 4;
+	    break;
+	    
+	case '5':
+	    _test_no = 5;
+	    break;
+		    
+	case '6':
+	    _test_no = 6;
+	    break;
+	    
         default:
             usage(options);
             retval = 1;
@@ -954,6 +1013,10 @@ w_rc_t smthread_user_t::handle_options()
             break;
         }
     }
+
+    if(!_initialize_device) 
+	cout << "TEST" << _test_no << endl;
+    
     {
         cout << "Checking for required options...";
         /* check that all required options have been set */

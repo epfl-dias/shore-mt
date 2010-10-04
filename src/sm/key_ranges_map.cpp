@@ -56,6 +56,9 @@
 
 key_ranges_map::key_ranges_map()
 {
+    _minKey = NULL;
+    _maxKey = NULL;
+    _numPartitions = 1;
 }
 
 key_ranges_map::key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts)
@@ -93,10 +96,14 @@ key_ranges_map::~key_ranges_map()
     }
 
     // Delete the boundary keys
-    if(_minKey != NULL)
+    if(_minKey != NULL) {
 	free (_minKey);
-    if(_maxKey != NULL)
+	_minKey = NULL;
+    }
+    if(_maxKey != NULL) {
 	free (_maxKey);
+	_maxKey = NULL;
+    }
 
     _rwlock.release_write();    
 }

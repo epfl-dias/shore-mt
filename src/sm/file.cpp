@@ -622,7 +622,7 @@ file_m::create_mrbt_rec_in_given_page(
         histoid_update_t hu(page);
 
         if(page.is_fixed()) {
-            w_assert2(policy == t_append);
+            //w_assert2(policy == t_append);
 	    w_assert2(bIgnoreLatches || page.latch_mode() == LATCH_EX);
 	    
             rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
@@ -720,7 +720,7 @@ file_m::_create_mrbt_rec_in_slot(
 )
 {
     FUNC(_create_mrbt_rec_in_slot);
-    w_assert2(page.is_fixed() && page.is_file_mrbt_p());
+    //w_assert2(page.is_fixed() && page.is_file_mrbt_p());
 
     // if bIgnoreLatches = false
           // page is already in the file and locked IX or EX
@@ -2916,7 +2916,7 @@ rc_t
 file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
 {
     FUNC(file_mrbt_p::shift);
-    w_assert1(idx >= 0 && idx < nrecs());
+    //w_assert1(idx >= 0 && idx < nrecs());
 
     int n = num_slots() - idx;
 

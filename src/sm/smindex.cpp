@@ -917,9 +917,14 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	    cout << "Partition " << i << endl;
 	    bt->print(pidVec[i], k);
 	    sd->partitions().getBoundaries(pidVec[i], stop_key, dummy, last);
-	    W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
-	    key->copy_to(&value, sizeof(value));
-	    cout << "Start Key was " << value << endl;
+	    if(stop_key.size() != 0) {
+		W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
+		key->copy_to(&value, sizeof(value));
+		cout << "Start Key was " << value << endl;
+	    }
+	    else {
+		cout << "Start Key was " << 0 << endl;
+	    }
 	    cout << endl;
 	}
 
@@ -1251,6 +1256,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     case t_uni_mrbtree_p:
     
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	//INC_TSTAT(bt_access_cnt[sd->root(*real_key)]);
         W_DO(bt->mr_lookup(sd->root(*real_key), 
 			   is_unique,
 			   cc,

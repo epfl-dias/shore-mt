@@ -546,7 +546,9 @@ btree_impl::_split_tree(
     if( pid != root_old ) {
 	W_DO( _alloc_page(bIgnoreLatches, root_new, page.level(), root_new, new_tree_page,
 			  rec.child(), false, page.is_compressed()) );
-	W_DO( page.shift(ret_slot, new_tree_page) );
+	if(ret_slot < page.nrecs()) {
+	    W_DO( page.shift(ret_slot, new_tree_page) );
+	}
 	pid0 = new_tree_page.pid().page;
 	// update prev/next pointers
 	next_page_id = page.next();
@@ -579,7 +581,9 @@ btree_impl::_split_tree(
 	btree_p new_tree_page;
 	W_DO( _alloc_page(bIgnoreLatches, root_new, page.level(), root_new, new_tree_page,
 			  pid0, false, page.is_compressed()));
-	W_DO( page.shift(ret_slot, new_tree_page) );
+	if(ret_slot < page.nrecs()) {
+	    W_DO( page.shift(ret_slot, new_tree_page) );
+	}
 	page.unfix();
 	pid0 = new_tree_page.pid().page;
 	// update prev/next pointers
@@ -607,7 +611,9 @@ btree_impl::_split_tree(
 				page.level(), 
 				pid0, 
 				page.is_compressed()) );
-    W_DO( page.shift(ret_slot, root_page_new) );
+    if(ret_slot < page.nrecs()) {
+	W_DO( page.shift(ret_slot, root_page_new) );
+    }
     page.unfix();
     root_page_new.unfix();	    
     
@@ -1240,6 +1246,9 @@ btree_impl::_merge_trees(
 				false, bIgnoreLatches) );
 	root_page_1.unfix();
 	root_page_2.unfix();
+
+	// free root2
+	W_DO( io->free_page(root2, false/*checkstore*/) );
     }
     
     return RCOK;
