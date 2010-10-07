@@ -95,7 +95,7 @@ DECLARE_TLS(lock_request_cache_t, lock_request_pool);
 #define NEW_LOCK_REQUEST lock_request_pool->acquire
 #define DELETE_LOCK_REQUEST(req) lock_request_pool->release(req)
 #else
-#define NEW_LOCK_REQUEST new lock_request_t()->init
+#define NEW_LOCK_REQUEST (new lock_request_t())->init
 #define DELETE_LOCK_REQUEST(req) delete req
 #endif
 
@@ -159,13 +159,14 @@ const bool lock_base_t::compat
  *
  *********************************************************************/
 const lock_base_t::lmode_t lock_base_t::supr[NUM_MODES][NUM_MODES] = {
-    { NL,   IS,   IX,   SH,   SIX,  UD,   EX },
-    { IS,   IS,   IX,   SH,   SIX,  UD,   EX },
-    { IX,   IX,   IX,   SIX,  SIX,  EX,   EX },
-    { SH,   SH,   SIX,  SH,   SIX,  UD,   EX },
-    { SIX,  SIX,  SIX,  SIX,  SIX,  SIX,  EX },
-    { UD,   UD,   EX,   UD,   SIX,  UD,   EX },
-    { EX,   EX,   EX,   EX,   EX,   EX,   EX }
+         /* NL    IS    IX    SH    SIX   UD    EX */ 
+/*NL*/    { NL,   IS,   IX,   SH,   SIX,  UD,   EX },
+/*IS*/    { IS,   IS,   IX,   SH,   SIX,  UD,   EX },
+/*IX*/    { IX,   IX,   IX,   SIX,  SIX,  EX,   EX },
+/*SH*/    { SH,   SH,   SIX,  SH,   SIX,  UD,   EX },
+/*SIX*/   { SIX,  SIX,  SIX,  SIX,  SIX,  SIX,  EX },
+/*UD*/    { UD,   UD,   EX,   UD,   SIX,  UD,   EX },
+/*EX*/    { EX,   EX,   EX,   EX,   EX,   EX,   EX }
 };
 
 LockCoreFunc::~LockCoreFunc()
@@ -242,8 +243,10 @@ void xct_lock_info_t::print_sli_list() {
     fprintf(stderr, "%s\n", (char const*) pp);
 }
 
-char const* db_pretty_print(lock_request_t const* req, int, char const*) {
+char const* db_pretty_print(lock_request_t const* req, int i=0, char const* s=0) {
     static pretty_printer pp;
+    (void) i;
+    (void) s;
     lock_head_t* lock = req->get_lock_head();
     if(lock)
         pp << lock->name << " ";
@@ -251,14 +254,18 @@ char const* db_pretty_print(lock_request_t const* req, int, char const*) {
     return pp;
 }
     
-char const* db_pretty_print(lockid_t const* lid, int, char const*) {
+char const* db_pretty_print(lockid_t const* lid, int i=0, char const* s=0) {
     static pretty_printer pp;
+    (void) i;
+    (void) s;
     pp << *lid;
     return pp;
 }
-char const* db_pretty_print(lock_head_t const* lock, int, char const*) 
+char const* db_pretty_print(lock_head_t const* lock, int i=0, char const* s=0) 
 {
   static pretty_printer pp;
+    (void) i;
+    (void) s;
   ostream &out = pp;
   pp << lock->name << ":" 
       << lock_base_t::mode_str[lock->granted_mode] << " queue: {";
@@ -293,9 +300,9 @@ void lock_m::set_sli_enabled(bool enable) { global_sli_enabled = enable; }
 xct_lock_info_t::xct_lock_info_t()
 :
     _wait_request(NULL),
-    _lock_level(lockid_t::t_record),
     _sli_enabled(global_sli_enabled),
     _sli_purged(false),
+    _lock_level(lockid_t::t_record),
     _quark_marker(0),
     _noblock(false)
 {
@@ -867,13 +874,11 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude)
     const lock_request_t* f;
     while ((f = iter.next())) {
         if (f->status() == lock_m::t_waiting) break;
-#if CODE_FROM_SLI_BRANCH
-	if (f->status() == lock_m::t_aborted && f->convert_mode == NL) break;
-#endif
         // f is granted -- make sure it's got a mode that really
         // should have been granted, i.e., it's compatible with all the other
         // granted modes.  UD cases aren't symmetric, so we do both checks here:
-        w_assert9(lock_m::compat[f->mode][gmode] || lock_m::compat[gmode][f->mode]);
+        w_assert9(lock_m::compat[f->mode][gmode]
+		  || lock_m::compat[gmode][f->mode]);
 
         if (f != exclude) gmode = lock_base_t::supr[f->mode()][gmode];
     }
@@ -1492,7 +1497,6 @@ lock_core_m::acquire_lock(
         w_rc_t::errcode_t  rce(eOK);
         INC_TSTAT(lock_wait_cnt);
 	
-	bool deadlock_risk = false;
      again:
         {
             DBGTHRD(<<" again: timeout " << timeout);
@@ -1976,7 +1980,7 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
 }
 
 void lock_core_m::sli_abandon_request(lock_request_t* &req) {
-    sli_status_t s = req->vthis()->_sli_status;
+    W_IFDEBUG1(sli_status_t s = req->vthis()->_sli_status);
     w_assert1(s != sli_not_inherited);
 
     // attempt to activate. If it succeeds we must release rather than abandon.
@@ -1985,7 +1989,6 @@ void lock_core_m::sli_abandon_request(lock_request_t* &req) {
 	   effect we can finish invalidating the request with no more
 	   atomic ops (we will acquire the lock head mutex).
 	*/
-	lock_head_t* lock = req->get_lock_head();
 	lock_head_t::my_lock* lock_mutex = &req->get_lock_head()->head_mutex;
 	W_COERCE(lock_mutex->acquire());
 	W_COERCE(_release_lock(req, true));
