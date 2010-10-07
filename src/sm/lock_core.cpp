@@ -373,13 +373,36 @@ xct_lock_info_t* xct_lock_info_t::reset() {
 // allows reuse rather than free/malloc of the structure
 xct_lock_info_t* xct_lock_info_t::reset_for_reuse() 
 {
-    _lock_cache.reset();
-
     // make sure the lock lists are empty
     for(int i=0; i < t_num_durations; i++) {
         w_assert1(my_req_list[i].is_empty());
     }
+
+    /* horrible, dirty hack
+
+       Take a bit-wise backup of the sli_list object, then restore the
+       backup after clobbering /this/. This should be safe as long as
+       it's safe not to call the destructor (which we never have).
+
+       Meanwhile, calling the constructor to re-initialize the object
+       vastly reduces the chances of us forgetting to reset something,
+       or resetting it to the wrong value.
+     */
+    long _tmp[(sizeof(sli_list)+sizeof(long)-1)/sizeof(long)];
+    memcpy(_tmp, &sli_list, sizeof(sli_list));
     new (this) xct_lock_info_t;
+    memcpy(&sli_list, _tmp, sizeof(sli_list));
+
+    request_list_i it(sli_list);
+    lock_cache_elem_t ignore_me;// don't care...
+    while(lock_request_t* req = it.next()) {
+	lockid_t const &name = req->get_lock_head()->name;
+	req->keep_me = false; //name.lspace() <= lockid_t::t_store;
+	put_cache(name, req->mode(), req, ignore_me);
+    }
+    membar_exit(); // can't let the status change precede the lock name read above!
+    for(it.reset(sli_list); lock_request_t* req = it.next(); ++stats.inherited)
+	req->_sli_status = sli_inactive;
     
     return this;
 }
@@ -863,7 +886,7 @@ lockid_t::truncate(name_space_t space)
  *
  *********************************************************************/
 inline lock_base_t::lmode_t
-lock_head_t::granted_mode_other(const lock_request_t* exclude)
+lock_head_t::granted_mode_other(const lock_request_t* exclude, bool kill_sli)
 {
     w_assert9(!exclude || exclude->status() == lock_m::t_granted ||
                           exclude->status() == lock_m::t_converting);
@@ -871,7 +894,7 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude)
     lock_base_t::lmode_t gmode = smlevel_0::NL;
     lock_head_t::safe_queue_iterator_t iter(*this); 
 
-    const lock_request_t* f;
+    lock_request_t* f;
     while ((f = iter.next())) {
         if (f->status() == lock_m::t_waiting) break;
         // f is granted -- make sure it's got a mode that really
@@ -880,6 +903,8 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude)
         w_assert9(lock_m::compat[f->mode][gmode]
 		  || lock_m::compat[gmode][f->mode]);
 
+	if (kill_sli && smlevel_0::lm->_core->sli_invalidate_request(f))
+	    continue; // never mind...
         if (f != exclude) gmode = lock_base_t::supr[f->mode()][gmode];
     }
 
@@ -1313,6 +1338,14 @@ lock_core_m::acquire_lock(
 
                 upgraded = true;
                 
+		if (!compat[mode][granted_mode_other]) {
+		    // make sure SLI isn't the problem
+		    if(lock->granted_mode <= SH) {
+			lock->granted_mode = lock->granted_mode_other(req, true);
+			granted_mode_other = supr[mode][lock->granted_mode];
+		    }
+		}
+		
                 if (compat[mode][granted_mode_other]) {
                     /* compatible --> no wait */
                     req->set_mode(mode);
@@ -1358,6 +1391,13 @@ lock_core_m::acquire_lock(
             // it is a new request
             prev_mode = NL;
 
+	    if (!compat[mode][lock->granted_mode]) {
+		// make sure SLI isn't the problem
+		if(lock->granted_mode <= SH) {
+		    lock->granted_mode = lock->granted_mode_other(req, true);
+		}
+	    }
+		
             bool compatible = !lock->waiting 
                 && compat[mode][lock->granted_mode];
 
@@ -2022,7 +2062,7 @@ void lock_core_m::put_in_cache(xct_lock_info_t* the_xlinfo,
 
 lock_cache_elem_t* lock_core_m::search_cache(
                 xct_lock_info_t* the_xlinfo,
-                lockid_t const &name, bool /*reclaim*/)
+                lockid_t const &name, bool reclaim)
 {
 #ifndef __GNUC__
 #warning TODO: implement some LRU-ish scheme?
@@ -2033,6 +2073,14 @@ lock_cache_elem_t* lock_core_m::search_cache(
         if(e->req) {
             // some sort of corruption here...
             w_assert1((void*) e->req->xlink.member_of() != (void*) e->req->xlink.prev());
+#warning FIXME: is it always correct to reclaim parents recursively here?
+	    if(reclaim && !sli_reclaim_request(e->req, RECLAIM_RECLAIM_PARENT)) {
+		e->mode = NL;
+		e = 0;
+	    }
+	    if(!reclaim && !e->req->is_reclaimed()) {
+		e = 0;
+	    }
         }            
     }
     return e;
@@ -2051,7 +2099,7 @@ lock_core_m::_maybe_inherit(lock_request_t* request, bool is_ancestor) {
 	    request->get_lock_info()->stats.eligible++;
 	    bool should_inherit = request->_sli_status == sli_not_inherited
 		&& lock->head_mutex.is_contended();
-	    if(0 || should_inherit || request->_sli_status == sli_active) {
+	    if(0 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
 		// clear some fields out
 		request->_num_children = 0;
 		request->_ref_count = 0;

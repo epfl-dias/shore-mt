@@ -654,7 +654,7 @@ public:
 
     NORET            ~lock_head_t()   { chain.detach(); }
 
-    lmode_t          granted_mode_other(const lock_request_t* exclude);
+    lmode_t          granted_mode_other(const lock_request_t* exclude, bool kill_sli=false);
     lock_request_t*  find_lock_request(const xct_lock_info_t*  xdli);
     int              queue_length() const { 
 #if MY_LOCK_DEBUG
