@@ -2963,6 +2963,14 @@ public:
     static char const* 		get_log_features();
 #endif
 
+#if SM_PLP_TRACING
+    /* Set tracing level. For example, the application may choose to track
+     * the page-level accesses or the critical sections 
+     */
+    static void     set_plp_tracing(const uint tracing_level);
+#endif
+
+
     /**\brief Acquire a lock.
      * \ingroup SSMLOCK
      * @param[in]  n  Lock id of the entity to lock. There are

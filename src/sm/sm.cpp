@@ -2281,6 +2281,18 @@ char const* ss_m::get_log_features()
 }
 #endif
 
+#if SM_PLP_TRACING
+#warning PLP tracing enabled
+uint smlevel_0::_ptrace_level = 0;
+mcs_lock smlevel_0::_ptrace_lock;
+ofstream smlevel_0::_ptrace_out("plp_tracing.txt");
+void ss_m::set_plp_tracing(const uint tracing_level)
+{
+    smlevel_0::_ptrace_level = tracing_level;
+}
+#endif
+
+
 
 /*--------------------------------------------------------------*
  *  ss_m::lock()                                *

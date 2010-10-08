@@ -780,6 +780,12 @@ page_p::_format(const lpid_t& pid, tag_t tag,
     return RCOK;
 }
 
+#if SM_PLP_TRACING
+static __thread timeval my_time;
+enum PLP_TRACING_LEVELS { PLP_TRACE_NONE = 0, 
+                          PLP_TRACE_PAGE = 1,
+                          PLP_TRACE_CS = 2};
+#endif
 
 /*********************************************************************
  *
@@ -811,6 +817,17 @@ page_p::_fix(
 {
     w_assert3(!_pp || bf->is_bf_page(_pp, false));
     store_flag_t        ret_store_flags = store_flags;
+
+#if SM_PLP_TRACING
+    if (_ptrace_level>=PLP_TRACE_PAGE) {
+        gettimeofday(&my_time, NULL);
+        CRITICAL_SECTION(plpcs,_ptrace_lock);
+        _ptrace_out << "P: " << pid << " T: " << pthread_self() << " M: " << m
+                    << " T: " << my_time.tv_sec << "." << my_time.tv_usec << endl;
+        plpcs.exit();
+    }
+#endif
+
 
     if (store_flags & st_insert_file)  {
         store_flags = (store_flag_t) (store_flags|st_tmp); 
