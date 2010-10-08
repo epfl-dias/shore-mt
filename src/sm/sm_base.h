@@ -536,6 +536,11 @@ public:
     static uint     _ptrace_level;
     static mcs_lock _ptrace_lock;
     static ofstream _ptrace_out;
+    enum plp_tracing_level_t { 
+        PLP_TRACE_NONE  = 0x0, 
+        PLP_TRACE_PAGE  = 0x01,
+        PLP_TRACE_CS    = 0x02
+    };
 #endif
 
 };

@@ -293,9 +293,9 @@ void lock_m::set_sli_enabled(bool enable) { global_sli_enabled = enable; }
 xct_lock_info_t::xct_lock_info_t()
 :
     _wait_request(NULL),
-    _lock_level(lockid_t::t_record),
     _sli_enabled(global_sli_enabled),
     _sli_purged(false),
+    _lock_level(lockid_t::t_record),
     _quark_marker(0),
     _noblock(false)
 {

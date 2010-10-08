@@ -219,6 +219,11 @@ tree_latch::~tree_latch()
     unfix();
 }
 
+
+#if SM_PLP_TRACING
+static __thread timeval my_time;
+#endif
+
 void                  
 tree_latch::unfix() 
 {
@@ -228,6 +233,17 @@ tree_latch::unfix()
     // _page.unfix(), but that didn't try to unfix the page unless it
     // was thought to be fixed.  Now we need to check before unlatching.
     if(_fixed) {
+
+#if SM_PLP_TRACING
+        if (smlevel_0::_ptrace_level>=smlevel_0::PLP_TRACE_PAGE) {
+            gettimeofday(&my_time, NULL);
+            CRITICAL_SECTION(plpcs,smlevel_0::_ptrace_lock);
+            smlevel_0::_ptrace_out << _pid << " " << pthread_self() << " "
+                                   << my_time.tv_sec << "." << my_time.tv_usec << endl;
+            plpcs.exit();
+        }
+#endif
+
         _latch.latch_release();
         _fixed = false;
         /// RACY w_assert2(_latch.mode() == LATCH_NL );
