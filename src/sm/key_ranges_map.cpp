@@ -58,7 +58,7 @@ key_ranges_map::key_ranges_map()
 {
     _minKey = NULL;
     _maxKey = NULL;
-    _numPartitions = 1;
+    _numPartitions = 0;
 }
 
 key_ranges_map::key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts)
@@ -122,6 +122,7 @@ key_ranges_map::~key_ranges_map()
 uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey, 
                                          const uint numParts, vector<lpid_t>& roots)
 {
+    /*
     assert (minKey<=maxKey);
 
     // IP: make sure that the store does not have any entries (isClean())
@@ -141,7 +142,7 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
     int dummy_min = *((int*)_minKey);
     int dummy_max = *((int*)_maxKey);
 	
-    uint keysz = min(minsz,maxsz); // Use that many chars for the keys entries
+    uint keysz = 0//min(minsz,maxsz); // Use that many chars for the keys entries
 
     uint partsCreated = 0; // In case it cannot divide to numParts partitions
 
@@ -172,6 +173,8 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
 
     assert (partsCreated != 0); // Should have created at least one partition
     return (partsCreated);
+    */
+    return 1;
 }
 
 
@@ -200,6 +203,7 @@ uint key_ranges_map::_distributeSpace(const char* A,
                                       const uint partitions, 
                                       char** subParts)
 {
+    /*
     assert (strcmp(A,B)); // It should A<B
 
     uint numASCII = 95;
@@ -209,7 +213,7 @@ uint key_ranges_map::_distributeSpace(const char* A,
     // compute the space between two strings
     uint space = 0;
     for(int i=totalSize-1, j=0; i>totalSize-sz-1; i--,j++)
-	space = space + ((int) B[i] - (int) A[i]) * (int) pow(numASCII, j);
+	;//space = space + ((int) B[i] - (int) A[i]) * (int) pow(numASCII, j);
 
     // find the approximate range each partitions should keep
     uint range = space / partitions;
@@ -260,6 +264,8 @@ uint key_ranges_map::_distributeSpace(const char* A,
     free(nextKey);
     
     return pcreated;
+    */
+    return 1;
 }
 
 
@@ -499,6 +505,30 @@ w_rc_t key_ranges_map::getAllPartitions(vector<lpid_t>& pidVec)
     _rwlock.acquire_read();
     for(keysIter iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); iter++) {
 	pidVec.push_back(iter->second);
+    }
+    _rwlock.release_read();
+
+    return (r);
+}
+
+/****************************************************************** 
+ *
+ * @fn:    getAllStartKeys()
+ *
+ * @brief: Returns the list of the start keys of all partitions
+ *
+ * @param: vector<cvec_t*> keysVec    - Output 
+ *
+ ******************************************************************/
+
+w_rc_t key_ranges_map::getAllStartKeys(vector<cvec_t*>& keysVec) 
+{
+    w_rc_t r = RCOK;
+    
+    _rwlock.acquire_read();
+    for(keysIter iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); iter++) {
+	cvec_t key(iter->first, sizeof(iter->first));
+	keysVec.push_back(&key);
     }
     _rwlock.release_read();
 

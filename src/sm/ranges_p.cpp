@@ -56,13 +56,13 @@ rc_t ranges_m::create(const stid_t stid, lpid_t& pid, const lpid_t& subroot)
     return RCOK;
 }
 
-rc_t ranges_m::create(const stid_t stid, lpid_t& pid, key_ranges_map& partitions, vector<lpid_t>& subroots) 
+rc_t ranges_m::create(const stid_t stid, lpid_t& pid, vector<cvec_t*>& keys, vector<lpid_t>& subroots) 
 {
     W_DO(io->alloc_a_page(stid, lpid_t::eof, pid, true, IX, true));
     ranges_p page;
     W_DO(page.fix(pid, LATCH_EX, page.t_virgin)); 
     // add the initial ranges 
-    W_DO( page.fill_page(partitions, subroots) );
+    W_DO( page.fill_page(keys, subroots) );
     page.unfix();
     return RCOK;
 }
@@ -124,10 +124,8 @@ rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 	    cvec_t root_vec;
 	    cvec_t key;
 	    pair_vec.split(sizeof(lpid_t), root_vec, key);
-	    char* root = (char*) malloc(sizeof(lpid_t));
-	    root_vec.copy_to(root);
-	    lpid_t root_id = *((lpid_t*)root);
-	    free(root);
+	    lpid_t root_id;
+	    root_vec.copy_to(&root_id, sizeof(lpid_t));
 	    // add this pair to the partitions map
 	    partitions.addPartition(key, root_id);
 	}
@@ -153,13 +151,12 @@ rc_t ranges_p::fill_page(key_ranges_map& partitions)
     v.put(iter->first, sizeof(iter->first));
     // add this key-subroot pair to page's data
     W_DO(page_p::overwrite(i, 0, v));
-    
+
     // put rest of the partitions' info
     for(; iter != partitions_map.end(); iter++, i++) {
 	cvec_t v;
 	// put subroot
-	char* subroot = (char*)(&(iter->second));
-	v.put(subroot, sizeof(lpid_t));
+	v.put((char*)(&iter->second), sizeof(lpid_t));
 	// put key
 	v.put(iter->first, sizeof(iter->first));
 	// add this key-subroot pair to page's data
@@ -174,31 +171,36 @@ rc_t ranges_p::fill_page(key_ranges_map& partitions)
     return RCOK;
 }
 
-rc_t ranges_p::fill_page(key_ranges_map& partitions, vector<lpid_t>& subroots)
+rc_t ranges_p::fill_page(vector<cvec_t*>& keys, vector<lpid_t>& subroots)
 {
     // pin: should only be called for initial partitions
-    map<char*, lpid_t, cmp_greater> partitions_map = partitions.getMap();
-
-    // special case, the first partition (the default partition needs to be overwritten
-    key_ranges_map::keysIter iter = partitions_map.begin();
-    uint4_t i = 1;
-    cvec_t v;
-    // put first subroot
-    v.put((char*)(&subroots[0]), sizeof(lpid_t));
-    // put key
-    v.put(iter->first, sizeof(iter->first));
-    // add this key-subroot pair to page's data
-    W_DO(page_p::overwrite(i, 0, v));
-    
-    // put rest of the partitions' info
-    for(; iter != partitions_map.end(); iter++, i++) {
+    //map<char*, lpid_t, cmp_greater> partitions_map = partitions.getMap();
+    uint4_t i = 0;
+    // put the partitions' info 
+/*
+    for(key_ranges_map::keysIter iter = partitions_map.begin(); iter != partitions_map.end(); iter++, i++) {
 	cvec_t v;
 	// put subroot
-	v.put((char*)(&subroots[i]), sizeof(lpid_t));
+	v.put((char*)(&subroots[i-1]), sizeof(lpid_t));
 	// put key
 	v.put(iter->first, sizeof(iter->first));
 	// add this key-subroot pair to page's data
 	W_DO(page_p::reclaim(i, v, true));
+    } */
+
+    // pin: to debug
+    if(*(keys[0]) == *(keys[1])) {
+	cout << "keys are equal" << endl;
+    }
+
+    for(; i < keys.size(); i++) {
+	cvec_t v;
+	// put subroot
+	v.put((char*)(&subroots[i]), sizeof(lpid_t));
+	// put key
+	v.put(*(keys[i]));
+	// add this key-subroot pair to page's data
+	W_DO(page_p::reclaim(i+1, v, true));
     }
 
     // header of the page keeps how many startKey-root pairs are stored

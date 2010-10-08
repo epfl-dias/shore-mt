@@ -496,10 +496,12 @@ rc_t ss_m::print_mr_index(stid_t stid)
 /*--------------------------------------------------------------*
  *  ss_m::create_mr_assoc()                                     *
  *--------------------------------------------------------------*/
-rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, vec_t& el, const bool bIgnoreLocks)
+rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, el_filler& ef, 
+			   const bool bIgnoreLocks, // = false
+			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL 
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
-    W_DO(_create_mr_assoc(stid, key, el, bIgnoreLocks));
+    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, relocate_callback));
     return RCOK;
 }
 
@@ -561,11 +563,12 @@ rc_t ss_m::add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks)
 /*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLocks, 
+			 RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition(stid, key, bIgnoreLocks));
+    W_DO(_add_partition(stid, key, bIgnoreLocks, relocate_callback));
     return RCOK;
 }
 
@@ -687,8 +690,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
     uint4_t count = max_keycomp;
     key_type_s kcomp[max_keycomp];
     lpid_t root;
-    lpid_t subroot;
-
     
     W_DO(key_type_s::parse_key_type(key_desc, count, kcomp));
      {
@@ -711,13 +712,27 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 (cc != t_cc_im)
 	 ) return RC(eBADCCLEVEL);
 
+     // create the sub-tree roots
      vector<lpid_t> roots;
      bool isCompressed = kcomp[0].compressed != 0;
      for(uint i=0; i< ranges.getNumPartitions(); i++) {
-	 lpid_t root;
-	 W_DO(bt->create(stid, root, isCompressed, bIgnoreLatches));
-	 roots.push_back(root);
+	 lpid_t subroot;
+	 W_DO(bt->create(stid, subroot, isCompressed, bIgnoreLatches));
+	 cout << "subroot " << subroot << endl;
+       	 roots.push_back(subroot);
      }
+
+     // scramble the start keys
+     vector<cvec_t*> keys;
+     ranges.getAllStartKeys(keys);
+     vector<cvec_t*> real_keys;
+
+     for(uint i=0; i< keys.size(); i++) {
+	 cvec_t* real_key;
+	 W_DO(bt->_scramble_key(real_key, *keys[i], count, kcomp));
+       	 real_keys.push_back(real_key);
+     }
+     
     
      switch (ntype)  {
      case t_mrbtree:
@@ -728,7 +743,7 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
      case t_uni_mrbtree_p:
 	 
 	 // create the ranges_p based on ranges
-	 W_DO( ra->create(stid, root, ranges, roots) );
+	 W_DO( ra->create(stid, root, real_keys, roots) );
 
 	 break;
 
@@ -898,9 +913,9 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     sortorder::keytype k = sortorder::convert(sd->sinfo().kc);
     vector<lpid_t> pidVec;
     uint i = 0;
-    cvec_t stop_key;
+    cvec_t start_key;
     cvec_t* key;
-    cvec_t dummy;
+    cvec_t end_key;
     int value;
     bool last = false;
     
@@ -915,10 +930,14 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	sd->partitions().getAllPartitions(pidVec);
 	for(i = 0; i < pidVec.size(); i++) {
 	    cout << "Partition " << i << endl;
+
+	    // pin: to debug
+	    cout << pidVec[i] << endl;
+
 	    bt->print(pidVec[i], k);
-	    sd->partitions().getBoundaries(pidVec[i], stop_key, dummy, last);
-	    if(stop_key.size() != 0) {
-		W_DO(bt->_unscramble_key(key, stop_key, sd->sinfo().nkc, sd->sinfo().kc));
+	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key, last);
+	    if(start_key.size() != 0) {
+		W_DO(bt->_unscramble_key(key, start_key, sd->sinfo().nkc, sd->sinfo().kc));
 		key->copy_to(&value, sizeof(value));
 		cout << "Start Key was " << value << endl;
 	    }
@@ -937,13 +956,21 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     return RCOK;
 }
 
+rc_t ss_m::_el_filler_wrapper(
+        vec_t&                 el,
+        const lpid_t&          leaf)
+{
+    return _ef->fill_el(el, leaf);
+}
+
 /*--------------------------------------------------------------*
  *  ss_m::_create_mr_assoc()                                    *
  *--------------------------------------------------------------*/
 rc_t ss_m::_create_mr_assoc(const stid_t&        stid, 
 			    cvec_t&         key, 
-			    vec_t&         el,
-			    const bool bIgnoreLocks)
+			    el_filler&         ef,
+			    const bool bIgnoreLocks, // = false
+			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL
 {
 
     // usually we will do kvl locking and already have an IX lock
@@ -998,25 +1025,32 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
  	W_DO(bt->mr_insert(sd->root(*real_key), 
 			   is_unique, 
 			   cc,
-			   *real_key, el, 50, bIgnoreLocks));
+			   *real_key, ef._el, 50, 
+			   bIgnoreLocks));
         break;
 
     case t_mrbtree_l:
     case t_uni_mrbtree_l:
 
+	_ef = &ef;
 	W_DO(bt->mr_insert_l(sd->root(*real_key), 
 			     is_unique, 
 			     cc,
-			     *real_key, el, 50, bIgnoreLocks));
+			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+			     bIgnoreLocks, relocate_callback));
+	_ef = NULL;
 	break;
 
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
+	_ef = &ef;
 	W_DO(bt->mr_insert_p(sd->root(*real_key), 
 			     is_unique, 
 			     cc,
-			     *real_key, el, 50, bIgnoreLocks));
+			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+			     bIgnoreLocks));
+	_ef = NULL;
 	break;
 	
     case t_rtree:
@@ -1386,7 +1420,8 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
+rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches,
+			  RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
 
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
@@ -1435,30 +1470,31 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
     W_DO( sd->partitions().addPartition(*real_key, root_new) );
     W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
 
-    lpid_t leaf;
+    lpid_t leaf_old;
+    lpid_t leaf_new;
     // split the btree
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
     case t_uni_mrbtree:
 	
-	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf_old, leaf_new, bIgnoreLatches));
 
         break;
 
     case t_mrbtree_l:
     case t_uni_mrbtree_l:
 
-	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
-	if(leaf.page != 0) {
-	    W_DO(bt->relocate_recs_l(leaf, bIgnoreLatches));
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf_old, leaf_new, bIgnoreLatches));
+	if(leaf_old.page != 0) {
+	    W_DO(bt->relocate_recs_l(leaf_old, leaf_new, bIgnoreLatches, relocate_callback));
 	}
 	break;
 	
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf, bIgnoreLatches));
-	W_DO(bt->relocate_recs_p(root_new, bIgnoreLatches));
+	W_DO(bt->split_tree(root_old, root_new, *real_key, leaf_old, leaf_new, bIgnoreLatches));
+	W_DO(bt->relocate_recs_p(root_old, root_new, bIgnoreLatches, relocate_callback));
 	break;
 	
     default:
@@ -1507,14 +1543,14 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches
     case t_uni_mrbtree_l:
 
 	// update tree  
-	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, false, bIgnoreLatches) );
 	break;
 
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
 	// update tree  
-	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches, true) );
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, true, bIgnoreLatches) );
 	break;
 
     default:
@@ -1569,14 +1605,14 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatch
     case t_uni_mrbtree_l:
 
 	// update tree  
-	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches) );
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, false, bIgnoreLatches) );
 	break;
 
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
 	// update tree  
-	W_DO( bt->merge_trees(root, root1, root2, start_key2, bIgnoreLatches, true) );
+	W_DO( bt->merge_trees(root, root1, root2, start_key2, true, bIgnoreLatches) );
 	break;
 
     default:

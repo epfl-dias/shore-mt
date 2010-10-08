@@ -193,6 +193,9 @@ public:
     bool                         pinned_by_me() const;
 
     slotid_t                     nslots() const;
+    // -- mrbt
+    slotid_t                     nvacant() const;
+    // --
     smsize_t                     tuple_size(slotid_t idx) const;
     void*                        tuple_addr(slotid_t idx) const;
     bool                         is_tuple_valid(slotid_t idx) const;
@@ -658,6 +661,17 @@ page_p::nslots() const
 {
     return _pp->nslots;
 }
+
+// -- mrbt
+/*--------------------------------------------------------------*
+ *  page_p::nvacant()                                           *
+ *--------------------------------------------------------------*/
+inline slotid_t
+page_p::nvacant() const
+{
+    return _pp->nvacant;
+}
+// --
 
 /*--------------------------------------------------------------*
  *  page_p::lsn()                                                *

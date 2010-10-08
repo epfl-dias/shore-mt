@@ -91,42 +91,41 @@ protected:
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
         const cvec_t&                   key,
-	lpid_t&                         leaf,
+	lpid_t&                         leaf_old,
+	lpid_t&                         leaf_new,
 	const bool                      bIgnoreLatches);
     
     static rc_t                        _relocate_recs_l(
-        const lpid_t&                   leaf,
-	const bool bIgnoreLatches = false);
-
-    static rc_t                        _relocate_recs_p(
-        const lpid_t&                   root,
-	const bool bIgnoreLatches = false);
-
-    static rc_t                        _relocate_recs_l(
-        lpid_t&                   leaf_split,
+        const lpid_t&                   leaf_old,
 	const lpid_t&                   leaf_new,
 	const bool                      was_root,
-	const bool bIgnoreLatches = false);
-    
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                        _relocate_recs_p(
+        const lpid_t&                   root_old,
+        const lpid_t&                   root_new,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
     static rc_t                        _merge_trees(
         lpid_t&                         root,			      	    
         const lpid_t&                   root1,
 	const lpid_t&                   root2,
-	cvec_t&                         startKey2,
-	const bool                      bIgnoreLatches,
-	const bool                      update_owner);
+	cvec_t&                         startKey2,	
+	const bool                      update_owner,
+	const bool                      bIgnoreLatches);
     
-    static rc_t                       _link_after_merge(
-					    lpid_t root,
-					    shpid_t p1,
-					    shpid_t p2,
-					    bool set_root1,
-					    const bool bIgnoreLatches);
-
-    static rc_t                       _update_owner(
-					    lpid_t new_owner,
-					    lpid_t old_owner,
-					    const bool bIgnoreLatches);
+    static rc_t                        _mr_insert(
+        const lpid_t&                     root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+	rc_t (*fill_el)(vec_t&, const lpid_t&), 
+	size_t el_size,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
     static rc_t                        _insert_l(
         const lpid_t&                     root,
@@ -152,7 +151,48 @@ protected:
         const cvec_t&                    key,        // I-  which key causes split
         const cvec_t&                    el,                // I-  which element causes split
         int                             split_factor,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                       _link_after_merge(
+	const lpid_t& root,
+	shpid_t p1,
+	shpid_t p2,
+	bool set_root1,
 	const bool bIgnoreLatches);
+
+    static rc_t                       _update_owner(
+	const lpid_t& new_owner,
+	const lpid_t& old_owner,
+	const bool bIgnoreLatches);
+
+    static rc_t _move_recs_l(
+	const stid_t& fid,
+	bool& first,
+	const lpid_t& leaf,
+	btree_p& leaf_page,
+	file_mrbt_p& new_page,
+	file_mrbt_p& old_page,
+	vector<rid_t>& recs,
+	map<rid_t, slotid_t>& slot_map,
+	rid_t* old_rids,
+	rid_t* new_rids,
+	uint*   moved,
+	const bool bIgnoreLatches); 
+
+    static rc_t _move_recs_p(
+        const stid_t& fid,
+	bool& first,
+	const lpid_t& root,
+	file_mrbt_p& new_page,
+	file_mrbt_p& old_page,
+	vector<rid_t>& recs,
+	map<rid_t, slotid_t>& slot_map,
+	map<rid_t, lpid_t>& leaf_map,
+	rid_t* old_rids,
+	rid_t* new_rids,
+	uint*   moved,
+	const bool bIgnoreLatches); 
 // --
 
     static rc_t                        _alloc_page(
@@ -325,6 +365,7 @@ private:
             const key_type_s*            kc,
         bool                            lexify_keys,
         const bool bIgnoreLatches = false);
+
 };
 
 /************************************************************************** 

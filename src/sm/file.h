@@ -286,8 +286,18 @@ public:
                         );
 
     // -- mrbt
+    static rc_t move_mrbt_rec_to_given_page(
+				smsize_t            len_hint,
+				const vec_t&        hdr,
+                                const vec_t&        data,
+                                rid_t&              rid,
+                                file_p&             page,        // input
+				bool&               space_found,
+                                const bool        bIgnoreParents = false);
+
     static rc_t create_mrbt_rec_in_given_page(
 				smsize_t            len_hint,
+				sdesc_t&            sd,
 				const vec_t&        hdr,
                                 const vec_t&        data,
                                 rid_t&              rid,
@@ -466,7 +476,8 @@ protected:
                     const vec_t&        data,
                     sdesc_t&            sd,
                     bool                do_append,
-                    rid_t&              rid // out
+                    rid_t&              rid, // out
+		    const bool bIgnoreLatches = false
                     );
 
     // -- mrbt

@@ -89,6 +89,11 @@ class lock_m;
 class tid_t;
 class option_t;
 
+// -- mrbt
+class stid_t;
+class rid_t;
+// --
+
 #ifndef        SM_EXTENTSIZE
 #define        SM_EXTENTSIZE        8
 #endif
@@ -306,6 +311,14 @@ public:
             partition_number_t num
         );
 
+    // -- mrbt
+    typedef w_rc_t (*RELOCATE_RECORD_CALLBACK_FUNC) (
+           const stid_t&      stid,     
+	   rid_t*    old_rids, 
+           rid_t*    new_rids
+       );
+    // --
+
 /**\cond skip */
     enum switch_t {
         ON = 1,
@@ -426,6 +439,10 @@ public:
     static LOG_ARCHIVED_CALLBACK_FUNC log_archived_callback;
     static fileoff_t              log_warn_trigger; 
     static int                    log_warn_exceed_percent; 
+    
+    // -- mrbt
+    // static RELOCATE_RECORD_CALLBACK_FUNC relocate_record_callback;
+    // --
 
     static int    dcommit_timeout; // to convey option to coordinator,
                                    // if it is created by VAS

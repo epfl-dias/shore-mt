@@ -115,6 +115,9 @@ ss_m::LOG_WARN_CALLBACK_FUNC
                      smlevel_0::log_warn_callback = 0;
 ss_m::LOG_ARCHIVED_CALLBACK_FUNC 
                      smlevel_0::log_archived_callback = 0;
+// -- mrbt
+//ss_m::RELOCATE_RECORD_CALLBACK_FUNC smlevel_0::relocate_record_callback = 0;
+// --
 
 // these are set when the logsize option is set
 smlevel_0::fileoff_t        smlevel_0::max_logsz = 0;
@@ -260,7 +263,9 @@ option_t* ss_m::_cc_alg_option = NULL;
 option_t* ss_m::_log_warn_percent = NULL;
 option_t* ss_m::_num_page_writers = NULL;
 option_t* ss_m::_logging = NULL;
-
+// -- mrbt
+ss_m::el_filler* ss_m::_ef = NULL;
+// --
 
 /*
  * class sm_quark_t code

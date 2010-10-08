@@ -44,6 +44,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  */
 
 #include <assert.h>
+#include <w_base.h>
 
 #ifndef W_WORKAROUND_H
 #include <w_workaround.h>

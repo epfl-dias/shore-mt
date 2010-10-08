@@ -586,6 +586,10 @@ public:
     typedef smlevel_0::concurrency_t concurrency_t;
     typedef smlevel_1::xct_state_t xct_state_t;
 
+    // -- mrbt
+    typedef smlevel_0::RELOCATE_RECORD_CALLBACK_FUNC RELOCATE_RECORD_CALLBACK_FUNC;
+    // --
+
     typedef sm_store_property_t store_property_t;
 
 #if COMMENT
@@ -2438,8 +2442,12 @@ public:
      * \ingroup SSMBTREE
      * @param[in] vid   Volume on which to create the index.
      * @param[in] ntype   Type of index. Legitimate values are: 
-     *  - t_mrbtree : Multi-rooted B+-Tree with duplicate keys allowed
-     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys 
+     *  - t_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_mrbtree_l : Multi-rooted B+-Tree with duplicate keys allowed (2nd design)
+     *  - t_uni_mrbtree_l : Multi-rooted B+-Tree without duplicate keys (2nd design)
+     *  - t_mrbtree_p : Multi-rooted B+-Tree with duplicate keys allowed (3rd design)
+     *  - t_uni_mrbtree_p : Multi-rooted B+-Tree without duplicate keys (3rd design)
      * @param[in] property Logging level of store. Legitimate values are:
      *  - t_regular
      *  - t_load_file
@@ -2465,8 +2473,12 @@ public:
      * \ingroup SSMBTREE
      * @param[in] vid   Volume on which to create the index.
      * @param[in] ntype   Type of index. Legitimate values are: 
-     *  - t_mrbtree : Multi-rooted B+-Tree with duplicate keys allowed
-     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys 
+     *  - t_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_mrbtree_l : Multi-rooted B+-Tree with duplicate keys allowed (2nd design)
+     *  - t_uni_mrbtree_l : Multi-rooted B+-Tree without duplicate keys (2nd design)
+     *  - t_mrbtree_p : Multi-rooted B+-Tree with duplicate keys allowed (3rd design)
+     *  - t_uni_mrbtree_p : Multi-rooted B+-Tree without duplicate keys (3rd design)
      * @param[in] property Logging level of store. Legitimate values are:
      *  - t_regular
      *  - t_load_file
@@ -2566,12 +2578,30 @@ public:
     static rc_t            print_mr_index(stid_t stid);
     /**\endcond skip */
 
+    /**\brief Helper struct for create_mr_assoc.
+     * \ingroup SSMBTREE
+     *
+     */
+     struct el_filler {
+	 size_t _el_size; // the size of the element
+	 vec_t _el; // to give the element if it's already determined (for the 1st design)
+	 
+	 /* to be used as a callback function during btree insert (for the 2nd and 3rd designs)
+	  * @param[out] el  the element, contents to be determined after leaf page is found
+	  * @param[in] leaf  leaf page that the insertion will take place for the el  
+	  */
+	 virtual rc_t fill_el(vec_t& el, const lpid_t& leaf) { return RCOK; }
+	 
+	 // destructor
+	 virtual ~el_filler() {}
+    };
+
     /**\brief Create an entry in a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
      * @param[in] stid  ID of the index. 
      * @param[in] key  Key for the association to be created.
-     * @param[in] el  Element for the association to be created.
+     * @param[in] ef  Struct that wraps the element for the association to be created
      *
      * The combined sizes of the key and element vectors must
      * be less than or equal to \ref max_entry_size.
@@ -2579,8 +2609,9 @@ public:
     static rc_t            create_mr_assoc(
         stid_t                   stid, 
         cvec_t&             key, 
-        vec_t&             el,
-        const bool             bIgnoreLocks = false);
+        el_filler&             ef,
+        const bool             bIgnoreLocks = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -2671,7 +2702,8 @@ public:
      */
     static rc_t add_partition(stid_t stid,
 			      cvec_t& key,
-			      const bool bIgnoreLocks = false);
+			      const bool bIgnoreLocks = false, 
+			      RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
     /**\brief Delete the partition that contains the given key and add it to its previous partition
      * in a Multi-rooted B+-Tree index.  
@@ -3109,14 +3141,21 @@ public:
 
     // -- mrbt
     /**\addtogroup SSMFILE
+     * 
      * This functions are for the heap file that are used in MRBtree design
      * when it is enforced that a heap file is pointed by only one leaf page
      * or sub-btree, because for these two designs the file_mrbt_p should be
-     * used instead of file_p. The only difference between these two page
+     * used instead of file_p. 
+     *
+     * The only difference between these two page
      * types is that file_mrbt_p keeps the id of the leaf page or the btree
      * root page that points to it. So it has less space for data than file_p.
-     * Other than the file page type difference the below functions are same as
-     * the above file management functions.
+     * 
+     * Other than the file page type difference and bIgnoreLatches flag
+     * the below functions are same as the above file management functions.
+     * 
+     * There is one additional function though, which is create_file_in_page.
+     * The description for this function is below.
      */
     
     static rc_t            create_mrbt_file( 
@@ -3138,6 +3177,37 @@ public:
         , const bool             bIgnoreLocks = false
 #endif
     ); 
+
+    /**\brief Create a new record in given page.
+     * \ingroup SSMFILE
+     * \details
+     * @param[in] fid  ID of the file in which to create a record.
+     * @param[in] page The page that we want to put the record.
+     * @param[in] hdr  What to put in the record's header.
+     * @param[in] len_hint  Hint about how big the record will ultimately be.
+     * This is used to determine the initial format of the record. If you plan
+     * to append to the record and know that it will ultimately become a large
+     * record, it is more efficient to give a size hint that is larger than
+     * a page here. Otherwise, the record will be made small (as determined by
+     * the size of the parameter \a data ), and subsequent appends will cause 
+     * the record to be converted to a large record.
+     * @param[in] data  What to put in the record's body. 
+     * @param[out] new_rid  ID of the newly created record.
+     * @param[in] space_found indicates whether the record insertion to the given
+     *                        page was successful or not
+     */
+    static rc_t            create_mrbt_rec_in_page(
+        const stid_t&            fid,
+	file_p&                  page,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+	bool&                    space_found
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+					   ); 
 
     static rc_t            destroy_mrbt_rec(const rid_t& rid
 #ifdef SM_DORA
@@ -3451,7 +3521,13 @@ private:
     static option_t* _log_warn_percent;
     static option_t* _num_page_writers;
     static option_t* _logging;
+    // -- mrbt
+    static el_filler* _ef;
 
+    static rc_t _el_filler_wrapper(
+        vec_t&                 el,
+        const lpid_t&          leaf);
+    // --
 
     static rc_t            _set_option_logsize(
         option_t*              opt,
@@ -3642,8 +3718,9 @@ private:
     static rc_t            _create_mr_assoc(
         const stid_t  &        stid, 
         cvec_t&           key, 
-        vec_t&           el,
-        const bool             bIgnoreLocks);
+        el_filler&           eg,
+        const bool             bIgnoreLocks,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
@@ -3676,7 +3753,8 @@ private:
     
     static rc_t _add_partition(stid_t stid,
 			       cvec_t& key,
-			       const bool bIgnoreLocks);
+			       const bool bIgnoreLocks,
+			       RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
     
     static rc_t _delete_partition(stid_t stid,
 				  cvec_t& key,
@@ -3811,6 +3889,19 @@ private:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+        ); 
+
+    static rc_t            _create_mrbt_rec_in_page(
+        const stid_t&            fid, 
+	file_p&                  page,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+	bool&                    space_found
 #ifdef SM_DORA
         , const bool             bIgnoreLocks = false
 #endif

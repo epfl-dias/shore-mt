@@ -339,7 +339,7 @@ btree_m::mr_insert(
 }
 
 /*********************************************************************
- *
+ * 
  *  btree_m::mr_insert_l(root, unique, cc, key, el, split_factor)
  *
  *  Same as mr_insert except we might need to relocate records to enforce
@@ -352,9 +352,11 @@ btree_m::mr_insert_l(
     bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    cvec_t&        el,                // I-  which element
+    rc_t (*fill_el)(vec_t&, const lpid_t&), // I- callback function to determine the element
+    size_t el_size,                         // I - size of the element
     int                  split_factor,        // I-  tune split in %
-    const bool           bIgnoreLatches)
+    const bool           bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -369,9 +371,9 @@ btree_m::mr_insert_l(
         (cc != t_cc_im) 
         ) return badcc();
 
-    if(key.size() + el.size() > btree_p::max_entry_size) {
+    if(key.size() + el_size > btree_p::max_entry_size) {
         DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
-                << " el.size=" << el.size());
+                << " el.size=" << el_size);
         return RC(eRECWONTFIT);
     }
     rc_t rc;
@@ -379,7 +381,8 @@ btree_m::mr_insert_l(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    rc = btree_impl::_insert_l(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, 
+				bIgnoreLatches, relocate_callback);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
             // retries++; // for debugging
@@ -406,7 +409,8 @@ btree_m::mr_insert_p(
     bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    cvec_t&        el,                // I-  which element
+    rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    size_t el_size,                          // I - size of the element
     int                  split_factor,        // I-  tune split in %
     const bool           bIgnoreLatches)
 {
@@ -423,9 +427,9 @@ btree_m::mr_insert_p(
         (cc != t_cc_im) 
         ) return badcc();
 
-    if(key.size() + el.size() > btree_p::max_entry_size) {
+    if(key.size() + el_size > btree_p::max_entry_size) {
         DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
-                << " el.size=" << el.size());
+                << " el.size=" << el_size);
         return RC(eRECWONTFIT);
     }
     rc_t rc;
@@ -433,7 +437,7 @@ btree_m::mr_insert_p(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    rc = btree_impl::_insert_p(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, bIgnoreLatches);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
             // retries++; // for debugging
@@ -558,8 +562,8 @@ btree_m::mr_remove_key(
  *
  *  btree_m::mr_lookup(...)
  *
- *  Find key in btree. If found, copy up to elen bytes of the 
- *  entry element into el. 
+ *  Same as normal btree lookup except there is no scrambling of the 
+ *  key value since it's already done.
  *
  *********************************************************************/
 rc_t
@@ -587,9 +591,9 @@ btree_m::mr_lookup(
 
 /*********************************************************************
  *
- *  btree_m::split_tree(root_old, root_new, key)
+ *  btree_m::split_tree(root_old, root_new, key, leaf_old, leaf-new)
  *
- *  Split from the tree starting from the given key.
+ *  Split the tree starting from the given key.
  *
  *********************************************************************/
 rc_t
@@ -597,7 +601,8 @@ btree_m::split_tree(
     const lpid_t&        root_old,          // I-  root of btree
     const lpid_t&        root_new,           // I- root of the new btree
     const cvec_t&        key,              // I-  which key
-    lpid_t&              leaf,
+    lpid_t&              leaf_old,        // O - leaf whose contents are shifted to another leaf
+    lpid_t&              leaf_new, // O - the new leaf
     const bool           bIgnoreLatches)                
 {
 #if BTREE_LOG_COMMENT_ON
@@ -611,25 +616,29 @@ btree_m::split_tree(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_split_tree(root_old, root_new, key, leaf, bIgnoreLatches);
+    rc = btree_impl::_split_tree(root_old, root_new, key, leaf_old, leaf_new, bIgnoreLatches);
     
     return  rc;
 }
 
 /*********************************************************************
  *
- *  btree_m::relocate_recs_l(leaf)
+ *  btree_m::relocate_recs_l(leaf_old, leaf_new)
+ *
+ *  For the second MRBT design to relocate records after a tree split.
  *
  *********************************************************************/
 rc_t
 btree_m::relocate_recs_l(
-        const lpid_t&                   leaf,
-	const bool bIgnoreLatches)
+        const lpid_t&                   leaf_old,
+        const lpid_t&                   leaf_new,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
 #if BTREE_LOG_COMMENT_ON
     {
         w_ostrstream s;
-        s << "relocate records " << leaf;
+        s << "relocate records: leaf_old= " << leaf_old << " leaf_new=" << leaf_new;
         W_DO(log_comment(s.c_str()));
     }
 #endif
@@ -637,25 +646,28 @@ btree_m::relocate_recs_l(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_relocate_recs_l(leaf, bIgnoreLatches);
+    rc = btree_impl::_relocate_recs_l(leaf_old, leaf_new, false, bIgnoreLatches, relocate_callback);
     
     return  rc;
 }
 
 /*********************************************************************
  *
- *  btree_m::relocate_recs_p(root)
+ *  btree_m::relocate_recs_p(root_old, root_new)
+ *  For the third MRBT design to relocate records after a tree split.
  *
  *********************************************************************/
 rc_t
 btree_m::relocate_recs_p(
-        const lpid_t&                   root,
-	const bool bIgnoreLatches)
+        const lpid_t&                   root_old,
+        const lpid_t&                   root_new,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
 #if BTREE_LOG_COMMENT_ON
     {
         w_ostrstream s;
-        s << "relocate records " << root;
+        s << "relocate records: root_old=" << root_old << " root_new=" << root_new;
         W_DO(log_comment(s.c_str()));
     }
 #endif
@@ -663,7 +675,7 @@ btree_m::relocate_recs_p(
     rc_t rc;
 
     DBGTHRD(<<"");    
-    rc = btree_impl::_relocate_recs_p(root, bIgnoreLatches);
+    rc = btree_impl::_relocate_recs_p(root_old, root_new, bIgnoreLatches, relocate_callback);
     
     return  rc;
 }
@@ -680,9 +692,9 @@ btree_m::merge_trees(
     lpid_t&             root,         // O- the root after merge
     const lpid_t&       root1,        // I- roots of the btrees to be merged
     const lpid_t&       root2,           
-    cvec_t&             startKey2,    // I- initial keys
-    const bool          bIgnoreLatches,
-    const bool          update_owner)
+    cvec_t&             startKey2,    // I- starting boundary key for the second sub-tree (root2)
+    const bool          update_owner,
+    const bool          bIgnoreLatches)
 {
 #if BTREE_LOG_COMMENT_ON
     {
@@ -693,7 +705,7 @@ btree_m::merge_trees(
 #endif
     
     rc_t rc;
-    rc = btree_impl::_merge_trees(root, root1, root2, startKey2, bIgnoreLatches, update_owner);
+    rc = btree_impl::_merge_trees(root, root1, root2, startKey2, update_owner, bIgnoreLatches);
     
     return  rc;
 }

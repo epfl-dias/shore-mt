@@ -353,6 +353,35 @@ ss_m::create_mrbt_rec(const stid_t& fid, const vec_t& hdr,
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::create_mrbt_rec_in_page()                             *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr,
+			      smsize_t len_hint, const vec_t& data, rid_t& new_rid, bool& space_found
+#ifdef SM_DORA
+			      , const bool bIgnoreLocks
+#endif
+			      )
+{
+#if FILE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "create_mrbt_rec_in_page: file=" << fid << " page=" << page.pid() ;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    SM_PROLOGUE_RC(ss_m::create_mrbt_rec_in_page, in_xct,read_write, 0);
+
+    W_DO(_create_mrbt_rec_in_page(fid, page, hdr, len_hint, data, new_rid, space_found
+#ifdef SM_DORA
+                     , bIgnoreLocks
+#endif
+                     ));
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::destroy_mrbt_rec()                                    *
  *--------------------------------------------------------------*/
 rc_t
@@ -552,6 +581,43 @@ ss_m::_create_mrbt_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
     W_DO( fi->create_mrbt_rec(fid, len_hint, hdr, data, *sd, new_rid
 #ifdef SM_DORA
 			      , bIgnoreLocks
+#endif
+			      ) );
+
+    // NOTE: new_rid need not be locked, since lock escalation
+    // or explicit file/page lock might obviate it.
+
+    //cout << "sm create_rec " << new_rid << " size(hdr, data) " << hdr.size() <<  " " << data.size() << endl;
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_create_mrbt_rec_in_page()                            *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::_create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr, smsize_t len_hint, 
+			       const vec_t& data, rid_t& new_rid, bool& space_found
+#ifdef SM_DORA
+		       , const bool bIgnoreLocks
+#endif
+		       )
+{
+    FUNC(ss_m::_create_mrbt_rec_in_page);
+    sdesc_t* sd;
+
+    lock_mode_t lmode = IX;
+#ifdef SM_DORA
+    if (bIgnoreLocks) lmode = NL;
+#endif
+
+    W_DO( dir->access(fid, sd, lmode) );
+
+    DBG( << "create in fid " << fid << " in page " << page.pid() << " data.size " << data.size());
+
+    W_DO( fi->create_mrbt_rec_in_given_page(len_hint, *sd, hdr, data, new_rid, page, space_found
+#ifdef SM_DORA
+					    , bIgnoreLocks
 #endif
 			      ) );
 

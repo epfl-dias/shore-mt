@@ -80,12 +80,13 @@ enum {
 // For map<char*,lpid_t> to compare char*
 struct cmp_greater
 {
-    bool operator()(char const *a, char const *b)
-    {
-        return umemcmp(a,b,sizeof(a)) > 0;
-    }
+    bool operator()(char const *a, char const *b) const;
 };
 
+inline bool cmp_greater::operator()(char const *a, char const *b) const
+{
+    return umemcmp(a,b,sizeof(a)) > 0;
+}
 
 /******************************************************************** 
  *
@@ -177,6 +178,8 @@ public:
                          vector<lpid_t>& pidVec);
     // Returns the list of all root ids in partitions
     w_rc_t getAllPartitions(vector<lpid_t>& pidVec);
+    // Returns the list of all start keys of partitions
+    w_rc_t getAllStartKeys(vector<cvec_t*>& keyVec);
 
 
     // Returns the range boundaries of a partition in a pair

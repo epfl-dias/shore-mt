@@ -167,21 +167,26 @@ public:
         const lpid_t&                     root_old,
 	const lpid_t&                     root_new,
         const cvec_t&                     key,
-	lpid_t&                           leaf,
+	lpid_t&                           leaf_old,
+	lpid_t&                           leaf_new,
 	const bool                        bIgnoreLatches);
     static rc_t                        relocate_recs_l(
-        const lpid_t&                   leaf,
-	const bool bIgnoreLatches = false);
+        const lpid_t&                   leaf_old,
+        const lpid_t&                   leaf_new,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
     static rc_t                        relocate_recs_p(
-        const lpid_t&                   root,
-	const bool bIgnoreLatches = false);
+        const lpid_t&                   root_old,
+        const lpid_t&                   root_new,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
     static rc_t                        merge_trees(
         lpid_t&                           root,
         const lpid_t&                     root1,
 	const lpid_t&                     root2,
         cvec_t&                           startKey2,
-	const bool                        bIgnoreLatches,
-	const bool                        update_owner = false);
+	const bool                        update_owner = false,
+	const bool                        bIgnoreLatches = false);
     static rc_t                    mr_insert(
         const lpid_t&                     root,
 	bool                              unique,
@@ -195,15 +200,18 @@ public:
 	bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key,
-        cvec_t&                     elem,
+        rc_t (*fill_el)(vec_t&, const lpid_t&), 
+	size_t el_size,
         int                               split_factor = 50,
-	const bool                        bIgnoreLatches = false);
+	const bool                        bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
     static rc_t                    mr_insert_p(
         const lpid_t&                     root,
 	bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key,
-        cvec_t&                     elem,
+	rc_t (*fill_el)(vec_t&, const lpid_t&),
+	size_t el_size,
         int                               split_factor = 50,
 	const bool                        bIgnoreLatches = false);
     static rc_t                        mr_remove(
