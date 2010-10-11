@@ -305,7 +305,25 @@ public:
 				bool&               space_found,
                                 const bool        bIgnoreParents = false);
 
-    static rc_t destroy_rec_slot(const rid_t& rid, const bool bIgnoreLatches = false);
+    static rc_t create_mrbt_rec_l(
+		         const lpid_t& leaf,
+			 sdesc_t& sd,
+			 const vec_t& hdr,
+			 const vec_t& data,
+			 smsize_t len_hint,
+			 rid_t& new_rid,
+			 const bool bIgnoreLatches = false);
+
+    static rc_t create_mrbt_rec_p(
+		         const lpid_t& leaf,
+			 sdesc_t& sd,
+			 const vec_t& hdr,
+			 const vec_t& data,
+			 smsize_t len_hint,
+			 rid_t& new_rid,
+			 const bool bIgnoreLatches = false);
+	
+    static rc_t destroy_rec_slot(const rid_t rid, file_mrbt_p& page);
     // --
 
     static rc_t destroy_rec(const rid_t& rid);

@@ -73,6 +73,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "opt_error_def_gen.h"
 #endif
 
+// -- mrbt
+#include <vector>
+// --
 
 class ErrLog;
 class sm_stats_info_t;
@@ -314,8 +317,8 @@ public:
     // -- mrbt
     typedef w_rc_t (*RELOCATE_RECORD_CALLBACK_FUNC) (
            const stid_t&      stid,     
-	   rid_t*    old_rids, 
-           rid_t*    new_rids
+	   vector<rid_t>&    old_rids, 
+           vector<rid_t>&    new_rids
        );
     // --
 

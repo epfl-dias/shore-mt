@@ -630,7 +630,7 @@ btree_m::split_tree(
  *********************************************************************/
 rc_t
 btree_m::relocate_recs_l(
-        const lpid_t&                   leaf_old,
+        lpid_t&                   leaf_old,
         const lpid_t&                   leaf_new,
 	const bool bIgnoreLatches,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)

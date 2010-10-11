@@ -357,11 +357,8 @@ ss_m::create_mrbt_rec(const stid_t& fid, const vec_t& hdr,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr,
-			      smsize_t len_hint, const vec_t& data, rid_t& new_rid, bool& space_found
-#ifdef SM_DORA
-			      , const bool bIgnoreLocks
-#endif
-			      )
+			      smsize_t len_hint, const vec_t& data, rid_t& new_rid, bool& space_found,
+			      const bool bIgnoreLocks)
 {
 #if FILE_LOG_COMMENT_ON
     {
@@ -372,11 +369,29 @@ ss_m::create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr,
 #endif
     SM_PROLOGUE_RC(ss_m::create_mrbt_rec_in_page, in_xct,read_write, 0);
 
-    W_DO(_create_mrbt_rec_in_page(fid, page, hdr, len_hint, data, new_rid, space_found
-#ifdef SM_DORA
-                     , bIgnoreLocks
+    W_DO(_create_mrbt_rec_in_page(fid, page, hdr, len_hint, data, new_rid, space_found, bIgnoreLocks));
+
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::create_mrbt_rec_in_page()                             *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::find_page_and_create_mrbt_rec(const stid_t& fid, const lpid_t& leaf, const vec_t& hdr,
+				    smsize_t len_hint, const vec_t& data, rid_t& new_rid,
+				    const bool bIgnoreLocks)
+{
+#if FILE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "find_page_and_create_mrbt_rec: file=" << fid ;
+        W_DO(log_comment(s.c_str()));
+    }
 #endif
-                     ));
+    SM_PROLOGUE_RC(ss_m::find_page_and_create_mrbt_rec, in_xct,read_write, 0);
+    
+    W_DO(_find_page_and_create_mrbt_rec(fid, leaf, hdr, len_hint, data, new_rid, bIgnoreLocks));
 
     return RCOK;
 }
@@ -597,35 +612,61 @@ ss_m::_create_mrbt_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr, smsize_t len_hint, 
-			       const vec_t& data, rid_t& new_rid, bool& space_found
-#ifdef SM_DORA
-		       , const bool bIgnoreLocks
-#endif
-		       )
+			       const vec_t& data, rid_t& new_rid, bool& space_found, const bool bIgnoreLocks)
 {
     FUNC(ss_m::_create_mrbt_rec_in_page);
     sdesc_t* sd;
 
     lock_mode_t lmode = IX;
-#ifdef SM_DORA
     if (bIgnoreLocks) lmode = NL;
-#endif
 
     W_DO( dir->access(fid, sd, lmode) );
 
     DBG( << "create in fid " << fid << " in page " << page.pid() << " data.size " << data.size());
 
-    W_DO( fi->create_mrbt_rec_in_given_page(len_hint, *sd, hdr, data, new_rid, page, space_found
-#ifdef SM_DORA
-					    , bIgnoreLocks
-#endif
-			      ) );
+    W_DO( fi->create_mrbt_rec_in_given_page(len_hint, *sd, hdr, data, new_rid, page, space_found, bIgnoreLocks) );
 
-    // NOTE: new_rid need not be locked, since lock escalation
-    // or explicit file/page lock might obviate it.
+    return RCOK;
+}
 
-    //cout << "sm create_rec " << new_rid << " size(hdr, data) " << hdr.size() <<  " " << data.size() << endl;
+/*--------------------------------------------------------------*
+ *  ss_m::_find_page_and_create_mrbt_rec()                      *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::_find_page_and_create_mrbt_rec(const stid_t& fid, const lpid_t& leaf, const vec_t& hdr,
+				     smsize_t len_hint, const vec_t& data, rid_t& new_rid,
+				     const bool bIgnoreLocks)
+{
+    FUNC(ss_m::_find_page_and_create_mrbt_rec);
+    sdesc_t* sd_heap;
+    sdesc_t* sd_index;
 
+    lock_mode_t lmode = IX;
+    if (bIgnoreLocks) lmode = NL;
+
+    W_DO( dir->access(fid, sd_heap, lmode) );
+    W_DO( dir->access(leaf._stid, sd_index, lmode) );
+
+    DBG( << "create in fid " << fid << << " data.size " << data.size());
+
+    if (sd_index->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    switch (sd_index->sinfo().ntype)  {
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+
+	W_DO( fi->create_mrbt_rec_l(leaf, *sd_heap, hdr, data, len_hint, new_rid, bIgnoreLocks) );
+	break;
+	
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
+	 
+	W_DO( fi->create_mrbt_rec_p(leaf, *sd_heap, hdr, data, len_hint, new_rid, bIgnoreLocks) );
+	break;
+
+    default:
+        return RC(eBADNDXTYPE);
+    }
+    
     return RCOK;
 }
 

@@ -648,21 +648,19 @@ btree_impl::_split_tree(
 
 rc_t
 btree_impl::_relocate_recs_l(
-    const lpid_t&       leaf_old,  // I - leaf page whose contents are shifted
+    lpid_t&       leaf_old,  // I - leaf page whose contents are shifted
     const lpid_t&       leaf_new,  // I - the new leaf page
     const bool was_root,  // I - indicates whether there was a root page split
     const bool bIgnoreLatches,
     RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
-    
     FUNC(btree_impl::_relocate_recs_l);
 
     DBGTHRD(<<"_relocate_recs_l: " << " leaf_old = " << leaf_old
 	    <<" leaf_new = " << leaf_new);
 
-    rid_t* old_rids = (rid_t*) malloc(sizeof(rid_t*));
-    rid_t* new_rids = (rid_t*) malloc(sizeof(rid_t*));
-    uint moved = 0;
+    vector<rid_t> old_rids;
+    vector<rid_t> new_rids;
 
     latch_mode_t latch = LATCH_EX;
     if(bIgnoreLatches) {
@@ -672,6 +670,12 @@ btree_impl::_relocate_recs_l(
     btree_p leaf_page_new;
     W_DO( leaf_page_old.fix(leaf_old, latch) );
     W_DO( leaf_page_new.fix(leaf_new, latch) );
+
+    if(was_root) {
+	leaf_old.page = leaf_page_old.pid0();
+	leaf_page_old.unfix();
+	W_DO( leaf_page_old.fix(leaf_old, latch) );
+    }
 
     // if some of the heap pages the new leaf page points to are not pointed by any other leaf page already
     // we don't have to split that heap page, we just have to set the owner for that heap page
@@ -721,7 +725,6 @@ btree_impl::_relocate_recs_l(
 			       slot_map_new,
 			       old_rids,
 			       new_rids,
-			       &moved,
 			       bIgnoreLatches) ); 
 	    if(was_root) {
 		W_DO( heap_page.set_owner(leaf_old) );
@@ -738,7 +741,6 @@ btree_impl::_relocate_recs_l(
 			       slot_map_old,
 			       old_rids,
 			       new_rids,
-			       &moved,
 			       bIgnoreLatches) ); 
 	    W_DO( heap_page.set_owner(leaf_new) );
 	} else { // we don't have to move recs from this heap page but update its hdr
@@ -758,8 +760,8 @@ btree_impl::_relocate_recs_l(
     leaf_page_new.unfix();
 
     // 4. callback to update the secondary indexes
-    (*relocate_callback)(leaf_new._stid, old_rids, new_rids);
-
+    W_DO( (*relocate_callback)(leaf_new._stid, old_rids, new_rids) );
+    
     return RCOK;
 }
 
@@ -782,14 +784,13 @@ btree_impl::_move_recs_l(
     file_mrbt_p& old_page,
     vector<rid_t>& recs,
     map<rid_t, slotid_t>& slot_map,
-    rid_t* old_rids,
-    rid_t* new_rids,
-    uint*   moved,
+    vector<rid_t>& old_rids,
+    vector<rid_t>& new_rids,
     const bool bIgnoreLatches) 
 {
     lpid_t new_page_id;
     bool space_found = true;
-    if(first) { // create the new heap page for the first record move
+    if(first) { // create the new heap page for the first record move	   
 	W_DO( file_m::_alloc_mrbt_page(fid,
 				       lpid_t::eof,
 				       new_page_id,
@@ -799,57 +800,56 @@ btree_impl::_move_recs_l(
 	first = false;
     }
     // move the recs pointed by the leaf page 
-    for(uint i=0; i < recs.size(); i++) {
-	    rid_t rid = recs[i];
-	    // get the rec from the heap_page
-	    record_t* rec;
-	    W_DO( old_page.get_rec(rid.slot, rec) );
-	    // move it to new page
-	    vec_t hdr_vec;
-	    vec_t data_vec;
-	    char* hdr = (char*) malloc((*rec).hdr_size());
-	    memcpy(hdr, (*rec).hdr(), (*rec).hdr_size());
-	    char* data = (char*) malloc((*rec).body_size());
-	    memcpy(data, (*rec).body(), (*rec).body_size());
-	    rid_t new_rid;
-	    hdr_vec.put(hdr, (*rec).hdr_size());
-	    data_vec.put(data, (*rec).body_size());
+    for(uint i=0; i < recs.size(); i++) {	
+	rid_t rid = recs[i];
+	// get the rec from the heap_page
+	record_t* rec;
+	W_DO( old_page.get_rec(rid.slot, rec) );
+	// move it to new page
+	vec_t hdr_vec;
+	vec_t data_vec;
+	char* hdr = (char*) malloc((*rec).hdr_size());
+	memcpy(hdr, (*rec).hdr(), (*rec).hdr_size());
+	char* data = (char*) malloc((*rec).body_size());
+	memcpy(data, (*rec).body(), (*rec).body_size());
+	rid_t new_rid;
+	hdr_vec.put(hdr, (*rec).hdr_size());
+	data_vec.put(data, (*rec).body_size());
+	W_DO( file_m::move_mrbt_rec_to_given_page(0,
+						  hdr_vec,
+						  data_vec,
+						  new_rid,
+						  new_page,
+						  space_found,
+						  bIgnoreLatches) );
+	if(!space_found) { // we have to create a new heap_page
+	    W_DO( file_m::_alloc_mrbt_page(fid,
+					   lpid_t::eof,
+					   new_page_id,
+					   new_page,
+					   true) );
+	    W_DO( new_page.set_owner(leaf) );
+	    // retry the insert
 	    W_DO( file_m::move_mrbt_rec_to_given_page(0,
 						      hdr_vec,
 						      data_vec,
 						      new_rid,
 						      new_page,
 						      space_found,
-						      bIgnoreLatches) );
-	    if(!space_found) { // we have to create a new heap_page
-		W_DO( file_m::_alloc_mrbt_page(fid,
-					       lpid_t::eof,
-					       new_page_id,
-					       new_page,
-					       true) );
-		W_DO( new_page.set_owner(leaf) );
-		// retry the insert
-		W_DO( file_m::move_mrbt_rec_to_given_page(0,
-							  hdr_vec,
-							  data_vec,
-							  new_rid,
-							  new_page,
-							  space_found,
-							  bIgnoreLatches) );
-	    }
-	    // delete the record from its prev page
-	    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
-	    // update rid in leaf_page
-	    btrec_t btree_rec(leaf_page, slot_map[rid]);
-	    cvec_t elem;
-	    elem.put((char*)(&new_rid), sizeof(rid_t));
-	    W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
-	    // add old&new rid to the list
-	    old_rids[*moved] = rid;
-	    new_rids[*moved] = new_rid;
-	    (*moved)++;
+						      bIgnoreLatches) );	    
 	}
-	return RCOK;
+	// add old&new rid to the list
+	old_rids.push_back(rid);
+	new_rids.push_back(new_rid);
+	// delete the record from its prev page
+	W_DO( file_m::destroy_rec_slot(rid, old_page) );
+	// update rid in leaf_page
+	btrec_t btree_rec(leaf_page, slot_map[rid]);
+	cvec_t elem;
+	elem.put((char*)(&new_rid), sizeof(rid_t));
+	W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
+    }
+    return RCOK;
 }
 
 /******************************************************************
@@ -875,9 +875,8 @@ btree_impl::_relocate_recs_p(
     DBGTHRD(<<"_relocate_recs_p: " << " root_old = " << root_old
 	    << " root_new = " << root_new);
 
-    rid_t* old_rids = (rid_t*) malloc(sizeof(rid_t*));
-    rid_t* new_rids = (rid_t*) malloc(sizeof(rid_t*));
-    uint moved = 0;
+    vector<rid_t> old_rids;
+    vector<rid_t> new_rids;
 
     latch_mode_t latch = LATCH_SH;
     if(bIgnoreLatches) {
@@ -973,31 +972,29 @@ btree_impl::_relocate_recs_p(
 	if( recs_map_old[iter->first].size() > (iter->second).size() ) {
 	    // have to move some records from the heap_page that are pointed by the new sub-tree
 	    W_DO( _move_recs_p((iter->first)._stid,
-				  first_new,
-				  root_new,
-				  new_page_new,
-				  heap_page,
-				  iter->second,
-				  slot_map_new,
-				  leaf_page_map_new,
-				  old_rids,
-				  new_rids,
-				  &moved,
-				  bIgnoreLatches) ); 
+			       first_new,
+			       root_new,
+			       new_page_new,
+			       heap_page,
+			       iter->second,
+			       slot_map_new,
+			       leaf_page_map_new,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
 	} else if(recs_map_old[iter->first].size() > 0) {
 	    // have to move some records that are pointed by the old sub-tree
 	    W_DO( _move_recs_p((iter->first)._stid,
-				  first_old,
-				  root_old,
-				  new_page_old,
-				  heap_page,
-				  recs_map_old[iter->first],
-				  slot_map_old,
-				  leaf_page_map_old,
-				  old_rids,
-				  new_rids,
-				  &moved,
-				  bIgnoreLatches) ); 
+			       first_old,
+			       root_old,
+			       new_page_old,
+			       heap_page,
+			       recs_map_old[iter->first],
+			       slot_map_old,
+			       leaf_page_map_old,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
 	    W_DO( heap_page.set_owner(root_new) );
 	} else { // we don't have to move recs from this heap page but update its hdr
 	    W_DO( heap_page.set_owner(root_new) );
@@ -1014,7 +1011,7 @@ btree_impl::_relocate_recs_p(
     }
 
     // 4. callback to update the secondary indexes
-    (*relocate_callback)(root_new._stid, old_rids, new_rids);
+    W_DO( (*relocate_callback)(root_new._stid, old_rids, new_rids) );
     
     return RCOK;
 }
@@ -1038,9 +1035,8 @@ btree_impl::_move_recs_p(
     vector<rid_t>& recs,
     map<rid_t, slotid_t>& slot_map,
     map<rid_t, lpid_t>& leaf_map,
-    rid_t* old_rids,
-    rid_t* new_rids,
-    uint*   moved,
+    vector<rid_t>& old_rids,
+    vector<rid_t>& new_rids,
     const bool bIgnoreLatches) 
 {
     lpid_t new_page_id;
@@ -1098,8 +1094,11 @@ btree_impl::_move_recs_p(
 						      space_found,
 						      bIgnoreLatches) );
 	}
+	// add old&new rid to the list
+	old_rids.push_back(rid);
+	new_rids.push_back(new_rid);
 	// delete the record from its prev page
-	W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
+	W_DO( file_m::destroy_rec_slot(rid, old_page) );
 	// update rid in leaf_page
 	W_DO( leaf_page.fix(leaf_map[rid], latch) );
 	btrec_t btree_rec(leaf_page, slot_map[rid]);
@@ -1107,9 +1106,6 @@ btree_impl::_move_recs_p(
 	elem.put((char*)(&new_rid), sizeof(rid_t));
 	W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
 	leaf_page.unfix();
-	old_rids[*moved] = rid;
-	new_rids[*moved] = new_rid;
-	(*moved)++;
     }
     return RCOK;
 }
@@ -1173,7 +1169,7 @@ btree_impl::_split_leaf_and_relocate_recs(
     }
 
     if(relocate_callback != NULL) {
-	W_DO( _relocate_recs_l(leaf_pid, rsib_pid, root_pid == leaf_pid, relocate_callback) );
+	W_DO( _relocate_recs_l(leaf_pid, rsib_pid, root_pid == leaf_pid, bIgnoreLatches, relocate_callback) );
     }
 
     return RCOK;
@@ -1452,7 +1448,8 @@ btree_impl::_mr_insert(
 
     void* tmp_el = malloc(el_size);
     vec_t el(tmp_el, el_size);
-
+    vec_t el2;
+    
     INC_TSTAT(bt_insert_cnt);
 
     DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
@@ -1883,12 +1880,6 @@ again:
          * we have to lock the next key value.
          */
 
-	    // place to make a call back to kits and inform it about the leaf page
-	    el.reset();
-	    free(tmp_el);
-	    (*fill_el)(el, leaf.pid());
-	    //
-
         btree_p                p2; // possibly needed for 2nd leaf
         lpid_t                p2_pid = lpid_t::null;
         lsn_t                p2_lsn;
@@ -2189,6 +2180,20 @@ again:
          *  we already released that page.
          */
 
+	// place to make a call back to kits and inform it about the leaf page
+	    el.reset();
+	    free(tmp_el);
+	    lpid_t leaf_page_pid = leaf.pid();
+	    leaf.unfix();
+
+	    (*fill_el)(el2, leaf_page_pid);
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+	    W_DO( leaf.fix(leaf_page_pid, fix_latch) );
+	    //
+
         /*
          *  Do the insert.
          *  Turn off logging and perform physical insert.
@@ -2200,7 +2205,7 @@ again:
             w_assert9(slot >= 0 && slot <= leaf.nrecs());
 
             DBG(<<"insert in leaf at slot " << slot);
-            rc = leaf.insert(key, el, slot); 
+            rc = leaf.insert(key, el2, slot); 
             if(rc.is_error()) {
                 DBG(<<"rc= " << rc);
                 leaf.discard(); // force the page out.
@@ -2213,10 +2218,10 @@ again:
          *  Log is on here. Log a logical insert.
          *  If we get a retry, then retry a few times.
          */
-        rc = log_btree_insert(leaf, slot, key, el, unique);
+        rc = log_btree_insert(leaf, slot, key, el2, unique);
         int count=10;
         while (rc.is_error() && (rc.err_num() == eRETRY) && --count > 0) {
-            rc = log_btree_insert(leaf, slot, key, el, unique);
+            rc = log_btree_insert(leaf, slot, key, el2, unique);
         }
 
         SSMTEST("btree.insert.5");
@@ -3083,7 +3088,7 @@ again:
 							  bIgnoreLatches) );
 	    }
 	    // 3. delete the record from its prev heap file
-	    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
 	    // 4. update rid to be inserted
 	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}
@@ -4058,7 +4063,7 @@ again:
 							  bIgnoreLatches) );
 	    }
 	    // 3. delete the record from its prev heap file
-	    W_DO( file_m::destroy_rec_slot(rid, bIgnoreLatches) );
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
 	    // 4. update rid to be inserted
 	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}

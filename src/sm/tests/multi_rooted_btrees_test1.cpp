@@ -50,11 +50,11 @@ w_rc_t init_config_options(option_group_t& options,
                         const char* prog_type,
                         int& argc, char** argv);
 
-
 struct file_info_t {
     static const char* key;
     stid_t         fid;
     rid_t       first_rid;
+    rid_t       last_rid;
     int         num_rec;
     int         rec_size;
 };
@@ -74,8 +74,14 @@ operator << (ostream &o, const file_info_t &info)
 
 typedef        smlevel_0::smksize_t        smksize_t;
 
+struct el_filler2 : public ss_m::el_filler {
+  rc_t fill_el(vec_t& el, const lpid_t& leaf);
+};
 
-
+rc_t  el_filler2::fill_el(vec_t& el, const lpid_t& leaf) {
+  return RCOK;
+}
+			
 void
 usage(option_group_t& options)
 {
@@ -96,6 +102,7 @@ class smthread_user_t : public smthread_t {
     smsize_t    _rec_size;
     lvid_t      _lvid;  
     rid_t       _start_rid;
+    rid_t       _end_rid;
     stid_t      _fid;
     bool        _initialize_device;
     option_group_t* _options;
@@ -133,8 +140,10 @@ public:
     w_rc_t mr_index_test4();
     w_rc_t mr_index_test5();
     w_rc_t mr_index_test6();
+    w_rc_t mr_index_test7();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
+    w_rc_t static print_updated_rids(const stid_t& stid, rid_t* old_rids, rid_t* new_rids, uint nrecs);
     // --
     w_rc_t scan_the_file();
     w_rc_t scan_the_root_index();
@@ -173,6 +182,7 @@ smthread_user_t::find_file_info()
     W_DO(ssm->commit_xct());
 
     _start_rid = info.first_rid;
+    _end_rid = info.last_rid;
     _fid = info.fid;
     _rec_size = info.rec_size;
     _num_rec = info.num_rec;
@@ -212,7 +222,7 @@ smthread_user_t::create_the_file()
     memset(dummy, '\0', _rec_size);
     vec_t data(dummy, _rec_size);
 
-    for(int j=1; j < _num_rec; j++)
+    for(int j=0; j < 1001; j++)
     {
         {
             w_ostrstream o(dummy, _rec_size);
@@ -227,7 +237,9 @@ smthread_user_t::create_the_file()
         cout << "Creating rec " << j << endl;
         if (j == 0) {
             info.first_rid = rid;
-        }        
+        } else if(j == 1000) {
+	    info.last_rid = rid;
+	}
     }
     cout << "Created all. First rid " << info.first_rid << endl;
     delete [] dummy;
@@ -251,6 +263,18 @@ smthread_user_t::create_the_file()
 }
 
 // -- mrbt
+rc_t smthread_user_t::print_updated_rids(const stid_t& stid, rid_t* old_rids, rid_t* new_rids, uint nrecs)
+{
+  cout << endl;
+  cout << "Index store id: " << stid << endl;
+  cout << "Old rids\tNew rids" << endl;
+  for(uint i=0; i<nrecs; i++) {
+    cout << old_rids[i] << "\t" << new_rids[i] << endl;
+  }
+
+  return RCOK;
+}
+
 rc_t smthread_user_t::mr_index_test0()
 {
     cout << endl;
@@ -345,24 +369,28 @@ rc_t smthread_user_t::mr_index_test2()
 
     W_DO(ssm->begin_xct());
     cout << "ssm->create_mr_assoc" << endl;
+    el_filler2 eg1;
     int new_key = 1000;
     cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el((char*)(&new_key), sizeof(new_key));
+    vec_t el((char*)(&_end_rid), sizeof(rid_t));
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
+    eg1._el.put(el);
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec, eg1));
 
     cout << "ssm->create_mr_assoc" << endl;
-    new_key = 0;
-    cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
-    cout << "Record key "  << new_key << endl;
+    el_filler2 eg2;
+    int new_key2 = 0;
+    cvec_t new_key_vec2((char*)(&new_key2), sizeof(new_key2));
+    cout << "Record key "  << new_key2 << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el2((char*)(&new_key), sizeof(new_key));
-    cout << "Record body "  << new_key << endl;
+    vec_t el2((char*)(&_start_rid), sizeof(rid_t));
+    cout << "Record body "  << new_key2 << endl;
     cout << "body size "  << el.size() << endl;
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
+    eg2._el.put(el2);
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, eg2));
     W_DO(ssm->commit_xct());
 
 
@@ -603,6 +631,45 @@ rc_t smthread_user_t::mr_index_test6()
     return RCOK;
 }
 
+rc_t smthread_user_t::mr_index_test7()
+{
+    cout << endl;
+    cout << " ------- TEST7 -------" << endl;
+    cout << "To test creating an index where inital partitions are given as a ranges map!" << endl;
+    cout << endl;
+
+    cout << "Form the ranges map with 4 partitions (0 300 700 850)" << endl;
+    key_ranges_map ranges;
+    int key1 = 0;
+    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    int key2 = 300;
+    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    int key3 = 700;
+    cvec_t key_vec3((char*)(&key3), sizeof(key3));
+    int key4 = 850;
+    cvec_t key_vec4((char*)(&key4), sizeof(key4));
+    lpid_t dummy_pid;
+    ranges.addPartition(key_vec1, dummy_pid);
+    ranges.addPartition(key_vec2, dummy_pid);
+    ranges.addPartition(key_vec3, dummy_pid);
+    ranges.addPartition(key_vec4, dummy_pid);
+
+
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid, ranges));
+
+
+    W_DO(insert_rec_to_index(stid));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+    
+    return RCOK;
+}
+
 // Modified the code for scan_the_file
 rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
 {
@@ -613,8 +680,9 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
   pin_i*      cursor(NULL);
   bool        eof(false);
   int         i(0);
-  
+
   do {
+        el_filler2 eg;
     w_rc_t rc = scan.next(cursor, 0, eof);
     if(rc.is_error()) {
       cerr << "Error getting next: " << rc << endl;
@@ -622,6 +690,10 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
       return rc;
     }
     if(eof) break;
+    if(i == 0 || i == 1000) {
+	i++;
+	continue;
+    }
     
     cout << "Record " << i << "/" << _num_rec << endl;
     cvec_t       key(cursor->hdr(), cursor->hdr_size());
@@ -637,11 +709,12 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
     w_assert1(cursor->body_size() == _rec_size);
     cout << "Record body "  << body << endl;
 
-    W_DO(ssm->create_mr_assoc(stid, key, el));
+    eg._el.put(el);
+    W_DO(ssm->create_mr_assoc(stid, key, eg));
 
     i++;
   } while (!eof);
-  w_assert1(i == _num_rec-1);
+  //w_assert1(i == _num_rec-1);
 
   W_DO(ssm->commit_xct());
   return RCOK;
@@ -738,11 +811,11 @@ smthread_user_t::scan_the_file()
         cout << "Record hdr "  << hdrcontents << endl;
 
         const char *body = cursor->body();
-        w_assert1(cursor->body_size() == _rec_size);
+        //w_assert1(cursor->body_size() == _rec_size);
         cout << "Record body "  << body << endl;
         i++;
     } while (!eof);
-    w_assert1(i == _num_rec-1);
+    //w_assert1(i == _num_rec-1);
 
     W_DO(ssm->commit_xct());
     return RCOK;
@@ -832,13 +905,16 @@ smthread_user_t::no_init()
 	W_DO(mr_index_test3()); // ok
 	break;
     case 4:
-	W_DO(mr_index_test4()); //
+	//W_DO(mr_index_test4()); //
 	break;
     case 5:
 	W_DO(mr_index_test5()); // ok
 	break;
     case 6:
 	W_DO(mr_index_test6()); // ok
+	break;
+    case 7:
+	W_DO(mr_index_test7()); //
 	break;
     }
     return RCOK;
@@ -918,7 +994,7 @@ w_rc_t smthread_user_t::handle_options()
 
     // Process the command line: looking for the "-h" flag
     int option;
-    while ((option = getopt(_argc, _argv, "hi0123456")) != -1) {
+    while ((option = getopt(_argc, _argv, "hi01234567")) != -1) {
         switch (option) {
         case 'i' :
             _initialize_device = true;
@@ -954,6 +1030,10 @@ w_rc_t smthread_user_t::handle_options()
 		    
 	case '6':
 	    _test_no = 6;
+	    break;
+
+	case '7':
+	    _test_no = 7;
 	    break;
 	    
         default:

@@ -51,6 +51,8 @@ rc_t ranges_m::create(const stid_t stid, lpid_t& pid, const lpid_t& subroot)
     W_DO(page.fix(pid, LATCH_EX, page.t_virgin)); 
     // add one subtree to ranges 
     cvec_t startKey;
+    int i = 0;
+    startKey.put((char*)(&i),sizeof(i));
     W_DO( page.add_default_partition(startKey, subroot) );
     page.unfix();
     return RCOK;
@@ -223,8 +225,7 @@ rc_t ranges_p::add_partition(cvec_t& key, const lpid_t& root)
     // add the partition
     cvec_t v;
     // put subroot
-    char* subroot = (char*)(&root);
-    v.put(subroot, sizeof(lpid_t));
+    v.put((char*)(&root), sizeof(lpid_t));
     // put key
     v.put(key);
     // add this key-subroot pair to page's data
@@ -292,8 +293,7 @@ rc_t ranges_p::add_default_partition(cvec_t& key, const lpid_t& root)
    // add the partition
    cvec_t v;
    // put subroot
-   char* subroot = (char*)(&root);
-   v.put(subroot, sizeof(lpid_t));
+   v.put((char*)(&root), sizeof(lpid_t));
    // put key
    v.put(key);
    // add this key-subroot pair to page's data

@@ -171,7 +171,7 @@ public:
 	lpid_t&                           leaf_new,
 	const bool                        bIgnoreLatches);
     static rc_t                        relocate_recs_l(
-        const lpid_t&                   leaf_old,
+        lpid_t&                   leaf_old,
         const lpid_t&                   leaf_new,
 	const bool bIgnoreLatches = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);

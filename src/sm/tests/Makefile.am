@@ -37,7 +37,7 @@ check_PROGRAMS     = file_scan$(EXEEXT) \
 		    vtable_example$(EXEEXT) \
 		    rtree_example$(EXEEXT) \
 		    htab$(EXEEXT) \
-		    multi_rooted_btrees_test$(EXEEXT) \
+		    multi_rooted_btrees_test1$(EXEEXT) \
                     multi_rooted_btrees_test2$(EXEEXT) \
                     multi_rooted_btrees_test3$(EXEEXT)	
 
@@ -53,7 +53,7 @@ sort_stream_SOURCES      = sort_stream.cpp init_config_options.cpp
 log_exceed_SOURCES      = log_exceed.cpp init_config_options.cpp 
 vtable_example_SOURCES      = vtable_example.cpp init_config_options.cpp 
 rtree_example_SOURCES      = rtree_example.cpp init_config_options.cpp 
-multi_rooted_btrees_test_SOURCES      = multi_rooted_btrees_test.cpp init_config_options.cpp
+multi_rooted_btrees_test1_SOURCES      = multi_rooted_btrees_test1.cpp init_config_options.cpp
 multi_rooted_btrees_test2_SOURCES      = multi_rooted_btrees_test2.cpp init_config_options.cpp
 multi_rooted_btrees_test3_SOURCES      = multi_rooted_btrees_test3.cpp init_config_options.cpp
 htab_SOURCES      = htab.cpp

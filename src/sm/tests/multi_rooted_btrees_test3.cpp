@@ -76,6 +76,37 @@ operator << (ostream &o, const file_info_t &info)
 typedef        smlevel_0::smksize_t        smksize_t;
 
 
+struct el_filler2 : public ss_m::el_filler {
+    int j;
+    stid_t _fid;
+    smsize_t _rec_size;
+    rid_t rid;
+    rc_t fill_el(vec_t& el, const lpid_t& leaf);
+};
+
+rc_t  el_filler2::fill_el(vec_t& el, const lpid_t& leaf) {
+    cout << "Creating record " << j << endl;
+
+    char* dummy = new char[_rec_size];
+    memset(dummy, '\0', _rec_size);
+    vec_t data(dummy, sizeof(int));
+
+    {
+	w_ostrstream o(dummy, _rec_size);
+	o << j << ends;
+	w_assert1(o.c_str() == dummy);
+    }
+    // header contains record #
+    int i = j;
+    const vec_t hdr(&i, sizeof(i));
+
+    rc_t rc = ss_m::find_page_and_create_mrbt_rec(_fid, leaf, hdr, sizeof(int), data, rid);
+    cout << "rid: " << rid << endl;
+
+    el.put((char*)(&rid), sizeof(rid_t));
+    
+    return rc;
+}
 
 void
 usage(option_group_t& options)
@@ -136,6 +167,7 @@ public:
     w_rc_t mr_index_test6();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
+    w_rc_t static print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids);
     // --
     w_rc_t scan_the_file();
     w_rc_t scan_the_root_index();
@@ -208,7 +240,7 @@ smthread_user_t::create_the_file()
 
 /// each record will have its ordinal number in the header
 /// and zeros for data 
-
+/*
     char* dummy = new char[_rec_size];
     memset(dummy, '\0', _rec_size);
     vec_t data(dummy, sizeof(int));
@@ -230,9 +262,10 @@ smthread_user_t::create_the_file()
             info.first_rid = rid;
         }        
     }
-    
-    cout << "Created all. First rid " << info.first_rid << endl;
-    delete [] dummy;
+*/  
+    //cout << "Created all. First rid " << info.first_rid << endl;
+    //   delete [] dummy;
+    info.first_rid = rid;
     info.num_rec = _num_rec;
     info.rec_size = _rec_size;
 
@@ -253,6 +286,18 @@ smthread_user_t::create_the_file()
 }
 
 // -- mrbt
+rc_t smthread_user_t::print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids)
+{
+  cout << endl;
+  cout << "Index store id: " << stid << endl;
+  cout << "Old rids\tNew rids" << endl;
+  for(uint i=0; i<old_rids.size(); i++) {
+    cout << old_rids[i] << "\t" << new_rids[i] << endl;
+  }
+
+  return RCOK;
+}
+
 rc_t smthread_user_t::mr_index_test0()
 {
     cout << endl;
@@ -338,74 +383,34 @@ rc_t smthread_user_t::mr_index_test2()
     cvec_t key_vec((char*)(&key), sizeof(key));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key << endl;
-    W_DO(ssm->add_partition(stid, key_vec));
+    W_DO(ssm->add_partition(stid, key_vec, false, &print_updated_rids));
     
 
     W_DO(print_the_mr_index(stid));
 
     
-    // create two more recs
-    W_DO(ssm->begin_xct());
-
-    rid_t rid1;
-    rid_t rid2;
-    
-    char* dummy = new char[_rec_size];
-    memset(dummy, '\0', _rec_size);
-    vec_t data(dummy, sizeof(int));
-    int j = 1000;
-    {
-	w_ostrstream o1(dummy, sizeof(int));
-	o1 << j << ends;
-	w_assert1(o1.c_str() == dummy);
-    }
-    // header contains record #
-    int i1 = j;
-    const vec_t hdr1(&i1, sizeof(i1));
-    W_COERCE(ssm->create_mrbt_rec(_fid, hdr1,
-				  data.size(), data, rid1));
-    cout << "Creating rec " << j << endl;
-    
-    j = 0;
-    {
-	w_ostrstream o2(dummy, sizeof(int));
-	o2 << j << ends;
-	w_assert1(o2.c_str() == dummy);
-    }
-    // header contains record #
-    int i2 = j;
-    const vec_t hdr2(&i2, sizeof(i2));
-    W_COERCE(ssm->create_mrbt_rec(_fid, hdr2,
-				  data.size(), data, rid2));
-    cout << "Creating rec " << j << endl;
-    
-    delete [] dummy;
-
-    W_DO(ssm->commit_xct());
-
-    
-    // create two more assocs 
+     // create two more assocs
     W_DO(ssm->begin_xct());
     cout << "ssm->create_mr_assoc" << endl;
+    el_filler2 eg;
+    eg._fid = _fid;
     int new_key = 1000;
+    eg.j = new_key;
     cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el((char*)(&rid1), sizeof(rid_t));
-    cout << "Record body "  << new_key << endl;
-    cout << "body size "  << el.size() << endl;
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec, el));
+    eg._el_size = sizeof(rid_t);
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec, eg, false, &print_updated_rids));
 
     cout << "ssm->create_mr_assoc" << endl;
-    new_key = 0;
-    cvec_t new_key_vec2((char*)(&new_key), sizeof(new_key));
-    cout << "Record key "  << new_key << endl;
-    cout << "key size " << new_key_vec.size() << endl;    
-    vec_t el2((char*)(&rid2), sizeof(rid_t));
-    cout << "Record body "  << new_key << endl;
-    cout << "body size "  << el.size() << endl;
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, el2));
-    W_DO(ssm->commit_xct());
+    eg._el.reset();
+    int new_key2 = 0;
+    eg.j = new_key2;
+    cvec_t new_key_vec2((char*)(&new_key2), sizeof(new_key2));
+    cout << "Record key "  << new_key2 << endl;
+    cout << "key size " << new_key_vec2.size() << endl;    
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, eg, false, &print_updated_rids));
+    W_DO(ssm->commit_xct()); 
 
 
     W_DO(print_the_mr_index(stid));
@@ -441,7 +446,7 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key1_vec((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
-    W_DO(ssm->add_partition(stid, key1_vec));
+    W_DO(ssm->add_partition(stid, key1_vec, false, &print_updated_rids));
 
     
     W_DO(print_the_mr_index(stid));
@@ -451,7 +456,7 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key2_vec((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key2 << endl;
-    W_DO(ssm->add_partition(stid, key2_vec));
+    W_DO(ssm->add_partition(stid, key2_vec, false, &print_updated_rids));
 
 
     W_DO(print_the_mr_index(stid));
@@ -461,7 +466,7 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key3 << endl;
-    W_DO(ssm->add_partition(stid, key3_vec));
+    W_DO(ssm->add_partition(stid, key3_vec, false, &print_updated_rids));
 
     
     W_DO(print_the_mr_index(stid));
@@ -471,7 +476,7 @@ rc_t smthread_user_t::mr_index_test3()
     cvec_t key4_vec((char*)(&key4), sizeof(key4));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key4 << endl;
-    W_DO(ssm->add_partition(stid, key4_vec));
+    W_DO(ssm->add_partition(stid, key4_vec, false, &print_updated_rids));
 
     
     W_DO(print_the_mr_index(stid));
@@ -652,45 +657,50 @@ rc_t smthread_user_t::mr_index_test6()
 // Modified the code for scan_the_file
 rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
 {
-  cout << "creating assocs in index " << stid << "  from file " << _fid << endl;
+    cout << "creating assocs in index " << stid << "  from file " << _fid << endl;
   W_DO(ssm->begin_xct());
 
   scan_file_i scan(_fid);
   pin_i*      cursor(NULL);
   bool        eof(false);
-  int         i(0);
-  set<int> inserted;
+  int         i(1);
+  //set<int>    inserted;
   
   do {
-    w_rc_t rc = scan.next(cursor, 0, eof);
-    if(rc.is_error()) {
-      cerr << "Error getting next: " << rc << endl;
-      retval = rc.err_num();
-      return rc;
-    }
-    if(i == 999 || eof) break;
-    
+      el_filler2 eg;
+      eg._fid = _fid;
+      eg._rec_size = _rec_size;
+      eg._el_size = sizeof(rid_t);
+      //   w_rc_t rc = scan.next(cursor, 0, eof);
+      //if(rc.is_error()) {
+      // cerr << "Error getting next: " << rc << endl;
+      //retval = rc.err_num();
+      //return rc;
+      //}
+      //if(i == 999 || eof) break;
+      int j = i;
     cout << "Record " << i << "/" << _num_rec << endl;
-    cvec_t       key(cursor->hdr(), cursor->hdr_size());
-    int         hdrcontents;
-    key.copy_to(&hdrcontents, sizeof(hdrcontents));
-    if(inserted.find(hdrcontents) == inserted.end()) {
-	    cout << "Key: "  << hdrcontents << endl;
-	    cout << "key size " << key.size() << endl;
-	    vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
-	    cout << "El: " << cursor->rid() << endl;
-	    cout << "El size "  << el.size() << endl;
-	    
-	    const char *body = cursor->body();
-	    //w_assert1(cursor->body_size() == _rec_size);
-	    cout << "Record body "  << body << endl;
-	    
-	    W_DO(ssm->create_mr_assoc(stid, key, el));
-	    i++;
-	    inserted.insert(hdrcontents);
-	}
-  } while (!eof);
-  w_assert1(i == _num_rec-1);
+    cvec_t       key(&j, sizeof(j));
+    //int         hdrcontents;
+    //key.copy_to(&i, sizeof(i));
+    //if(inserted.find(hdrcontents) == inserted.end() && hdrcontents != 0 && hdrcontents != 1000) {
+	cout << "Key: "  << i << endl;
+	cout << "key size " << key.size() << endl;
+	//vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
+	//cout << "El: " << cursor->rid() << endl;
+	//cout << "El size "  << el.size() << endl;
+	
+	//const char *body = cursor->body();
+	//w_assert1(cursor->body_size() == _rec_size);
+	//cout << "Record body "  << body << endl;
+	eg.j = i;
+	W_DO(ssm->create_mr_assoc(stid, key, eg, false, &print_updated_rids));
+	cout << endl;
+	//inserted.insert(hdrcontents);
+	//}
+	i++;
+  } while (i < 1000);
+  //w_assert1(i == _num_rec-1);
 
   W_DO(ssm->commit_xct());
   return RCOK;
@@ -882,7 +892,7 @@ smthread_user_t::no_init()
 	W_DO(mr_index_test3()); // ok
 	break;
     case 4:
-	W_DO(mr_index_test4()); //
+	//W_DO(mr_index_test4()); //
 	break;
     case 5:
 	W_DO(mr_index_test5()); // ok

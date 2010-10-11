@@ -227,6 +227,7 @@ public:
     void                invalidate_sdesc() { invalidate(); }
 
     // -- mrbt
+    inline stid_t stid() { return _stid; }
     inline bool has_partitions() { return _partitions_filled; } 
     key_ranges_map& partitions();
     rc_t fill_partitions_map();

@@ -3203,11 +3203,18 @@ public:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-	bool&                    space_found
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-					   ); 
+	bool&                    space_found,
+        const bool             bIgnoreLocks = false);
+
+    // TODO: comment on this if they decide to use
+    static rc_t            find_page_and_create_mrbt_rec(
+        const stid_t&            fid,
+	const lpid_t&            leaf,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+        const bool             bIgnoreLocks = false); 
 
     static rc_t            destroy_mrbt_rec(const rid_t& rid
 #ifdef SM_DORA
@@ -3901,12 +3908,18 @@ private:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-	bool&                    space_found
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        ); 
+	bool&                    space_found,
+        const bool             bIgnoreLocks = false); 
 
+    static rc_t            _find_page_and_create_mrbt_rec(
+        const stid_t&            fid,
+	const lpid_t&            leaf,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+        const bool             bIgnoreLocks = false);
+    
     static rc_t            _append_mrbt_rec(
         const rid_t&             rid, 
         const vec_t&             data,

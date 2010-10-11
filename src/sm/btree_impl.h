@@ -96,7 +96,7 @@ protected:
 	const bool                      bIgnoreLatches);
     
     static rc_t                        _relocate_recs_l(
-        const lpid_t&                   leaf_old,
+        lpid_t&                   leaf_old,
 	const lpid_t&                   leaf_new,
 	const bool                      was_root,
 	const bool bIgnoreLatches = false,
@@ -175,9 +175,8 @@ protected:
 	file_mrbt_p& old_page,
 	vector<rid_t>& recs,
 	map<rid_t, slotid_t>& slot_map,
-	rid_t* old_rids,
-	rid_t* new_rids,
-	uint*   moved,
+	vector<rid_t>& old_rids,
+	vector<rid_t>& new_rids,
 	const bool bIgnoreLatches); 
 
     static rc_t _move_recs_p(
@@ -189,9 +188,8 @@ protected:
 	vector<rid_t>& recs,
 	map<rid_t, slotid_t>& slot_map,
 	map<rid_t, lpid_t>& leaf_map,
-	rid_t* old_rids,
-	rid_t* new_rids,
-	uint*   moved,
+	vector<rid_t>& old_rids,
+	vector<rid_t>& new_rids,
 	const bool bIgnoreLatches); 
 // --
 

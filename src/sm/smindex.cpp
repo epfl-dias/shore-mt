@@ -638,6 +638,13 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 (cc != t_cc_im)
 	 ) return RC(eBADCCLEVEL);
 
+     // pin:
+     //cvec_t startKey;
+     //cvec_t* real_key;
+     //int i = 0;
+     //startKey.put((char*)(&i),sizeof(i));
+     //W_DO(bt->_scramble_key(real_key, startKey, count, kcomp));
+    
      switch (ntype)  {
      case t_mrbtree:
      case t_uni_mrbtree:
@@ -652,6 +659,9 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
 	 // create the ranges_p
 	 W_DO( ra->create(stid, root, subroot) );
+
+	 // pin:
+	 //W_DO( ra->add_partition(root, *real_key, subroot) );
 
 	 break;
 
@@ -930,10 +940,6 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	sd->partitions().getAllPartitions(pidVec);
 	for(i = 0; i < pidVec.size(); i++) {
 	    cout << "Partition " << i << endl;
-
-	    // pin: to debug
-	    cout << pidVec[i] << endl;
-
 	    bt->print(pidVec[i], k);
 	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key, last);
 	    if(start_key.size() != 0) {
@@ -1386,14 +1392,12 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );
 
-    lpid_t root_old;
     lpid_t root_new;
     cvec_t* real_key;    
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    // split the btree
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
     case t_uni_mrbtree:	
@@ -1404,7 +1408,6 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
 
 	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLocks));
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-	root_old = sd->root(*real_key);
 	// update the ranges page & key_ranges_map which keeps the partition info
 	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
 	W_DO( ra->add_partition(sd->root(), *real_key, root_new) );
