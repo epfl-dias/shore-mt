@@ -302,6 +302,7 @@ xct_lock_info_t::xct_lock_info_t()
     _wait_request(NULL),
     _sli_enabled(global_sli_enabled),
     _sli_purged(false),
+    _sli_sdesc_cache(0),
     _lock_level(lockid_t::t_record),
     _quark_marker(0),
     _noblock(false)
@@ -335,10 +336,12 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
        vastly reduces the chances of us forgetting to reset something,
        or resetting it to the wrong value.
      */
+    sdesc_cache_t* sdc = _sli_sdesc_cache;
     long _tmp[(sizeof(sli_list)+sizeof(long)-1)/sizeof(long)];
     memcpy(_tmp, &sli_list, sizeof(sli_list));
     new (this) xct_lock_info_t;
     memcpy(&sli_list, _tmp, sizeof(sli_list));
+    _sli_sdesc_cache = sdc;
 
     request_list_i it(sli_list);
     lock_cache_elem_t ignore_me;// don't care...
@@ -412,6 +415,8 @@ xct_lock_info_t::~xct_lock_info_t()
         }
     }
 #endif 
+    if(_sli_sdesc_cache)
+	xct_t::delete_sdesc_cache_t(_sli_sdesc_cache);
 }
 
 
@@ -2046,7 +2051,9 @@ lock_core_m::_maybe_inherit(lock_request_t* request, bool is_ancestor) {
 	    request->get_lock_info()->stats.eligible++;
 	    bool should_inherit = request->_sli_status == sli_not_inherited
 		&& lock->head_mutex.is_contended();
-	    if(0 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
+	    // force sli even w/o contention because sdesc cache needs it
+	    // TODO: make this smarter somehow...
+	    if(1 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
 		// clear some fields out
 		request->_num_children = 0;
 		request->_ref_count = 0;

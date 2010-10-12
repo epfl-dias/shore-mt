@@ -141,6 +141,8 @@ public:
         const lockid_t&              n,
         bool                         passOnToDescendants = true);
 
+    bool			sli_query(lockid_t const &n);
+    
     rc_t                        query(
         const lockid_t&              n, 
         lmode_t&                     m, 

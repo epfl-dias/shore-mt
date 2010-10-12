@@ -531,18 +531,19 @@ rc_t
 dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode, 
         bool lklarge)
 {
+    xct_t* xd = xct();
 #if W_DEBUG_LEVEL > 2
-    if(xct()) {
-        w_assert3(xct()->sdesc_cache());
+    if(xd) {
+        w_assert3(xd->sdesc_cache());
     }
 #endif 
 
-    sd = xct() ? xct()->sdesc_cache()->lookup(stid): 0;
+    sd = xd ? xd->sdesc_cache()->lookup(stid): 0;
     DBGTHRD(<<"xct sdesc cache lookup for " << stid
         << " returns " << sd);
 
+ again:
     if (! sd) {
-
         // lock the store
         if (mode != NL) {
             W_DO(lm->lock(stid, mode, t_long,
@@ -551,8 +552,8 @@ dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode,
 
         sinfo_s  sinfo;
         W_DO(_dir.access(stid, sinfo));
-        w_assert3(xct()->sdesc_cache());
-        sd = xct()->sdesc_cache()->add(stid, sinfo);
+        w_assert3(xd->sdesc_cache());
+        sd = xd->sdesc_cache()->add(stid, sinfo);
 
         // this assert forces an assert check in root() that
         // we want to run
@@ -563,6 +564,20 @@ dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode,
             W_DO(lm->lock(sd->large_stid(), mode, t_long,
                                    WAIT_SPECIFIED_BY_XCT));
         }
+	INC_TSTAT(dir_cache_miss);
+    } else if (sd->is_inherited()) {
+	// we can only use inherited sdesc if the corresponding stid
+	// lock can be successfully inherited
+	if(lm->sli_query(stid)) {
+	    sd->set_inherited(false);
+	    INC_TSTAT(dir_cache_inherit);
+	}
+	else {
+	    xd->sdesc_cache()->remove(stid);
+	    sd = 0;
+	    INC_TSTAT(dir_cache_stale);
+	}
+	goto again;
     } else     {
         // this assert forces an assert check in root() that
         // we want to run
@@ -588,6 +603,7 @@ dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode,
                                    WAIT_SPECIFIED_BY_XCT));
         }
         
+	INC_TSTAT(dir_cache_hit);
     }
 
     /*
@@ -743,6 +759,58 @@ sdesc_cache_t::remove_all()
     _minFreeBucketIndex = 0;
     _endserial();
 }
+
+
+void 
+sdesc_cache_t::inherit_all()
+{
+    _serialize();
+    for (uint4_t i = 0; i < _num_buckets(); i++) {
+        for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
+            DBG(<<"");
+            _sdescsBuckets[i][j].set_inherited(true);
+        }
+    }
+    _endserial();
+}
+
+#include <sstream>
+#include <iostream>
+
+struct pretty_printer {
+    ostringstream _out;
+    string _tmp;
+    operator ostream&() { return _out; }
+    operator char const*() { _tmp = _out.str(); _out.str(""); return _tmp.c_str(); }
+};
+ostream &operator<<(ostream &os, sdesc_t const &sd) {
+    return os << sd.stid();
+}
+ostream &operator<<(ostream &os, sdesc_cache_t const  &sdc) {
+    for (uint4_t i = 0; i < sdc._num_buckets(); i++) {
+        for (uint4_t j = 0; j < sdc._elems_in_bucket(i); j++)  {
+            os << sdc._sdescsBuckets[i][j] << " ";
+        }
+	os << std::endl;
+    }
+    return os;
+}
+char const* db_pretty_print(sdesc_t const* sd, int i=0, char const* s=0) {
+    static pretty_printer pp;
+    (void) i;
+    (void) s;
+    pp << *sd;
+    return pp;
+}
+char const* db_pretty_print(sdesc_cache_t const* sdc, int i=0, char const* s=0) {
+    static pretty_printer pp;
+    (void) i;
+    (void) s;
+    pp << *sdc;
+    return pp;
+}
+
+    
 
 
 sdesc_t* sdesc_cache_t::add(const stid_t& stid, const sinfo_s& sinfo)
