@@ -2051,9 +2051,10 @@ lock_core_m::_maybe_inherit(lock_request_t* request, bool is_ancestor) {
 	    request->get_lock_info()->stats.eligible++;
 	    bool should_inherit = request->_sli_status == sli_not_inherited
 		&& lock->head_mutex.is_contended();
-	    // force sli even w/o contention because sdesc cache needs it
-	    // TODO: make this smarter somehow...
-	    if(1 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
+	    // sdesc cache inheritance needs SLI to work and is
+	    // important even if there's no contention (e.g. 1thr)
+	    should_inherit |= (lock->name.lspace() <= lockid_t::t_store);
+	    if(0 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
 		// clear some fields out
 		request->_num_children = 0;
 		request->_ref_count = 0;
