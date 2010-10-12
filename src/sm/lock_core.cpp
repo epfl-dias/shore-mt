@@ -317,59 +317,6 @@ xct_lock_info_t::xct_lock_info_t()
     sli_list.set_offset(W_LIST_ARG(lock_request_t, xlink));
 }
 
-#if CODE_FROM_SLI_BRANCH
-xct_lock_info_t* xct_lock_info_t::reset() {
-    wait = 0;
-    cycle = 0;
-    last_deadlock_check_id = 0;
-    has_waiter = 0;
-    // leave sli_enabled alone
-    sli_purged = false;
-    quark_marker = 0;
-    lock_level = lockid_t::t_record;
-    stats.xct_count++;
-
-#if  0
-    // reinitialize the lock cache
-    for(int i=0; i < lockid_t::NUMLEVELS-1; i++)
-	cache[i].reset();
-    
-    //    fprintf(stderr, "Inherited %d locks\n", sli_list.num_members());
-    w_list_i<lock_request_t> it(sli_list);
-    while(lock_request_t* req = it.next()) {
-	lockid_t const &name = req->get_lock_head()->name;
-	cache[name.lspace()].put(name, req->mode, req);
-    }
-#else
-#ifdef USE_LOCK_HASH
-    hash.reset();
-    w_list_i<lock_request_t> it(sli_list);
-    lock_cache_elem_t ignore_me;// don't care...
-    while(lock_request_t* req = it.next()) {
-	lockid_t const &name = req->get_lock_head()->name;
-	req->keep_me = false; //name.lspace() <= lockid_t::t_store;
-	hash.put(name, req->mode, req, ignore_me);
-    }
-    membar_exit(); // can't let the status change precede the lock name read above!
-    it.reset(sli_list);
-    for(; lock_request_t* req = it.next(); ++stats.inherited)
-	req->sli_status = sli_inactive;
-    
-#else
-    for(int i=0; i < lockid_t::NUMLEVELS-1; i++)
-	cache[i].compact();
-#endif
-#endif
-    
-    // make sure the lock lists are empty
-    for(int i=0; i < t_num_durations; i++) {
-	w_assert1(list[i].is_empty());
-    }
-
-    // leave sli_list alone!
-    return this;
-}
-#endif
 // allows reuse rather than free/malloc of the structure
 xct_lock_info_t* xct_lock_info_t::reset_for_reuse() 
 {
