@@ -731,17 +731,18 @@ bf_core_m::grab(
         // (We acquired EX latch on the frame to cover the in-transit-in
         // case. All other fixers will await the release of the page latch.)
         ret->check(); // EX mode : should be strong check
-        ret->latch.latch_release(); // PROTOCOL
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << pid << " " << pthread_self() << " "
+            _ptrace_out << pid << " " << pthread_self() << " " << ret->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
+
+        ret->latch.latch_release(); // PROTOCOL
 
         ret->unpin_frame();
         _unused.release(ret); // put on free list
@@ -883,17 +884,18 @@ bf_core_m::find(
         // read failed. Hopefully the next grab() will work...
         w_assert1(p->latch.held_by_me() >= 1); // a repin should never fail this way!
         p->check(); // could be weak check
-        p->latch.latch_release(); // PROTOCOL
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " 
+            _ptrace_out << p->pid() << " " << pthread_self() << " "  << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
+
+        p->latch.latch_release(); // PROTOCOL
 
         p->unpin_frame();
         return RC(fcOS);
@@ -958,17 +960,18 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
         //    cs.exit(); // no need to hold _mutex for this...
         
         w_assert2(p->latch.is_mine());
-        p->latch.latch_release(); // PROTOCOL
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " 
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
+
+        p->latch.latch_release(); // PROTOCOL
 
         p->unpin_frame(); // NEH: moved unpin here after latch release,
         // since the protocol seems to be: 
@@ -989,17 +992,18 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
             // Do we need to unpin the frame here?
             // The assertion will tell us if this ever happens.
             w_assert0(false);
-            p->latch.latch_release(); // PROTOCOL
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " 
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
+
+            p->latch.latch_release(); // PROTOCOL
 
         }
     }
@@ -1321,7 +1325,7 @@ bf_core_m::unpin(bfcb_t*& p, int ref_bit, bool W_IFDEBUG4(in_htab))
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " 
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
@@ -1396,18 +1400,17 @@ bf_core_m::_remove(bfcb_t*& p)
             if(b.get_frame(p->pid()) != p)
                 continue; // cuckoo!
 
-            p->latch.latch_release(); // PROTOCOL
-
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " 
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
 
+            p->latch.latch_release(); // PROTOCOL
             p->unpin_frame(); // adjust pin count; so the 
             // remove can succeed; we still hold the lock
 
@@ -1437,19 +1440,18 @@ bf_core_m::_remove(bfcb_t*& p)
             break;
         }
         if(i == PATIENCE) {
-            // oh well...
-            p->latch.latch_release(); // PROTOCOL
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " "
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
 #endif
-
+            // oh well...
+            p->latch.latch_release(); // PROTOCOL
             p->unpin_frame();  // adjust pin count
             return RC(eFRAMENOTFOUND);
         }
@@ -1746,7 +1748,7 @@ bf_core_m::replacement()
         if (_ptrace_level>=PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " "
+            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
                         << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }

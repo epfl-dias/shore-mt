@@ -238,7 +238,7 @@ tree_latch::unfix()
         if (smlevel_0::_ptrace_level>=smlevel_0::PLP_TRACE_PAGE) {
             gettimeofday(&my_time, NULL);
             CRITICAL_SECTION(plpcs,smlevel_0::_ptrace_lock);
-            smlevel_0::_ptrace_out << _pid << " " << pthread_self() << " "
+            smlevel_0::_ptrace_out << _pid << " " << pthread_self() << " " << _latch.mode() << " "
                                    << my_time.tv_sec << "." << my_time.tv_usec << endl;
             plpcs.exit();
         }
