@@ -87,8 +87,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btcursor.h"
 #include <crash.h>
 #include <store_latch_manager.h>
+#include "btree_latch_manager.h"
 // common/store_latch_manager.h defines or undefs the following:
 extern store_latch_manager store_latches; // sm_io.cpp
+extern btree_latch_manager btree_latches; // smindex.cpp
 
 #if W_DEBUG_LEVEL > 3
 /* change these at will */
@@ -206,7 +208,7 @@ tree_latch::tree_latch(const lpid_t pid)
     // If there isn't already one for this store, we create a latch_t
     // for it.  This allows us to grab read/write/upgradable/downgradable
     // locks on a store.
-    _latch(store_latches.find_latch(pid.stid())), _fixed(false)
+    _latch(btree_latches.find_latch(pid)), _fixed(false)
 {
     check(); 
     // w_assert2(_latch.held_by_me() == 0); might be wrong until the first 
@@ -1363,6 +1365,8 @@ btree_impl::_merge_trees(
 	W_DO( page_to_insert.set_pid0( root1.page ) );
 	W_DO( _link_after_merge(root, root1.page, page_to_insert.child(0), true, bIgnoreLatches) );
 	page_to_insert.unfix();
+
+	btree_latches.destroy_latches(root1);
     }
     else if ( level_2 < level_1 ) { // root1 has a higher level than root2
 	                            // put root2 into appropriate slot in btree with root1
@@ -1385,6 +1389,8 @@ btree_impl::_merge_trees(
 	W_DO( _link_after_merge(root, page_to_insert.child(page_to_insert.nrecs()-2),
 				root2.page, false, bIgnoreLatches) );
 	page_to_insert.unfix();
+
+	btree_latches.destroy_latches(root2);
     }
     else { // both btrees have the same height
 	   // append root2 entries to root1
@@ -1408,6 +1414,8 @@ btree_impl::_merge_trees(
 
 	// free root2
 	W_DO( io->free_page(root2, false/*checkstore*/) );
+	
+	btree_latches.destroy_latches(root2);
     }
     
     return RCOK;

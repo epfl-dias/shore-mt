@@ -68,6 +68,7 @@ include_HEADERS = \
 	bf.h bf_core.h  bf_htab.h bf_transit_bucket.h\
 	bf_prefetch.h bf_s.h \
 	btcursor.h btree.h btree_impl.h btree_p.h \
+	btree_latch_manager.h \
 	chkpt.h chkpt_serial.h \
 	crash.h \
 	device.h dir.h \
@@ -103,6 +104,7 @@ libsm_a_SOURCES      =  \
 	bf_htab.cpp bf_htab_test.cpp \
 	bf_prefetch.cpp \
 	btcursor.cpp btree.cpp btree_bl.cpp btree_impl.cpp btree_p.cpp \
+	btree_latch_manager.cpp \
 	chkpt.cpp chkpt_serial.cpp \
 	common_templates.cpp \
 	crash.cpp \

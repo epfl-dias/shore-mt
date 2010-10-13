@@ -61,6 +61,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm.h"
 // -- mrbt
 #include "ranges_p.h"
+#include "btree_latch_manager.h"
+// NOTE : this is shared with btree layer
+btree_latch_manager btree_latches;
 // --
 
 /*==============================================================*
