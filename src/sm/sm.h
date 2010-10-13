@@ -2590,7 +2590,7 @@ public:
 	  * @param[out] el  the element, contents to be determined after leaf page is found
 	  * @param[in] leaf  leaf page that the insertion will take place for the el  
 	  */
-	 virtual rc_t fill_el(vec_t& el, const lpid_t& leaf) { return RCOK; }
+	 virtual rc_t fill_el(vec_t& /* el */, const lpid_t& /* leaf */) { return RCOK; }
 	 
 	 // destructor
 	 virtual ~el_filler() {}
