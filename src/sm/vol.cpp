@@ -3625,11 +3625,18 @@ vol_t::_last_extent(snum_t snum, extnum_t &ext,
         INC_TSTAT(vol_last_extent_search);
     }
     
+    extnum_t start = ext;
     extnum_t next;
-    while( (next=linkp->next) ) {
+    long i;
+    for(i=0; (next=linkp->next); i++ ) {
         // from our starting point, search to the end of the store
         W_DO(ei.get((ext=next), linkp));
     }
+
+    ADD_TSTAT(vol_last_extent_search_cost, i);
+    if (ext != start) 
+        page_cache_update(snum, ext);
+
     return RCOK;
 }
 
