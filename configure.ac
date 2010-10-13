@@ -7,6 +7,11 @@ AC_CONFIG_HEADERS([config/shore-config.h:config/shore-config-h.in])
 AC_CONFIG_SRCDIR([config/shore.def])
 AC_COPYRIGHT(COPYRIGHT-NOTICE)
 AC_CONFIG_AUX_DIR(config)
+
+
+echo configure args: $* > tmpcfg.txt
+
+
 ##
 ## Note that AM_INIT_AUTOMAKE is required.
 ## Turn on all automake warnings and treat them as errors.
