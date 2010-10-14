@@ -63,7 +63,7 @@ struct mcs_lock {
        CC mangles this as __1cImcs_lockPspin_on_waiting6Mpon0AFqnode__v_
     */
     void spin_on_waiting(qnode_ptr me) {
-        while(me->_waiting);
+        while(me->_waiting) ;
     }
     /* Only acquire the lock if it is free...
      */
@@ -110,7 +110,7 @@ struct mcs_lock {
     */
     qnode_ptr spin_on_next(qnode_ptr me) {
         qnode_ptr next;
-        while(!(next=me->_next));
+        while(!(next=me->_next)) ;
         return next;
     }
     void release(ext_qnode *me) { 

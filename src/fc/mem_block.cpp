@@ -349,7 +349,7 @@ block_list::~block_list() {
     _tail->_next = 0;
 
     // release blocks until we hit the NULL
-    while( (cur=_pool->release_block(cur)) );
+    while( (cur=_pool->release_block(cur)) ) ;
 }
 
 } // namespace memory_block
