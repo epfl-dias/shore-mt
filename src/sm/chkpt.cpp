@@ -132,7 +132,7 @@ struct old_xct_tracker {
     
     ~old_xct_tracker() {
         w_assert2(! _count);
-        while(_list.pop());
+        while(_list.pop()) ;
     }
     
     void track(xct_t* xd) {
