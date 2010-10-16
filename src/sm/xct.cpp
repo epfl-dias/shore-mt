@@ -77,6 +77,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sdesc.h"
 #include "lock_x.h"
 #include "sm_escalation.h"
+#include "chkpt_serial.h"
 #include <w_strstream.h>
 
 #include <sm.h>
@@ -130,86 +131,359 @@ SPECIALIZE_CS(xct_t, int _dummy, (_dummy=0),
  *
  *********************************************************************/
 
-queue_based_lock_t        xct_t::_xlist_mutex;
+/* There are several ways we need to protect the list of active
+   transactions:
 
-w_descend_list_t<xct_t, queue_based_lock_t, tid_t>   
-        xct_t::_xlist(W_KEYED_ARG(xct_t, _tid,_xlink), &_xlist_mutex);
+   1. We must always know the oldest and newest transaction (ie the
+      list is sorted). This is accomplished by virtue of the list
+      being a variant of the MCS spinlock.
 
-bool xct_t::xlist_mutex_is_mine() 
-{
-     bool is =
-        me()->get_xlist_mutex_node()._held 
-        && 
-        (me()->get_xlist_mutex_node()._held->
-            is_mine(&me()->get_xlist_mutex_node()));
-     return is;
-}
-void xct_t::assert_xlist_mutex_not_mine() 
-{
-    w_assert1(
-            (me()->get_xlist_mutex_node()._held == 0)
-           || 
-           (me()->get_xlist_mutex_node()._held->
-               is_mine(&me()->get_xlist_mutex_node())==false));
-}
-void xct_t::assert_xlist_mutex_is_mine() 
-{
-#if W_DEBUG_LEVEL > 1
-    bool res = 
-     me()->get_xlist_mutex_node()._held 
-        && (me()->get_xlist_mutex_node()._held->
-            is_mine(&me()->get_xlist_mutex_node()));
-    if(!res) {
-        fprintf(stderr, "held: %p\n", 
-             me()->get_xlist_mutex_node()._held );
-        if ( me()->get_xlist_mutex_node()._held  )
-        {
-        fprintf(stderr, "ismine: %d\n", 
-            me()->get_xlist_mutex_node()._held->
-            is_mine(&me()->get_xlist_mutex_node()));
-        }
-        w_assert1(0);
+   2. No transaction is allowed to change state during a checkpoint
+      because of a race between making the change and logging it. The
+      chkpt_serial_m enforces this for us.
+
+      NOTE: currently there are at least three distinct uses of
+      chkpt_serial: mount/dismount volume, transaction prepare, and
+      transaction state change (e.g. active -> freeing space ->
+      ended). AFAICT, this is unnecessarily coarse -- (un)mount
+      operations and transaction state changes only need to serialze
+      with chkpt_dev_tab_log and chkpt_xct_tab_log generation,
+      respectively. Prepared transactions are part of the lost 2PC
+      code, but even if that feature hadn't been lost it would still
+      only need to serialize for chkpt_xct_tab_log and the checkpoint
+      thread's calls to xct_t::log_prepared. Some day these should be
+      split apart properly so checkpointing doesn't interfere with
+      normal operation so much -- FRJ
+
+   3. No transaction's list node may be freed while iteration is in
+      progress (this is orthogonal to #2 -- checkpointing happens to
+      do #3 as part of #2, but #3 can happen by itself). We accomplish
+      this by reference counting all iterators; garbage collection
+      does not occur if the count is nonzero.
+
+   4. Mount/dismount cannot begin while any transaction is active, and
+      no transaction may begin while a (dis)mount is in progress. We
+      enforce these conditions by attempting to add a fake transaction
+      to the list; if the list is not empty the attempt fails and
+      dis(mount) cannot begin. Otherwise we purposefully delay
+      propagating the tid, preventing any new transaction(s) from
+      acquiring a tid until the operation completes.
+ */
+
+enum { NODE_DELETED=-2, NODE_LEFT=-1, NODE_ACTIVE, NODE_HEAD };
+
+struct xct_link {
+    xct_link*	_next;
+    tid_t	_tid;
+    xct_t*	_owner;
+    int		_node_state;
+    bool 	_fake;
+    xct_link volatile* 		vthis() { return this; }
+    xct_link(xct_t* owner, bool fake=false)
+	: _next(0), _owner(owner), _node_state(NODE_ACTIVE), _fake(fake)
+    {
     }
-#else
-     w_assert1(me()->get_xlist_mutex_node()._held 
-        && (me()->get_xlist_mutex_node()._held->
-            is_mine(&me()->get_xlist_mutex_node())));
-#endif
-}
+    int cas_state(int expected, int to_assign) {
+	return atomic_cas_32((unsigned int*) &_node_state, expected, to_assign);
+    }
+    xct_link* _reclaim_and_next(xct_link* sentinel);
+};
 
-w_rc_t  xct_t::acquire_xlist_mutex()
+struct xct_list {
+    xct_list();
+    ~xct_list();
+    void insert(xct_link* xd);
+    void insert_existing_unsafe(xct_t* xd);
+    void remove(xct_link* xd);
+    tid_t oldest_tid() { return anchor()->_tid.next(); }
+
+    xct_link _anchor;
+    xct_link* volatile _tail;
+    
+    xct_link* swap_tail(xct_link* xd) {
+	return (xct_link*) atomic_swap_ptr(&_tail, xd);
+    }
+    xct_link* cas_tail(xct_link* old_tail, xct_link* new_tail) {
+	return (xct_link*) atomic_cas_ptr(&_tail, old_tail, new_tail);
+    }
+
+    xct_link* anchor() { return &_anchor; }
+} _xlist;
+
+xct_i::maybe_lock::maybe_lock(bool already_locked)
+    : _already_locked(already_locked)
 {
-     assert_xlist_mutex_not_mine();
-     _xlist_mutex.acquire(&me()->get_xlist_mutex_node());
-     assert_xlist_mutex_is_mine();
-     return RCOK;
+    if(!_already_locked)
+	chkpt_serial_m::chkpt_acquire();
 }
 
-void  xct_t::release_xlist_mutex()
+xct_i::maybe_lock::~maybe_lock() {
+    if(!_already_locked)
+	chkpt_serial_m::chkpt_release();
+}
+
+/* Iterators provide a thread-safe but dynamic view of the transaction
+   list. Transactions are free to begin and end while an iterator is
+   active, and garbage collection will be coordinated to avoid invalid
+   pointer accesses.
+
+   WARNING: threads risk deadlock if they create multiple iterators at once
+ */
+xct_i::xct_i(bool already_locked)
+    : _lock(already_locked)
+    , _end_xd(*&_xlist._tail)
+    , _cur_xd(_end_xd? _xlist.anchor() : 0)
 {
-     assert_xlist_mutex_is_mine();
-     _xlist_mutex.release(me()->get_xlist_mutex_node());
-     assert_xlist_mutex_not_mine();
+}
+xct_i::~xct_i() {
 }
 
-/*********************************************************************
- *
- *  _nxt_tid is used to generate unique transaction id
- *  _1thread_name is the name of the mutex protecting the xct_t from
- *          multi-thread access
- *
- *********************************************************************/
-tid_t                                 xct_t::_nxt_tid = tid_t::null;
+xct_t* xct_i::next() {
+    if(_cur_xd == _end_xd) {
+	_cur_xd = _end_xd = 0;
+	return 0;
+    }
 
-/*********************************************************************
- *
- *  _oldest_tid is the oldest currently-running tx (well, could be
- *  committed by now - the xct destructor updates this)
- *  This corresponds to the Shore-MT paper section 7.3, top of
- *  2nd column, page 10.
- *
- *********************************************************************/
-tid_t                                xct_t::_oldest_tid = tid_t::null;
+    /* no thread can leave while the iterator is active so we can walk
+       the list at our leisure, deleting nodes which already left.
+       
+       NOTE: new transactions can still join the list, so we have to
+       end when we reach the tail we originally saw rather than
+       checking tail repeatedly.
+
+       NOTE: the list is (and will stay) in a consistent state
+       because transactions can only remove nodes if we don't hold the
+       lock (and we do). This means we can skip NODE_LEFT nodes instead
+       of trying to reclaim them.
+
+       NOTE: if we hit a null next pointer, we know that the
+       transaction cannot have started because it does not have a tid
+       yet. However, its successors may have read its just-set tid and
+       ocntinued on without it. This means we cannot stop iterating
+       until we reach _end_xd
+
+     */
+ retry:
+    xct_link* n;
+    while( !(n=_cur_xd->vthis()->_next) );
+    _cur_xd = n;
+    if(NODE_LEFT == _cur_xd->vthis()->_node_state) {
+	if(_cur_xd == _end_xd)
+	    return 0;
+	    
+	goto retry;
+    }
+
+    // success!
+    return _cur_xd->_owner;
+}
+
+xct_t* xct_i::erase_and_next() {
+    if(_cur_xd == _end_xd) {
+	_cur_xd = _end_xd = 0;
+	return 0;
+    }
+
+    xct_link* cur = _cur_xd;
+    xct_t* n = this->next();
+    delete cur;
+    return n;
+}
+
+
+
+static void pretty_print(ostream &out, xct_list const*rec) {
+    xct_link* cur = &_xlist._anchor;
+    out << "[anchor: " << cur->_tid << "]  ";
+    while( (cur=cur->_next) ) {
+	out << cur->_tid;
+	if(cur->_node_state == NODE_LEFT)
+	    out << "*";
+	else if(cur->_node_state == NODE_HEAD)
+	    out << "(H)";
+	
+	out << "  ";
+    }
+}
+#include <sstream>
+static char const* db_pretty_print(xct_list const* rec, int i=0, char const* s=0) {
+    static stringstream out;
+    static string str;
+    out.str("");
+    pretty_print(out, rec);
+    str = out.str();
+    return str.c_str();
+}
+
+xct_list::xct_list()
+  : _anchor(0, true)
+  , _tail(0)
+{
+    _anchor._tid = tid_t::null.next();
+}
+
+xct_list::~xct_list() {
+    w_assert1(0 == _anchor._next);
+}
+
+
+/* Insert a link at the end of the list
+ */
+void xct_list::insert(xct_link* xd) {
+    xd->_tid = tid_t::null;
+    xd->_next = 0;
+    xd->_node_state = NODE_ACTIVE;
+    membar_producer();
+    xct_link* pred = swap_tail(xd);
+    if(pred) {
+	// wait for their tid to become valid
+	while( pred->vthis()->_tid.invalid() ) { }
+	xd->_tid = pred->_tid.next();
+	membar_producer();
+	pred->_next = xd;
+    }
+    else {
+	// joined an empty list... use anchor's next_tid
+	xd->_tid = _anchor._tid;
+	xd->_node_state = NODE_HEAD;
+	membar_producer();
+	_anchor._next = xd;
+    }
+}
+
+void xct_list::insert_existing_unsafe(xct_t* owner) {
+    /* FRJ: this code is absolutely NOT thread-safe. It should only
+       used during recovery when single-thread access is
+       guaranteed. Note that by induction all current members of the
+       list were inserted by this same code segment.
+    */
+    xct_link* _xlink = new xct_link(owner);
+    tid_t t = _xlink->_tid = owner->tid();
+    w_assert1(t.valid());
+    w_assert1(operating_mode == t_in_analysis);
+	
+    // find insertion spot (always exists thanks to list anchor)
+    xct_link* xd = &_anchor;
+    while(t < xd->_tid)
+	xd = xd->_next;
+
+    // do a fake insertion
+    xct_link* next = _xlink->_next = xd->_next; // maybe NULL
+    xd->_next = _xlink;
+    _xlink->_node_state = NODE_ACTIVE;
+
+    // corner case: eol
+    if(!next) 
+	_tail = _xlink;
+
+    // corner case: bol (eol+bol possible)
+    if(xd == &_anchor) {
+	_xlink->_node_state = NODE_HEAD;
+	_anchor._next = _xlink;
+    }
+}
+
+void xct_list::remove(xct_link* xd) {
+    w_assert1(xd);
+    xct_link* next;
+    if(xd->_owner) {
+	xd->_owner->_xlink = 0;
+	xd->_owner = 0;
+    }
+
+    /* There are three possible outcomes of an attempt to hand off:
+
+       1. We finish before becoming NODE_HEAD. In this case we do nothing more.
+
+       2. Otherwise (as NODE_HEAD), we update the anchor with info from our potential successor, then...
+
+       2a. Succeed in marking our successor as NODE_HEAD. In this case we do nothing more
+       
+       3. Otherwise (as NODE_HEAD and failing to mark our successor)
+       check whether our successor is the current NODE_HEAD. This
+       indicates we already tried to reclaim it but could not because
+       it is at EOQ. In this case do nothing more (joining threads
+       know to check whether their predecessor is the
+       head).
+
+       3a. Otherwise, start over, but still aware of being NODE_HEAD
+     */
+    next = xd->vthis()->_next;
+    if(next) {
+    reclaim:
+	// have successor
+	if(NODE_LEFT == next->vthis()->_node_state) {
+	    // successor left
+	    xct_link* after_next = next->vthis()->_next;
+	    if(after_next) {
+		// we can reclaim this successor
+		xd->_next = after_next;
+		membar_producer();
+		delete next;
+		next = after_next;
+		goto reclaim;
+	    }
+	    // else successor may be eoq... don't bother
+	}
+	// else successor still active... don't bother
+    }
+    // else we may be eoq... don't bother
+    
+    // try to escape...
+    int s = xd->cas_state(NODE_ACTIVE, NODE_LEFT);
+    if(NODE_ACTIVE != s) {
+	// caught at queue head... look for a successor
+	if(next) {
+	    // potential successor found
+	    w_assert1(NODE_HEAD == s);
+	handoff:
+	    _anchor._tid = next->_tid;
+	    _anchor._next = next;
+	    membar_enter();
+	    delete xd; // done with this no matter what...
+	    xd = next; 
+	    int s2 = xd->cas_state(NODE_ACTIVE, NODE_HEAD);
+	    if(NODE_ACTIVE != s2) {
+		// too slow... node already left
+		w_assert1(NODE_LEFT == s2);
+		next = xd->vthis()->_next;
+		if(next) {
+		    // it can be reclaimed
+		    goto handoff;
+		}
+		else {
+		    // successor may be eoq... try to reset queue
+		    goto clear_queue;
+		}
+	    }
+	    // else done -- handoff succeeded!
+	}
+	else {
+	    // no apparent successor... try to reset the queue
+	clear_queue:
+	    /* clear out the anchor... no race w/ anchor node because
+	       only one node can be queue head and tail simultaneously
+	     */
+	    _anchor._tid = xd->_tid.next();
+	    _anchor._next = 0;
+	    membar_producer();
+	    if(xd == *&_tail && xd == cas_tail(xd, 0)) {
+		// done -- succeeded at clearing queue
+		delete xd;
+	    }
+	    else {
+		// wait for new arrival to introduce itself
+		while( !(next=xd->vthis()->_next) );
+
+		// link the newly formed list into the anchor
+		_anchor._next = next; 
+		goto handoff;
+	    }
+	}
+    }
+    // else done -- we escaped!
+}
+
 
 /*********************************************************************
  *
@@ -235,8 +509,7 @@ xct_t::new_xct(
         sm_stats_info_t* stats, 
         timeout_in_ms timeout)
 {
-    xct_core* core = NEW_CORE xct_core(_nxt_tid.atomic_incr(),
-                       xct_active, timeout);
+    xct_core* core = NEW_CORE xct_core(tid_t::null, xct_active, timeout);
     xct_t* xd = NEW_XCT xct_t(core, stats, lsn_t(), lsn_t());
     me()->attach_xct(xd);
     return xd;
@@ -248,7 +521,12 @@ xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
 {
 
     // Uses user(recovery)-provided tid
-    _nxt_tid.atomic_assign_max(t);
+    /* FRJ: VERY important to only call this constructor during
+       recovery because we have to wander the _xlist in completely
+       thread-unsafe ways if we discover any tids out of order.
+     */
+    w_assert1(operating_mode == t_in_analysis);
+    w_assert1(t.valid());
     xct_core* core = NEW_CORE xct_core(t, s, timeout);
     xct_t* xd = NEW_XCT xct_t(core, 0, last_lsn, undo_nxt);
     
@@ -304,22 +582,15 @@ dumpThreadById(int i) {
 int
 xct_t::cleanup(bool dispose_prepared)
 {
-    bool        changed_list;
     int         nprepared = 0;
-    xct_t*      xd;
-    W_COERCE(acquire_xlist_mutex());
-    do {
+    xct_t*      next;
+    {
         /*
          *  We cannot delete an xct while iterating. Use a loop
          *  to iterate and delete one xct for each iteration.
          */
-        xct_i i(false); // do acquire the list mutex. Noone
-        // else should be iterating over the xcts at this point.
-        changed_list = false;
-        xd = i.next();
-        if (xd) {
-            // Release the mutex so we can delete the xd if need be...
-            release_xlist_mutex();
+        xct_i i;
+	for(xct_t* xd=i.next(); xd; xd=next) {
             switch(xd->state()) {
             case xct_active: {
                     me()->attach_xct(xd);
@@ -330,34 +601,35 @@ xct_t::cleanup(bool dispose_prepared)
                      *  NB:  if a vas has multiple threads running on behalf
                      *  of a tx at this point, it's going to run into trouble.
                      */
+		    next = i.erase_and_next(); // do it first so we don't deadlock!
                     if (shutdown_clean) {
                         W_COERCE( xd->abort() );
                     } else {
                         W_COERCE( xd->dispose() );
                     }
                     delete xd;
-                    changed_list = true;
                 } 
                 break;
 
             case xct_freeing_space:
             case xct_ended: {
+		    next = i.erase_and_next()
                     DBG(<< xd->tid() <<"deleting " 
                             << " w/ state=" << xd->state() );
                     delete xd;
-                    changed_list = true;
                 }
                 break;
 
             case xct_prepared: {
                     if(dispose_prepared) {
                         me()->attach_xct(xd);
+			next = i.erase_and_next();
                         W_COERCE( xd->dispose() );
                         delete xd;
-                        changed_list = true;
                     } else {
                         DBG(<< xd->tid() <<"keep -- prepared ");
                         nprepared++;
+			next = i.next();
                     }
                 } 
                 break;
@@ -365,14 +637,13 @@ xct_t::cleanup(bool dispose_prepared)
             default: {
                     DBG(<< xd->tid() <<"skipping " 
                             << " w/ state=" << xd->state() );
+		    next = i.next();
                 }
                 break;
             
             } // switch on xct state
-            W_COERCE(acquire_xlist_mutex());
         } // xd not null
-    } while (xd && changed_list);
-    release_xlist_mutex();
+    }
     return nprepared;
 }
 
@@ -390,10 +661,8 @@ xct_t::cleanup(bool dispose_prepared)
 w_base_t::uint4_t
 xct_t::num_active_xcts()
 {
-    w_base_t::uint4_t num;
-    W_COERCE(acquire_xlist_mutex());
-    num = _xlist.num_members();
-    release_xlist_mutex();
+    w_base_t::uint4_t num = 0;
+    for(xct_i it; it.next(); num++) { }
     return  num;
 }
 
@@ -430,6 +699,12 @@ xct_t::timeout_c() const {
     return _core->_timeout;
 }
 
+tid_t
+xct_t::tid() const
+{
+    return lock_info()->tid();
+}
+
 /*********************************************************************
  *
  *  xct_t::oldest_tid()
@@ -440,7 +715,7 @@ xct_t::timeout_c() const {
 tid_t
 xct_t::oldest_tid()
 {
-    return _oldest_tid;
+    return _xlist.oldest_tid();
 }
 
 
@@ -467,7 +742,7 @@ xct_t::recover2pc(const gtid_t &g,
         bool        /*mayblock*/,
         xct_t        *&xd)
 {
-    w_list_i<xct_t, queue_based_lock_t> i(_xlist);
+    xct_i i;
     while ((xd = i.next()))  {
         if( xd->state() == xct_prepared ) {
             if(xd->gtid() &&
@@ -492,7 +767,7 @@ xct_t::recover2pc(const gtid_t &g,
 rc_t 
 xct_t::query_prepared(int list_len, gtid_t list[])
 {
-    w_list_i<xct_t, queue_based_lock_t> iter(_xlist);
+    xct_i iter;
     int i=0;
     xct_t *xd;
     while ((xd = iter.next()))  {
@@ -521,7 +796,7 @@ xct_t::query_prepared(int list_len, gtid_t list[])
 rc_t 
 xct_t::query_prepared(int &numtids)
 {
-    w_list_i<xct_t, queue_based_lock_t> iter(_xlist);
+    xct_i iter;
     numtids=0;
     xct_t *xd;
     while ((xd = iter.next()))  {
@@ -914,17 +1189,21 @@ xct_t::restore_log_state(switch_t s)
 }
 
 
+#warning Assumes caller holds chkpt_serial_m. Seg fault otherwise
 tid_t
 xct_t::youngest_tid()
 {
-    ASSERT_FITS_IN_LONGLONG(tid_t);
-    return _nxt_tid;
-}
-
-void
-xct_t::update_youngest_tid(const tid_t &t)
-{
-    _nxt_tid.atomic_assign_max(t);
+    xct_i it(true);
+    xct_link* who;
+    if(it._end_xd) {
+	tid_t tid;
+	while( it._end_xd->vthis()->_tid.invalid() ) { }
+	who = it._end_xd;
+    }
+    else {
+	who = _xlist.anchor();
+    }
+    return who->_tid;
 }
 
 
@@ -935,30 +1214,6 @@ xct_t::force_readonly()
     _core->_forced_readonly = true;
     release_1thread_xct_mutex();
 }
-
-void 
-xct_t::put_in_order() {
-    W_COERCE(acquire_xlist_mutex());
-    _xlist.put_in_order(this);
-    _oldest_tid = _xlist.last()->_tid;
-    release_xlist_mutex();
-
-#if W_DEBUG_LEVEL > 2
-    W_COERCE(acquire_xlist_mutex());
-    {
-        // make sure that _xlist is in order
-        w_list_i<xct_t, queue_based_lock_t> i(_xlist);
-        tid_t t = tid_t::null;
-        xct_t* xd;
-        while ((xd = i.next()))  {
-            w_assert1(t < xd->_tid);
-        }
-        w_assert1(t <= _nxt_tid);
-    }
-    release_xlist_mutex();
-#endif 
-}
-
 
 smlevel_0::fileoff_t
 xct_t::get_log_space_used() const
@@ -996,17 +1251,15 @@ xct_t::wait_for_log_space(fileoff_t amt) {
 void
 xct_t::dump(ostream &out) 
 {
-    W_COERCE(acquire_xlist_mutex());
     out << "xct_t: "
-            << _xlist.num_members() << " transactions"
+            << num_active_xcts() << " transactions"
         << endl;
-    w_list_i<xct_t, queue_based_lock_t> i(_xlist);
+    xct_i i;
     xct_t* xd;
     while ((xd = i.next()))  {
         out << "********************" << endl;
         out << *xd << endl;
     }
-    release_xlist_mutex();
 }
 
 void                        
@@ -1148,9 +1401,29 @@ operator<<(ostream& o, const xct_t& x)
 DECLARE_TLS(block_alloc<logrec_t>, logrec_pool);
 #endif
 
+void xct_t::join_xlist() {
+    w_assert1(!_xlink);
+    _xlink = new xct_link(this);
+    _xlist.insert(_xlink);
+    _core->_lock_info->set_tid(_xlink->_tid);
+}
+
+rc_t
+xct_t::_xct_ended(xct_end_type type) {
+    rc_t rc;
+    chkpt_serial_m::trx_acquire();
+    change_state(xct_ended);
+    if(type == xct_end_commit)
+	rc = log_xct_end();
+    else if(type == xct_end_abort)
+	rc = log_xct_abort();
+    _xlist.remove(_xlink);
+    chkpt_serial_m::trx_release();
+    return rc;
+}
+
 xct_t::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
     :
-    _tid(t), 
     _timeout(timeout),
     _warn_on(true),
     _lock_info(agent_lock_info->take()),    
@@ -1167,7 +1440,7 @@ xct_t::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
     _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
     _xct_ended(0) // for assertions
 {
-    _lock_info->set_tid(_tid);
+    _lock_info->set_tid(t);
     _lock_info->set_lock_level ( convert(cc_alg) );
     w_assert1(_tid == _lock_info->tid());
     
@@ -1188,12 +1461,12 @@ xct_t::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
  *********************************************************************/
 xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
            const lsn_t& last_lsn, const lsn_t& undo_nxt) 
-    :   
+    :
+    _xlink(0),
     __stats(stats),
     __saved_lockid_t(0),
     __saved_sdesc_cache_t(0),
     __saved_xct_log_t(0),
-    _tid(core->_tid), 
     // _first_lsn, _last_lsn, _undo_nxt, 
     _last_lsn(last_lsn),
     _undo_nxt(undo_nxt),
@@ -1207,9 +1480,6 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     _in_compensated_op(0),
     _core(core)
 {
-    w_assert1(tid() == core->_tid);
-    w_assert3(tid() <= _nxt_tid);
-    w_assert2(tid() <= _nxt_tid);
     w_assert1(tid() == core->_lock_info->tid());
 
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
@@ -1238,7 +1508,10 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     __saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
 #endif /* SDESC_CACHE_PER_THREAD */
 
-    put_in_order();
+    if(tid().invalid()) 
+	join_xlist();
+    else 
+	_xlist.insert_existing_unsafe(this);
 }
 
 
@@ -1312,20 +1585,9 @@ xct_t::~xct_t()
 // common code needed by _commit(t_chain) and ~xct_t()
 void
 xct_t::_teardown(bool is_chaining) {
-    W_COERCE(acquire_xlist_mutex());
-
-    _xlink.detach();
     if(is_chaining) {
-        _tid = _core->_tid = _nxt_tid.atomic_incr();
-        _core->_lock_info->set_tid(_tid); // WARNING: duplicated in
-        // lock_x and in core
-        _xlist.put_in_order(this);
+	join_xlist();
     }
-    
-    // find the new oldest xct
-    xct_t* xd = _xlist.last();
-    _oldest_tid = xd ? xd->_tid : _nxt_tid;
-    release_xlist_mutex();
 
     DBGX( << " commit: _log_bytes_rsvd " << _log_bytes_rsvd  
      << " _log_bytes_ready " << _log_bytes_ready
@@ -1914,15 +2176,10 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
         // don't allow a chkpt to occur between changing the state and writing
         // the log record, since otherwise it might try to change the state
         // to the current state (which causes an assertion failure).
-
-        chkpt_serial_m::trx_acquire();
-        change_state(xct_ended);
-        rc = log_xct_end();
-        chkpt_serial_m::trx_release();
-
-        W_DO(rc);
+	W_DO(_xct_ended(xct_end_commit));
     }  else  {
-        change_state(xct_ended);
+	// must hold chkpt_serial_m to make _xlist.remove safe
+	W_COERCE(_xct_ended(xct_end_nolog));
 
         /*
          *  Free all locks. Do not free locks if chaining.
@@ -2071,14 +2328,10 @@ xct_t::_abort()
         // the log record, since otherwise it might try to change the state
         // to the current state (which causes an assertion failure).
 
-        chkpt_serial_m::trx_acquire();
-        change_state(xct_ended);
-        rc =  log_xct_abort();
-        chkpt_serial_m::trx_release();
-
-        W_DO(rc);
+	W_DO(_xct_ended(xct_end_abort));
     }  else  {
-        change_state(xct_ended);
+	// must hold chkpt_serial_m to make _xlist.remove safe
+	W_COERCE(_xct_ended(xct_end_nolog));
 
         /*
          *  Free all locks. Don't free exts as there shouldn't be any to free.

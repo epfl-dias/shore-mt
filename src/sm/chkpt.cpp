@@ -502,7 +502,6 @@ void chkpt_m::take()
     }
 
 
-    W_COERCE(xct_t::acquire_xlist_mutex());
     /*
      *  Checkpoint the transaction table, and record
      *  minimum of first_lsn of all transactions.
@@ -525,7 +524,7 @@ void chkpt_m::take()
            want to hold the mutex longer than it's in scope so we
            continue using manual locking.
         */
-        xct_i x(false); // false -> do not acquire the mutex
+        xct_i x(true); // true -> acquire the mutex
 
         const xct_t* xd = 0;
         do {
@@ -590,9 +589,11 @@ void chkpt_m::take()
 
     /*
      *  Checkpoint the prepared transactions 
+     *
+     *  We hold the chkpt_serial, so no transactions can change state
      */
     DBG(<< "checkpoint prepared tx");
-    xct_i x(false);    /* again, the unlocked iterator */
+    xct_i x(true);    /* again, the locked iterator */
     xct_t* xd = 0;
     while( (xd = x.next()) )  {
         DBG(<< xd->tid() << " has state " << xd->state());
@@ -612,8 +613,6 @@ void chkpt_m::take()
             me()->detach_xct(xd);
         }
     }
-
-    xct_t::release_xlist_mutex();
 
     /*
      *  Make sure that min_rec_lsn and min_xct_lsn are valid
