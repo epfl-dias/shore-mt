@@ -71,6 +71,7 @@ class lock_m : public lock_base_t {
 public:
 
     friend class xct_lock_info_t;
+    friend class lock_head_t;
     typedef lock_base_t::lmode_t lmode_t;
     typedef lock_base_t::duration_t duration_t;
     typedef lock_base_t::status_t status_t;
@@ -140,6 +141,8 @@ public:
         const lockid_t&              n,
         bool                         passOnToDescendants = true);
 
+    bool			sli_query(lockid_t const &n);
+    
     rc_t                        query(
         const lockid_t&              n, 
         lmode_t&                     m, 

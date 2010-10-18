@@ -2270,13 +2270,10 @@ void ss_m::set_sli_enabled(bool enable)
     lm->set_sli_enabled(enable);
 }
 
-#ifdef USE_ELR
-void ss_m::set_elr_enabled(bool /* enable */) 
+void ss_m::set_elr_enabled(bool enable) 
 {
-    fprintf(stdout, "ELR not supported\n");
-    //xct_t::set_elr_enabled(enable);
+    xct_t::set_elr_enabled(enable);
 }
-#endif
 
 rc_t ss_m::set_log_features(char const* features) 
 {

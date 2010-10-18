@@ -2960,9 +2960,7 @@ public:
        point. Does *NOT* disable SLI for existing threads.
      */
     static void			set_sli_enabled(bool enabled);
-#if OTHER_HOOKS
     static void			set_elr_enabled(bool enabled);
-#endif
 
     static rc_t			set_log_features(char const* features);
     static char const* 		get_log_features();

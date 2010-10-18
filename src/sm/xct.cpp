@@ -543,6 +543,13 @@ xct_t::destroy_xct(xct_t* xd)
     DELETE_CORE(core);
 }
 
+static bool elr_enabled = false;
+
+void
+xct_t::set_elr_enabled(bool enable) {
+    elr_enabled = enable;
+}
+
 #if W_DEBUG_LEVEL > 2
 /* debugger-callable */
 extern "C" void dumpXct(const xct_t *x) { if(x) { cout << *x <<endl;} }
@@ -899,6 +906,12 @@ xct_t::new_sdesc_cache_t()
     sdesc_cache_t*          _sdesc_cache = new sdesc_cache_t;
     if (!_sdesc_cache) W_FATAL(eOUTOFMEMORY);
     return _sdesc_cache;
+}
+
+void
+xct_t::delete_sdesc_cache_t(sdesc_cache_t* sdc)
+{
+    delete sdc;
 }
 
 xct_log_t*          
@@ -1505,7 +1518,11 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     w_assert9(timeout_c() >= 0 || timeout_c() == WAIT_FOREVER);
 
 #ifndef SDESC_CACHE_PER_THREAD
-    __saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
+    xct_lock_info_t* li = lock_info();
+    if(li->_sli_enabled)
+	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
+    if(!__saved_sdesc_cache_t)
+	__saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
 #endif /* SDESC_CACHE_PER_THREAD */
 
     if(tid().invalid()) 
@@ -1570,6 +1587,12 @@ xct_t::~xct_t()
     if(__saved_lockid_t)  { 
         delete[] __saved_lockid_t; 
         __saved_lockid_t=0; 
+    }
+    
+    xct_lock_info_t* li = lock_info();
+    if(__saved_sdesc_cache_t && li->_sli_enabled) {
+	__saved_sdesc_cache_t->inherit_all();
+	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
     }
     if(__saved_sdesc_cache_t) {         
         delete __saved_sdesc_cache_t;
@@ -2127,6 +2150,20 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
 
         W_DO(rc);
 
+        /*
+         *  If ELR, free all locks. Do not free locks if chaining.
+         */
+        if (elr_enabled && ! (flags & xct_t::t_chain))  {
+#if X_LOG_COMMENT_ON
+            {
+                w_ostrstream s;
+                s << "unlock_duration, frees extents ";
+                W_DO(log_comment(s.c_str()));
+            }
+#endif
+            W_COERCE( lm->unlock_duration(t_long, true, false) );
+        }
+
         if (!(flags & xct_t::t_lazy) /* && !_read_only */)  {
             _sync_logbuf();
         }
@@ -2153,16 +2190,9 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
 
 
         /*
-         *  Free all locks. Do not free locks if chaining.
+         *  If !ELR, free all locks. Do not free locks if chaining.
          */
-        if (! (flags & xct_t::t_chain))  {
-            // clear cached store references if the locks
-            // are going away, because the removal of the locks
-            // may allow the objects the cached entries point
-            // at to become invalid
-            if (sdesc_cache())
-                sdesc_cache()->remove_all();
-
+        if (!elr_enabled && ! (flags & xct_t::t_chain))  {
 #if X_LOG_COMMENT_ON
             {
                 w_ostrstream s;
@@ -2186,13 +2216,6 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
          *  Don't free exts as there shouldn't be any to free.
          */
         if (! (flags & xct_t::t_chain))  {
-            // clear cached store references if the locks
-            // are going away, because the removal of the locks
-            // may allow the objects the cached entries point
-            // at to become invalid
-            if (sdesc_cache())
-                sdesc_cache()->remove_all();
-
             W_COERCE( lm->unlock_duration(t_long, true, true) );
         }
     }

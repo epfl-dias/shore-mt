@@ -164,6 +164,7 @@ class xct_t : public smlevel_1 {
     friend class xct_prepare_fi_log; 
     friend class xct_prepare_lk_log; 
     friend class sm_quark_t; 
+    friend class xct_lock_info_t;
 
 protected:
     enum commit_t { t_normal = 0, t_lazy = 1, t_chain = 2 };
@@ -187,6 +188,8 @@ public:
         timeout_in_ms                timeout = WAIT_SPECIFIED_BY_THREAD);
     static
     void                        destroy_xct(xct_t* xd);
+
+    static void			set_elr_enabled(bool enable);
 
 private:
     struct xct_core;            // forward  
@@ -381,6 +384,7 @@ protected:
     // and we have changed these to be a per-thread structures.
     static lockid_t*            new_lock_hierarchy();
     static sdesc_cache_t*       new_sdesc_cache_t();
+    static void			delete_sdesc_cache_t(sdesc_cache_t* sdc);
     static xct_log_t*           new_xct_log_t();
     void                        steal(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);
     void                        stash(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);

@@ -434,12 +434,7 @@ public:
                         int    & total_SIX, 
                         int & total_extent ) const;
 
-#ifdef SM_DORA
-    // IP: We use a reduced lock cache size in DORA since locks are not being used
-    enum { lock_cache_size = 3};
-#else
     enum { lock_cache_size = 25};
-#endif
 
     /// ID of the transaction that owns this structure.
     tid_t            tid() const { return _tid; }
@@ -525,6 +520,7 @@ public:
     bool			_sli_enabled; // does the user want to use sli?
     bool			_sli_purged;
     sli_stats			stats;
+    sdesc_cache_t*		_sli_sdesc_cache;
     
 private:
     // now this is in the thread :
@@ -654,7 +650,7 @@ public:
 
     NORET            ~lock_head_t()   { chain.detach(); }
 
-    lmode_t          granted_mode_other(const lock_request_t* exclude);
+    lmode_t          granted_mode_other(const lock_request_t* exclude, bool kill_sli=false);
     lock_request_t*  find_lock_request(const xct_lock_info_t*  xdli);
     int              queue_length() const { 
 #if MY_LOCK_DEBUG

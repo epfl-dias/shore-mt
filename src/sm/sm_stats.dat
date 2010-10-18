@@ -336,5 +336,11 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long lk_user2_wait		User2 locks waited
     u_long lk_user3_wait		User3 locks waited
     u_long lk_user4_wait		User4 locks waited
+
+    // directory-related stats
+    u_long dir_cache_hit		Hits to the directory cache
+    u_long dir_cache_miss		Probes to the directory store
+    u_long dir_cache_inherit		A miss prevented by inheritance
+    u_long dir_cache_stale		Miss due to a stale cache entry
 };
 
