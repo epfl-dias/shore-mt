@@ -186,6 +186,8 @@ public:
     static
     void                        destroy_xct(xct_t* xd);
 
+    static void			set_elr_enabled(bool enable);
+
 private:
     struct xct_core;            // forward  
     NORET                        xct_t(

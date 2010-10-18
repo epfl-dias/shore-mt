@@ -265,6 +265,13 @@ xct_t::destroy_xct(xct_t* xd)
     DELETE_CORE(core);
 }
 
+static bool elr_enabled = false;
+
+void
+xct_t::set_elr_enabled(bool enable) {
+    elr_enabled = enable;
+}
+
 #if W_DEBUG_LEVEL > 2
 /* debugger-callable */
 extern "C" void dumpXct(const xct_t *x) { if(x) { cout << *x <<endl;} }
@@ -1881,6 +1888,20 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
 
         W_DO(rc);
 
+        /*
+         *  If ELR, free all locks. Do not free locks if chaining.
+         */
+        if (elr_enabled && ! (flags & xct_t::t_chain))  {
+#if X_LOG_COMMENT_ON
+            {
+                w_ostrstream s;
+                s << "unlock_duration, frees extents ";
+                W_DO(log_comment(s.c_str()));
+            }
+#endif
+            W_COERCE( lm->unlock_duration(t_long, true, false) );
+        }
+
         if (!(flags & xct_t::t_lazy) /* && !_read_only */)  {
             _sync_logbuf();
         }
@@ -1907,9 +1928,9 @@ xct_t::_commit(uint4_t flags,lsn_t* plastlsn)
 
 
         /*
-         *  Free all locks. Do not free locks if chaining.
+         *  If !ELR, free all locks. Do not free locks if chaining.
          */
-        if (! (flags & xct_t::t_chain))  {
+        if (!elr_enabled && ! (flags & xct_t::t_chain))  {
 #if X_LOG_COMMENT_ON
             {
                 w_ostrstream s;
