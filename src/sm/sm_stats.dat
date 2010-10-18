@@ -208,6 +208,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bt_posc		POSCs established
     u_long bt_scan_cnt		Btree scans started
     u_long bt_splits		Btree pages split (interior and leaf)
+    u_long bt_leaf_splits	Btree leaf pages split
     u_long bt_cuts		Btree pages removed (interior and leaf)
     u_long bt_grows		Btree grew a level
     u_long bt_shrinks		Btree shrunk a level

@@ -3072,6 +3072,7 @@ btree_impl::_split_leaf(
         xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
     }
 
+    INC_TSTAT(bt_leaf_splits);
     return RCOK;
 }
 
