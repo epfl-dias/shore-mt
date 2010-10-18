@@ -42,11 +42,12 @@
 */
 struct mcs_lock {
     struct qnode;
-    typedef qnode volatile* qnode_ptr;
     struct qnode {
-        qnode_ptr _next;
-        bool _waiting;
+        qnode* _next;
+        int _waiting;
+	int _padding;
         //      qnode() : _next(NULL), _waiting(false) { }
+	qnode volatile* vthis() { return this; }
     };
     struct ext_qnode {
       qnode _node;
@@ -54,7 +55,7 @@ struct mcs_lock {
         mcs_lock* _held;
     };
 #define MCS_EXT_QNODE_INITIALIZER {{0,false},0}
-    qnode_ptr volatile _tail;
+    qnode* volatile _tail;
     mcs_lock() : _tail(NULL) { }
 
     /* This spinning occurs whenever there are critical sections ahead
@@ -62,23 +63,23 @@ struct mcs_lock {
 
        CC mangles this as __1cImcs_lockPspin_on_waiting6Mpon0AFqnode__v_
     */
-    void spin_on_waiting(qnode_ptr me) {
-        while(me->_waiting) ;
+    void spin_on_waiting(qnode* me) {
+        while(me->vthis()->_waiting) ;
     }
     /* Only acquire the lock if it is free...
      */
     bool attempt(ext_qnode* me) {
-        if(attempt((qnode_ptr) me)) {
+        if(attempt((qnode*) me)) {
             me->_held = this;
             return true;
         }
         return false;
     }
-    bool attempt(qnode_ptr me) {
+    bool attempt(qnode* me) {
         me->_next = NULL;
         me->_waiting = true;
         membar_producer();
-        qnode_ptr pred = (qnode_ptr) atomic_cas_ptr(&_tail, 0, (void*) me);
+        qnode* pred = (qnode*) atomic_cas_ptr(&_tail, 0, (void*) me);
         // lock held?
         if(pred)
             return false;
@@ -90,27 +91,36 @@ struct mcs_lock {
         me->_held = this;
         return acquire((qnode*) me);
     }
-    void* acquire(qnode_ptr me) {
+    void* acquire(qnode* me) {
+	return __unsafe_end_acquire(me, __unsafe_begin_acquire(me));
+    }
+
+    qnode* __unsafe_begin_acquire(qnode* me) {
         me->_next = NULL;
         me->_waiting = true;
         membar_producer();
-        qnode_ptr pred = (qnode_ptr) atomic_swap_ptr(&_tail, (void*) me);
+        qnode* pred = (qnode*) atomic_swap_ptr(&_tail, (void*) me);
         if(pred) {
             pred->_next = me;
+        }
+	return pred;
+    }
+    void* __unsafe_end_acquire(qnode* me, qnode* pred) {
+        if(pred) {
             spin_on_waiting(me);
         }
         membar_enter();
         return (void*) pred;
     }
-
+    
     /* This spinning only occurs when we are at _tail and catch a
        thread trying to enqueue itself.
 
        CC mangles this as __1cImcs_lockMspin_on_next6Mpon0AFqnode__3_
     */
-    qnode_ptr spin_on_next(qnode_ptr me) {
-        qnode_ptr next;
-        while(!(next=me->_next)) ;
+    qnode* spin_on_next(qnode* me) {
+        qnode* next;
+        while(!(next=me->vthis()->_next)) ;
         return next;
     }
     void release(ext_qnode *me) { 
@@ -119,20 +129,20 @@ struct mcs_lock {
     }
     void release(ext_qnode &me) { release(&me); }
     void release(qnode &me) { release(&me); }
-    void release(qnode_ptr me) {
+    void release(qnode* me) {
         w_assert1(is_mine(me));
         membar_exit();
 
-        qnode_ptr next;
+        qnode* next;
         if(!(next=me->_next)) {
-            if(me == _tail && me == (qnode_ptr) 
+            if(me == _tail && me == (qnode*) 
                     atomic_cas_ptr(&_tail, (void*) me, NULL))
             return;
             next = spin_on_next(me);
         }
         next->_waiting = false;
     }
-  //bool is_mine(qnode_ptr me) { return me->_held == this; }
+  //bool is_mine(qnode* me) { return me->_held == this; }
     bool is_mine(ext_qnode* me) { return me->_held == this; }
 };
 /**\endcond skip */

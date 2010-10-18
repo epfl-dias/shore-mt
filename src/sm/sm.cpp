@@ -700,7 +700,7 @@ ss_m::_construct_once(
    /*
     * buffer pool size
     */
-    uint4_t  nbufpages = (strtoul(_bufpoolsize->value(), NULL, 0) * 1024 - 1) / page_sz + 1;
+    uint4_t  nbufpages = (strtoul(_bufpoolsize->value(), NULL, 0) * 1024l - 1) / page_sz + 1;
     if (nbufpages < 10)  {
         errlog->clog << fatal_prio << "ERROR: buffer size ("
              << _bufpoolsize->value() 
@@ -1536,6 +1536,17 @@ ss_m::chain_xct(bool lazy)
 
 
 /*--------------------------------------------------------------*
+ *  ss_m::flushlog()                                    *
+ *--------------------------------------------------------------*/
+rc_t
+ss_m::flushlog()
+{
+    // forces until the current gsn
+    bf->force_until_lsn(log->curr_lsn(), false);
+    return (RCOK);
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::checkpoint()                                        
  *  For debugging, smsh
  *--------------------------------------------------------------*/
@@ -2259,27 +2270,23 @@ void ss_m::set_sli_enabled(bool enable)
     lm->set_sli_enabled(enable);
 }
 
-#if OTHER_HOOKS
+#ifdef USE_ELR
 void ss_m::set_elr_enabled(bool /* enable */) 
 {
     fprintf(stdout, "ELR not supported\n");
     //xct_t::set_elr_enabled(enable);
 }
+#endif
 
-rc_t ss_m::set_log_features(char const* /* features */) 
+rc_t ss_m::set_log_features(char const* features) 
 {
-    fprintf(stdout, "Aether not integrated\n");
-    return (RCOK);
-    //return log->set_log_features(features);
+    return log->set_log_features(features);
 }
 
 char const* ss_m::get_log_features() 
 {
-    fprintf(stdout, "Aether not integrated\n");
-    return ("NOT-IMPL");
-    //return log->get_log_features();
+    return log->get_log_features();
 }
-#endif
 
 #if SM_PLP_TRACING
 #warning PLP tracing enabled

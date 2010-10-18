@@ -1457,6 +1457,10 @@ public:
      */
     static rc_t            thread_collect(vtable_t&v, bool names_too=true);
 
+    /**\brief Write all existing log entries to disk
+     */
+    static rc_t		   flushlog();
+    
     /**\brief Take a checkpoint.
      * \ingroup SSMAPIDEBUG
      * \note For debugging only!
@@ -2958,10 +2962,10 @@ public:
     static void			set_sli_enabled(bool enabled);
 #if OTHER_HOOKS
     static void			set_elr_enabled(bool enabled);
+#endif
 
     static rc_t			set_log_features(char const* features);
     static char const* 		get_log_features();
-#endif
 
 #if SM_PLP_TRACING
     /* Set tracing level. For example, the application may choose to track

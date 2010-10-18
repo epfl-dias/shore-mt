@@ -200,6 +200,9 @@ protected:
 public:
 
 
+    static rc_t set_log_features(char const* features);
+    static char const* get_log_features();
+    
     /**\brief Create a log manager
      * @param[out] the_log
      * @param[in] path  Absolute or relative path name for directory of 

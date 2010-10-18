@@ -89,6 +89,10 @@ class log_core : public log_m
 		}
 	};
 	static std::deque<log_core::waiting_xct*> _log_space_waiters;
+public:
+    struct insert_info;
+    struct insert_info_array;    
+    
 private:
     static bool          _initialized;
     bool                 _reservations_active;
@@ -101,6 +105,7 @@ private:
     long volatile        _end; // byte number of insertion point
     long        end_byte() const { return _end; } 
 
+    long volatile _needs_flushed;
     long                 _segsize; // log buffer size
     long                 segsize() const { return _segsize; }
     // long                 _blocksize; uses constant BLOCK_SIZE
@@ -127,8 +132,10 @@ private:
             : base_lsn(l), base(b), start(s), end(e)
         {
         }
+	epoch volatile* vthis() { return this; }	
     };
 
+    epoch		 _buf_epoch;
     epoch                _cur_epoch;
     epoch                _old_epoch;
     /*
@@ -181,8 +188,13 @@ private:
     lsn_t                _flush_lsn;
 
     tatas_lock           _flush_lock;
+    long _padding2[16];
     tatas_lock           _comp_lock;
+    long _padding3[16];
     queue_based_lock_t   _insert_lock; // synchronize concurrent log inserts
+    long _padding4[16];
+    mcs_lock		 _expose_lock;
+    long _padding5[16];    
 
     // paired with _wait_cond, _flush_cond
     pthread_mutex_t      _wait_flush_lock; 
@@ -193,6 +205,11 @@ private:
     bool volatile        _shutting_down;
     bool volatile        _flush_daemon_running; // for asserts only
 
+    // c-array stuff
+    insert_info_array* _slot_array;
+    insert_info* volatile* _slots;
+    long _active_slots;
+    
     // Data members:
     partition_index_t   _curr_index; // index of partition
     partition_number_t  _curr_num;   // partition number
@@ -291,6 +308,16 @@ private:
                     }
     partition_t *   _partition(partition_index_t i) const;
 
+    void _acquire_buffer_space(insert_info* info, long size);
+    lsn_t _copy_to_buffer(logrec_t &rec, long pos, long size, insert_info* info);
+    bool _update_epochs(insert_info* info, bool attempt_abort);
+    bool _wait_for_expose(insert_info* info, bool attempt_abort);
+    long _wait_for_leader(insert_info* info);
+    
+  
+    insert_info* _join_slot(long &idx, long &count, long size);
+    void _allocate_slot(long idx);	
+  
 public:
     // for partition_t
     void                unset_current(); 

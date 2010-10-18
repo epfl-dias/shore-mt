@@ -2433,6 +2433,10 @@ xct_t::_flush_logbuf()
             << " _log_bytes_used " << _log_bytes_used);
     // ASSUMES ALREADY PROTECTED BY MUTEX
 
+#ifdef CFG_SHORE_DORA
+    acquire_1thread_log_mutex(); // IP: if already owner, it will return immediately
+#endif
+
     w_assert2(is_1thread_log_mutex_mine() || one_thread_attached());
 
     if (_last_log)  {
