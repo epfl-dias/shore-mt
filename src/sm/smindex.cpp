@@ -408,8 +408,7 @@ rc_t ss_m::create_mr_index(vid_t                 vid,
 			   const bool            bIgnoreLatches
 			   )
 {
-    SM_PROLOGUE_RC(ss_m::create_mr_index, not_in_xct, read_only, 0);
-    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    SM_PROLOGUE_RC(ss_m::create_mr_index, in_xct, read_write, 0);
     if(property == t_temporary) {
 	return RC(eBADSTOREFLAGS);
     }
@@ -430,8 +429,7 @@ rc_t ss_m::create_mr_index(vid_t                 vid,
 			   const bool            bIgnoreLatches
 			   )
 {
-    SM_PROLOGUE_RC(ss_m::create_mr_index, not_in_xct, read_only, 0);
-    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    SM_PROLOGUE_RC(ss_m::create_mr_index, in_xct, read_write, 0);
     if(property == t_temporary) {
 	return RC(eBADSTOREFLAGS);
     }
@@ -609,8 +607,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 			    bool const              bIgnoreLatches
 			    )
 {
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-
     FUNC(ss_m::_create_mr_index);
 
     DBG(<<" vid " << vid);
@@ -677,7 +673,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
                   root.page, 
                   count, kcomp);
     W_DO(dir->insert(stid, sinfo));
-    W_DO(xct_auto.commit());
 
     return RCOK;
 }
@@ -695,8 +690,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 			    const bool              bIgnoreLatches
 			    )
 {
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-
     FUNC(ss_m::_create_mr_index);
 
     DBG(<<" vid " << vid);
@@ -769,7 +762,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
                   root.page, 
                   count, kcomp);
     W_DO(dir->insert(stid, sinfo));
-    W_DO(xct_auto.commit());
 
     return RCOK;
 }
