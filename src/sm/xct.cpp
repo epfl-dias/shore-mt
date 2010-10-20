@@ -933,7 +933,7 @@ xct_t::new_lock_hierarchy()
 sdesc_cache_t*                    
 xct_t::sdesc_cache() const
 {
-#ifdef SDESC_CACHE_PER_THREAD
+#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
     return me()->sdesc_cache();
 #else
     return __saved_sdesc_cache_t;
@@ -948,7 +948,7 @@ xct_t::sdesc_cache() const
  */
 void                        
 xct_t::steal(lockid_t*&l, sdesc_cache_t*&
-#ifdef SDESC_CACHE_PER_THREAD
+#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
         s
 #endif
         , xct_log_t*&x)
@@ -964,11 +964,21 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
     }
 
 #ifdef SDESC_CACHE_PER_THREAD
+#ifdef SM_DORA
+#error DORA and SDESC_CACHE_PER_THREAD are mutually exclusive
+#endif
     if( (s = __saved_sdesc_cache_t) ) {
          __saved_sdesc_cache_t = 0;
     } else {
         s = new_sdesc_cache_t(); // deleted when thread detaches or xct finishes
     }
+#elif defined(SM_DORA)
+    /*
+      If the calling thread has an sdesc cache handy (DORA is active),
+      use it. Otherwise, use the one belonging to the transaction.
+     */
+    if(!s && __saved_sdesc_owner)
+	s = __saved_sdesc_cache_t;
 #endif /* SDESC_CACHE_PER_THREAD */
 
     if( (x = __saved_xct_log_t) ) {
@@ -989,7 +999,7 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
  */
 void                        
 xct_t::stash(lockid_t*&l, sdesc_cache_t*&
-#ifdef SDESC_CACHE_PER_THREAD
+#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
         s
 #endif
         , xct_log_t*&x)
@@ -1015,6 +1025,13 @@ xct_t::stash(lockid_t*&l, sdesc_cache_t*&
     }
     else { __saved_sdesc_cache_t = s;}
     s = 0;
+#elif defined(SM_DORA)
+    /*
+      NOTE: for DORA we don't want to erase s because it's supposed to
+      carry over to every transaction the worker thread touches.
+    */
+    if(__saved_sdesc_owner)
+	s = 0;
 #endif /* SDESC_CACHE_PER_THREAD */
 
     if(__saved_xct_log_t) {
@@ -1480,6 +1497,7 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     __saved_lockid_t(0),
     __saved_sdesc_cache_t(0),
     __saved_xct_log_t(0),
+    __saved_sdesc_owner(!me()->sdesc_cache()),
     // _first_lsn, _last_lsn, _undo_nxt, 
     _last_lsn(last_lsn),
     _undo_nxt(undo_nxt),
@@ -1521,7 +1539,11 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     xct_lock_info_t* li = lock_info();
     if(li->_sli_enabled)
 	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
-    if(!__saved_sdesc_cache_t)
+    
+    /* When DORA is active, we piggy-back on the worker thread's sdesc
+       cache and should not allocate our own.
+     */
+    if(!__saved_sdesc_cache_t && __saved_sdesc_owner)
 	__saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
 #endif /* SDESC_CACHE_PER_THREAD */
 

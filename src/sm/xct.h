@@ -465,6 +465,7 @@ private:
     lockid_t*                    __saved_lockid_t;
     sdesc_cache_t*                __saved_sdesc_cache_t;
     xct_log_t*                   __saved_xct_log_t;
+    bool 			 __saved_sdesc_owner;
 
 public:
     void                         acquire_1thread_xct_mutex() const; // serialize

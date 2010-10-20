@@ -569,6 +569,11 @@ public:
     inline
     sdesc_cache_t *  sdesc_cache() { return tcb()._sdesc_cache; }
 
+#ifdef SM_DORA
+    void	     alloc_sdesc_cache();
+    void	     free_sdesc_cache();
+#endif
+
     virtual void     _dump(ostream &) const; // to be over-ridden
     static int       collect(vtable_t&, bool names_too);
     virtual void     vtable_collect(vtable_row_t& t);
