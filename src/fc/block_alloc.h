@@ -146,6 +146,18 @@ struct block_pool
     {
     }
 
+    /* copying is nonsensical... but the STL insists on doing
+       it. Fortunately, since all instances are backed by the same
+       pool we can just make a new one and nobody will be the wiser.
+     */
+    block_pool(block_pool const &)
+	: _blist(get_pool(), TEMPLATE_ARGS)
+    {
+    }
+
+    // just as nonsensical as copying... convert to no-op
+    block_pool &operator=(block_pool const&) { return *this; }
+
     /* Acquire one object from the pool.
      */
     void* acquire() {
