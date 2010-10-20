@@ -497,7 +497,7 @@ rc_t ss_m::print_mr_index(stid_t stid)
 /*--------------------------------------------------------------*
  *  ss_m::create_mr_assoc()                                     *
  *--------------------------------------------------------------*/
-rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, el_filler& ef, 
+rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef, 
 			   const bool bIgnoreLocks, // = false
 			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL 
 {
@@ -509,7 +509,7 @@ rc_t ss_m::create_mr_assoc(stid_t stid, cvec_t& key, el_filler& ef,
 /*--------------------------------------------------------------*
  *  ss_m::destroy_mr_assoc()                                    *
  *--------------------------------------------------------------*/
-rc_t ss_m::destroy_mr_assoc(stid_t stid, cvec_t& key, const vec_t& el, const bool bIgnoreLocks)
+rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el, const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
     W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks));
@@ -519,7 +519,7 @@ rc_t ss_m::destroy_mr_assoc(stid_t stid, cvec_t& key, const vec_t& el, const boo
 /*--------------------------------------------------------------*
  *  ss_m::destroy_mr_all_assoc()                                *
  *--------------------------------------------------------------*/
-rc_t ss_m::destroy_mr_all_assoc(stid_t stid, cvec_t& key, int& num, const bool bIgnoreLocks)
+rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num, const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
     W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks));
@@ -529,7 +529,7 @@ rc_t ss_m::destroy_mr_all_assoc(stid_t stid, cvec_t& key, int& num, const bool b
 /*--------------------------------------------------------------*
  *  ss_m::find_mr_assoc()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::find_mr_assoc(stid_t stid, cvec_t& key, 
+rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key, 
 			 void* el, smsize_t& elen, bool& found,
 			 const bool bIgnoreLocks)
 {
@@ -541,8 +541,8 @@ rc_t ss_m::find_mr_assoc(stid_t stid, cvec_t& key,
 /*--------------------------------------------------------------*
  *  ss_m::make_equal_partitions()                               *
  *--------------------------------------------------------------*/
-rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
-				 cvec_t& maxKey, uint numParts)
+rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
+				 const vec_t& maxKey, uint numParts)
 {
     SM_PROLOGUE_RC(ss_m::make_equal_partitions, not_in_xct, read_only, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
@@ -553,7 +553,7 @@ rc_t ss_m::make_equal_partitions(stid_t stid, cvec_t& minKey,
 /*--------------------------------------------------------------*
  *  ss_m::add_partition_init()                                  *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::add_partition_init, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
@@ -564,7 +564,7 @@ rc_t ss_m::add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks)
 /*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLocks, 
+rc_t ss_m::add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLocks, 
 			 RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
@@ -576,7 +576,7 @@ rc_t ss_m::add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLocks,
 /*--------------------------------------------------------------*
  *  ss_m::delete_partition()                                    *
  *--------------------------------------------------------------*/
-rc_t ss_m::delete_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
+rc_t ss_m::delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
 {
     SM_PROLOGUE_RC(ss_m::delete_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
@@ -638,7 +638,7 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 ) return RC(eBADCCLEVEL);
 
      // pin:
-     //cvec_t startKey;
+     //vec_t startKey;
      //cvec_t* real_key;
      //int i = 0;
      //startKey.put((char*)(&i),sizeof(i));
@@ -735,7 +735,7 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
      for(uint i=0; i< keys.size(); i++) {
 	 cvec_t* real_key;
-	 W_DO(bt->_scramble_key(real_key, *keys[i], count, kcomp));
+	 // W_DO(bt->_scramble_key(real_key, *keys[i], count, kcomp));
        	 real_keys.push_back(real_key);
      }
      
@@ -968,7 +968,7 @@ rc_t ss_m::_el_filler_wrapper(
  *  ss_m::_create_mr_assoc()                                    *
  *--------------------------------------------------------------*/
 rc_t ss_m::_create_mr_assoc(const stid_t&        stid, 
-			    cvec_t&         key, 
+			    const vec_t&         key, 
 			    el_filler&         ef,
 			    const bool bIgnoreLocks, // = false
 			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL
@@ -1069,7 +1069,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
  *  ss_m::_destroy_mr_assoc()                                   *
  *--------------------------------------------------------------*/
 rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid, 
-			     cvec_t&         key, 
+			     const vec_t&         key, 
 			     const vec_t&         el,
 			     const bool bIgnoreLocks)
 {
@@ -1147,7 +1147,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 /*--------------------------------------------------------------*
  *  ss_m::_destroy_mr_all_assoc()                               *
  *--------------------------------------------------------------*/
-rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num, bool const bIgnoreLocks)
+rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num, bool const bIgnoreLocks)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -1230,7 +1230,7 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, cvec_t& key, int& num, bool
  *  ss_m::_find_mr_assoc()                                      *
  *--------------------------------------------------------------*/
 rc_t ss_m::_find_mr_assoc(const stid_t&         stid, 
-			  cvec_t&          key, 
+			  const vec_t&          key, 
 			  void*                 el, 
 			  smsize_t&             elen, 
 			  bool&                 found,
@@ -1309,8 +1309,8 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     return RCOK;
 }
 
-rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
-				 cvec_t& maxKey, uint numParts)
+rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
+				 const vec_t& maxKey, uint numParts)
 {
     // pin: TODO: this method shouldn't be used, delete it
     
@@ -1357,7 +1357,7 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, cvec_t& minKey,
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
 {
 
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
@@ -1418,7 +1418,7 @@ rc_t ss_m::_add_partition_init(stid_t stid, cvec_t& key, const bool bIgnoreLocks
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches,
+rc_t ss_m::_add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches,
 			  RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
 
@@ -1504,7 +1504,7 @@ rc_t ss_m::_add_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches,
     return RCOK;    
 }
 
-rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches)
+rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
 {
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
@@ -1518,8 +1518,8 @@ rc_t ss_m::_delete_partition(stid_t stid, cvec_t& key, const bool bIgnoreLatches
     lpid_t root2;
     // initial keys of the partitions to be merged,
     // the resulting partition will have start_key1 as the initial key after the merge
-    cvec_t start_key1;
-    cvec_t start_key2;
+    vec_t start_key1;
+    vec_t start_key2;
 
     // get the sinfo from sdesc
     sdesc_t* sd;
@@ -1581,8 +1581,8 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatch
     lpid_t root1;
     // initial keys of the partitions to be merged,
     // the resulting partition will have start_key1 as the initial key after the merge
-    cvec_t start_key1;
-    cvec_t start_key2;
+    vec_t start_key1;
+    vec_t start_key2;
 
     // get the sinfo from sdesc
     sdesc_t* sd;

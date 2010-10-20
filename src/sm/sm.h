@@ -2608,7 +2608,7 @@ public:
      */
     static rc_t            create_mr_assoc(
         stid_t                   stid, 
-        cvec_t&             key, 
+        const vec_t&             key, 
         el_filler&             ef,
         const bool             bIgnoreLocks = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
@@ -2622,7 +2622,7 @@ public:
      */
     static rc_t            destroy_mr_assoc(
         stid_t                   stid, 
-        cvec_t&             key,
+        const vec_t&             key,
         const vec_t&             el,
         const bool             bIgnoreLocks = false);
 
@@ -2635,7 +2635,7 @@ public:
      */
     static rc_t            destroy_mr_all_assoc(
         stid_t                  stid, 
-        cvec_t&            key,
+        const vec_t&            key,
         int&                    num_removed,
 	const bool              bIgnoreLatches = false
     );
@@ -2660,7 +2660,7 @@ public:
      */
     static rc_t            find_mr_assoc(
 				      stid_t                  stid, 
-				      cvec_t&            key, 
+				      const vec_t&            key, 
 				      void*                   el, 
 				      smsize_t&               elen, 
 				      bool&                   found,
@@ -2678,8 +2678,8 @@ public:
      * @param[in] numParts The number of partitions wanted.
      */
     static rc_t make_equal_partitions(stid_t stid,
-				      cvec_t& minKey,
-				      cvec_t& maxKey,
+				      const vec_t& minKey,
+				      const vec_t& maxKey,
 				      uint numParts);
 
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
@@ -2691,7 +2691,7 @@ public:
      * @param[in] key      The startKey of the new partition.
      */
     static rc_t add_partition_init(stid_t stid,
-				   cvec_t& key,
+				   const vec_t& key,
 				   const bool bIgnoreLocks = false);
     
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
@@ -2701,7 +2701,7 @@ public:
      * @param[in] key      The startKey of the new partition.
      */
     static rc_t add_partition(stid_t stid,
-			      cvec_t& key,
+			      const vec_t& key,
 			      const bool bIgnoreLocks = false, 
 			      RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
@@ -2713,7 +2713,7 @@ public:
      * @param[in] key      The key whose partition is going to be deleted.
      */
     static rc_t delete_partition(stid_t stid,
-				 cvec_t& key,
+				 const vec_t& key,
 				 const bool bIgnoreLatches = false);
 
     /**\brief Delete the partition that is kept by the tree with the root and add it to its previous partition
@@ -3724,47 +3724,47 @@ private:
 
     static rc_t            _create_mr_assoc(
         const stid_t  &        stid, 
-        cvec_t&           key, 
+        const vec_t&           key, 
         el_filler&           eg,
         const bool             bIgnoreLocks,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
-        cvec_t&          key,
+        const vec_t&          key,
         const vec_t&          el,
         const bool             bIgnoreLocks);
 
     static rc_t            _destroy_mr_all_assoc(
         const stid_t&        stid, 
-        cvec_t&         key,
+        const vec_t&         key,
         int&                 num_removed,
 	const bool          bIgnoreLatches
     );
     static rc_t            _find_mr_assoc(
         const stid_t&        stid, 
-        cvec_t&         key, 
+        const vec_t&         key, 
         void*                el, 
         smsize_t&            elen, 
         bool&                found,
         const bool             bIgnoreLocks);
     
     static rc_t _make_equal_partitions(stid_t stid,
-				       cvec_t& minKey,
-				       cvec_t& maxKey,
+				       const vec_t& minKey,
+				       const vec_t& maxKey,
 				       uint numParts);
 
     static rc_t _add_partition_init(stid_t stid,
-				    cvec_t& key,
+				    const vec_t& key,
 				    const bool bIgnoreLocks);
     
     static rc_t _add_partition(stid_t stid,
-			       cvec_t& key,
+			       const vec_t& key,
 			       const bool bIgnoreLocks,
 			       RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
     
     static rc_t _delete_partition(stid_t stid,
-				  cvec_t& key,
+				  const vec_t& key,
 				  const bool bIgnoreLatches);
 
     static rc_t _delete_partition(stid_t stid,
