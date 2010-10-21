@@ -243,6 +243,9 @@ struct object_cache_default_factory {
     construct(void* ptr) { return new (ptr) T; }
 
     static void
+    destroy(T* t) { t->~T(); }
+
+    static void
     reset(T* t) { /* do nothing */ }
 
     static T*
@@ -256,6 +259,9 @@ struct object_cache_initializing_factory {
     construct(void* ptr) { return new (ptr) T; }
     
     static void
+    destroy(T* t) { t->~T(); }
+
+    static void
     reset(T* t) { t->reset(); }
 
     static T*
@@ -268,6 +274,9 @@ struct object_cache_initializing_factory {
     static T* init(T* t, Arg1 arg1, Arg2 arg2) { t->init(arg1, arg2); return t; }    
     template<class Arg1, class Arg2, class Arg3>
     static T* init(T* t, Arg1 arg1, Arg2 arg2, Arg3 arg3) { t->init(arg1, arg2, arg3); return t; }
+    template<class Arg1, class Arg2, class Arg3, class Arg4>
+    static T* init(T* t, Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4) { t->init(arg1, arg2, arg3, arg4); return t; }
+
 };
 
 template <class T, class TFactory=object_cache_default_factory<T>, size_t MaxBytes=0>
@@ -288,6 +297,11 @@ struct object_cache {
     template<class Arg1, class Arg2, class Arg3>
     T* acquire(Arg1 arg1, Arg2 arg2, Arg3 arg3) {
 	return TFactory::init(_acquire(), arg1, arg2, arg3);
+    }
+    
+    template<class Arg1, class Arg2, class Arg3, class Arg4>
+    T* acquire(Arg1 arg1, Arg2 arg2, Arg3 arg3, Arg4 arg4) {
+	return TFactory::init(_acquire(), arg1, arg2, arg3, arg4);
     }
     
     T* _acquire() {
@@ -358,7 +372,7 @@ NORET object_cache<T,TF,M>::cache_pool::~cache_pool() {
 	mblock* b = _at(i);
 	for(size_t j=0; j < Pool::chip_count(); j++) {
 	    union { char* c; T* t; } u = {b->_get(j, Pool::chip_size())};
-	    u.t->~T();
+	    TF::destroy(u.t);
 	}
     }
 }
