@@ -330,7 +330,7 @@ struct tatas_lock {
 private:
     // CC mangles this as __1cKtatas_lockEspin6M_v_
     /// spin until lock is free
-    void spin() { while(*&(_holder.handle)) ; }
+    void spin(); // no-inline.cpp
 
 public:
     /// Try to acquire the lock immediately.
@@ -578,11 +578,11 @@ struct occ_rwlock {
     occ_rwlock();
     ~occ_rwlock();
     /// The normal way to acquire a read lock.
-    void acquire_read();
+    void acquire_read(); // no-inline.cpp
     /// The normal way to release a read lock.
     void release_read();
     /// The normal way to acquire a write lock.
-    void acquire_write();
+    void acquire_write(); // no-inline.cpp
     /// The normal way to release a write lock.
     void release_write();
 

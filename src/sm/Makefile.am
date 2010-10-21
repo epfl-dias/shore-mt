@@ -122,7 +122,7 @@ libsm_a_SOURCES      =  \
 	restart.cpp \
 	rtree.cpp \
 	scan.cpp \
-	sm.cpp \
+	sm.cpp sm-no-inline.cpp \
 	sm_du_stats.cpp \
 	sm_io.cpp \
 	sm_s.cpp \

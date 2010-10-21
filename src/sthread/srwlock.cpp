@@ -63,21 +63,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  * mcs_rwlock implementation; cheaper but problematic when we get os preemptions
  */
 
-// CC mangles this as __1cKmcs_rwlockOspin_on_writer6M_v_
-// private
-void mcs_rwlock::_spin_on_writer() 
-{
-    while(has_writer()) ;
-    // callers do membar_enter
-}
-// CC mangles this as __1cKmcs_rwlockPspin_on_readers6M_v_
-// private
-void mcs_rwlock::_spin_on_readers() 
-{
-    while(has_reader()) ;
-    // callers do membar_enter
-}
-
 // private
 void mcs_rwlock::_add_when_writer_leaves(int delta) 
 {

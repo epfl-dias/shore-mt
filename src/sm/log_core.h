@@ -312,7 +312,8 @@ private:
     lsn_t _copy_to_buffer(logrec_t &rec, long pos, long size, insert_info* info);
     bool _update_epochs(insert_info* info, bool attempt_abort);
     bool _wait_for_expose(insert_info* info, bool attempt_abort);
-    long _wait_for_leader(insert_info* info);
+    void _spin_on_epoch(long old_end); // sm-no-inline.cpp
+    long _spin_on_count(long volatile* count, long bound); // sm-no-inline.cpp
     
   
     insert_info* _join_slot(long &idx, long &count, long size);

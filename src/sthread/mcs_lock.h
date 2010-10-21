@@ -63,9 +63,8 @@ struct mcs_lock {
 
        CC mangles this as __1cImcs_lockPspin_on_waiting6Mpon0AFqnode__v_
     */
-    void spin_on_waiting(qnode* me) {
-        while(me->vthis()->_waiting) ;
-    }
+    void spin_on_waiting(qnode* me); // no-inline.cpp
+    
     /* Only acquire the lock if it is free...
      */
     bool attempt(ext_qnode* me) {
@@ -118,11 +117,8 @@ struct mcs_lock {
 
        CC mangles this as __1cImcs_lockMspin_on_next6Mpon0AFqnode__3_
     */
-    qnode* spin_on_next(qnode* me) {
-        qnode* next;
-        while(!(next=me->vthis()->_next)) ;
-        return next;
-    }
+    qnode* spin_on_next(qnode* me); // no-inline.cpp
+    
     void release(ext_qnode *me) { 
         w_assert1(is_mine(me));
         me->_held = 0; release((qnode*) me); 

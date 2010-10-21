@@ -2279,13 +2279,6 @@ lsn_t log_core::_copy_to_buffer(logrec_t &rec, long pos, long recsize, insert_in
     return rlsn;
 }
 
-long log_core::_wait_for_leader(insert_info* info) {
-    long old_count;
-    while( (old_count=info->vthis()->count) >= SLOT_FINISHED);
-    membar_enter();
-    return old_count;
-}
-
 static long const MAX_THREADS = 256;
 long combination_stats[MAX_THREADS];
 long expose_stats[1000*MAX_THREADS];
@@ -2306,7 +2299,7 @@ bool log_core::_wait_for_expose(insert_info* info, bool attempt_abort) {
 	_expose_lock.__unsafe_end_acquire(&info->me2, info->pred2);
     }
     else {
-	while(*&_cur_epoch.vthis()->end + *&_cur_epoch.vthis()->base != info->old_end);
+	_spin_on_epoch(info->old_end);
     }
     return false;
 }    
@@ -2548,7 +2541,7 @@ rc_t log_core::insert(logrec_t &rec, lsn_t* rlsn) {
 	    /* Not first. Wait for the owner to tell us what's going on.
 	     */
 	    assert(old_count > SLOT_AVAILABLE);
-	    old_count = _wait_for_leader(info);
+	    old_count = _spin_on_count(&info->count, SLOT_FINISHED);
 	}
     }
 

@@ -149,10 +149,8 @@ public:
     void downgrade();
 
 private:
-    // CC mangles this as __1cKmcs_rwlockO_spin_on_writer6M_v_
-    void _spin_on_writer();
-    // CC mangles this as __1cKmcs_rwlockP_spin_on_readers6M_v_
-    void _spin_on_readers();
+    void _spin_on_writer(); // no-inline.cpp
+    void _spin_on_readers(); // no-inline.cpp
     bool _attempt_write(unsigned int expected);
     void _add_when_writer_leaves(int delta);
 };
