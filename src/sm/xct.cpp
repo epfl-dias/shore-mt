@@ -63,10 +63,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_int_1.h"
 
 #include "sdesc.h"
-#define USE_BLOCK_ALLOC_FOR_LOGREC 0
-#if USE_BLOCK_ALLOC_FOR_LOGREC 
 #include "block_alloc.h"
-#endif
 #include "tls.h"
 
 #include "lock.h"
@@ -490,17 +487,29 @@ void xct_list::remove(xct_link* xd) {
  *  Constructors and destructor
  *
  *********************************************************************/
+#define USE_OBJECT_CACHE_FOR_XCT_IMPL 1
+
 #if USE_BLOCK_ALLOC_FOR_XCT_IMPL 
 DECLARE_TLS(block_alloc<xct_t>, xct_pool);
 DECLARE_TLS(block_alloc<xct_t::xct_core>, core_pool);
-#define NEW_XCT new (*xct_pool)
+#define NEW_XCT new (*xct_pool) xct_t
 #define DELETE_XCT(xd) xct_pool->destroy_object(xd)
-#define NEW_CORE new (*core_pool)
+#define NEW_CORE new (*core_pool) xct_core
 #define DELETE_CORE(c) core_pool->destroy_object(c)
+
+#elif USE_OBJECT_CACHE_FOR_XCT_IMPL
+#define COMMA2 COMMA
+DECLARE_TLS(PROTECT(object_cache<xct_t, object_cache_initializing_factory<xct_t> >), xct_pool);
+DECLARE_TLS(PROTECT(object_cache<xct_t::xct_core, object_cache_initializing_factory<xct_t::xct_core> >), core_pool);
+#define NEW_XCT xct_pool->acquire
+#define DELETE_XCT(xd) xct_pool->release(xd)
+#define NEW_CORE core_pool->acquire
+#define DELETE_CORE(c) core_pool->release(c)
+
 #else
-#define NEW_XCT new
+#define NEW_XCT new xct_t
 #define DELETE_XCT(xd) delete xd
-#define NEW_CORE new
+#define NEW_CORE new xct_core
 #define DELETE_CORE(c) delete c
 #endif
 
@@ -509,8 +518,8 @@ xct_t::new_xct(
         sm_stats_info_t* stats, 
         timeout_in_ms timeout)
 {
-    xct_core* core = NEW_CORE xct_core(tid_t::null, xct_active, timeout);
-    xct_t* xd = NEW_XCT xct_t(core, stats, lsn_t(), lsn_t());
+    xct_core* core = NEW_CORE(tid_t::null, xct_active, timeout);
+    xct_t* xd = NEW_XCT(core, stats, lsn_t(), lsn_t());
     me()->attach_xct(xd);
     return xd;
 }
@@ -527,8 +536,8 @@ xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
      */
     w_assert1(operating_mode == t_in_analysis);
     w_assert1(t.valid());
-    xct_core* core = NEW_CORE xct_core(t, s, timeout);
-    xct_t* xd = NEW_XCT xct_t(core, 0, last_lsn, undo_nxt);
+    xct_core* core = NEW_CORE(t, s, timeout);
+    xct_t* xd = NEW_XCT(core, (sm_stats_info_t*)0, last_lsn, undo_nxt);
     
     /// Don't attach
     w_assert1(me()->xct() == 0);
@@ -1452,33 +1461,39 @@ xct_t::_xct_ended(xct_end_type type) {
     return rc;
 }
 
-xct_t::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
+/* the constructor only does physical initialization -- allocating
+   memory, wiring up pointers, etc.
+ */
+xct_t::xct_core::xct_core()
     :
-    _timeout(timeout),
-    _warn_on(true),
-    _lock_info(agent_lock_info->take()),    
-    _lock_cache_enable(true),
-    _updating_operations(0),
-    _threads_attached(0),
-    _state(s),
-    _forced_readonly(false),
-    _vote(vote_bad), 
-    _global_tid(0),
-    _coord_handle(0),
-    _read_only(false),
     _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
-    _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct),
-    _xct_ended(0) // for assertions
+    _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct)
 {
+    DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
+    DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
+}
+
+void xct_t::xct_core::init(tid_t const &t, state_t s, timeout_in_ms timeout)
+{
+    _timeout = timeout;
+    _warn_on = true;
+    _lock_info = agent_lock_info->take();
+    _lock_cache_enable = true;
+    _updating_operations = 0;
+    _threads_attached = 0;
+    _state = s;
+    _forced_readonly = false;
+    _vote = vote_bad;
+    _global_tid = 0;
+    _coord_handle = 0;
+    _read_only = false;
+    _xct_ended = 0;
+
     _lock_info->set_tid(t);
     _lock_info->set_lock_level ( convert(cc_alg) );
     w_assert1(_tid == _lock_info->tid());
     
-    DO_PTHREAD(pthread_mutex_init(&_waiters_mutex, NULL));
-    DO_PTHREAD(pthread_cond_init(&_waiters_cond, NULL));
-
     INC_TSTAT(begin_xct_cnt);
-
 }
 
 /*********************************************************************
@@ -1489,30 +1504,10 @@ xct_t::xct_core::xct_core(tid_t const &t, state_t s, timeout_in_ms timeout)
  *  and the xct record is inserted into _xlist.
  *
  *********************************************************************/
-xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
-           const lsn_t& last_lsn, const lsn_t& undo_nxt) 
+xct_t::xct_t()
     :
-    _xlink(0),
-    __stats(stats),
-    __saved_lockid_t(0),
-    __saved_sdesc_cache_t(0),
-    __saved_xct_log_t(0),
-    __saved_sdesc_owner(!me()->sdesc_cache()),
-    // _first_lsn, _last_lsn, _undo_nxt, 
-    _last_lsn(last_lsn),
-    _undo_nxt(undo_nxt),
-    _dependent_list(W_LIST_ARG(xct_dependent_t, _link), &core->_1thread_xct),
-    _last_log(0),
-    _log_buf(0),
-    _log_bytes_rsvd(0),
-    _log_bytes_ready(0),
-    _log_bytes_used(0),
-    _rolling_back(false),
-    _in_compensated_op(0),
-    _core(core)
+    _dependent_list(W_LIST_ARG(xct_dependent_t, _link), 0/*&core->_1thread_xct*/)
 {
-    w_assert1(tid() == core->_lock_info->tid());
-
 #if USE_BLOCK_ALLOC_FOR_LOGREC 
     _log_buf = new (*logrec_pool) logrec_t; // deleted when xct goes away
 #else
@@ -1526,7 +1521,30 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
     if (!_log_buf)  {
         W_FATAL(eOUTOFMEMORY);
     }
+}
 
+void xct_t::init(xct_core* core, sm_stats_info_t* stats,
+		 const lsn_t& last_lsn, const lsn_t& undo_nxt)
+{
+    _xlink = 0;
+    __stats = stats;
+    __saved_lockid_t = 0;
+    __saved_sdesc_cache_t = 0;
+    __saved_xct_log_t = 0;
+    __saved_sdesc_owner = !me()->sdesc_cache();
+    _last_lsn = last_lsn;
+    _undo_nxt = undo_nxt;
+    _log_bytes_rsvd = 0;
+    _log_bytes_ready = 0;
+    _log_bytes_used = 0;
+    _rolling_back = false;
+    _in_compensated_op = 0;
+    _last_log = 0;
+    _core = core;
+    _first_lsn = _last_lsn = _undo_nxt = lsn_t::null;
+    _rolling_back = false;
+	
+    w_assert1(tid() == core->_lock_info->tid());
     SetDefaultEscalationThresholds();
 
     if (timeout_c() == WAIT_SPECIFIED_BY_THREAD) {
@@ -1553,16 +1571,19 @@ xct_t::xct_t(xct_core* core, sm_stats_info_t* stats,
 	_xlist.insert_existing_unsafe(this);
 }
 
-
 xct_t::xct_core::~xct_core()
 {
-    w_assert3(_state == xct_ended);
     delete _global_tid;
     delete _coord_handle;
+}
+
+void xct_t::xct_core::reset() {
+    w_assert3(_state == xct_ended);
     if(_lock_info) {
         agent_lock_info->put(_lock_info);
     }
 }
+
 /*********************************************************************
  *
  *  xct_t::~xct_t()
@@ -1575,6 +1596,26 @@ xct_t::xct_core::~xct_core()
 xct_t::~xct_t()
 {
     FUNC(xct_t::~xct_t);
+#if USE_BLOCK_ALLOC_FOR_LOGREC 
+    logrec_pool->destroy_object(_log_buf);
+#else
+    delete _log_buf;
+#endif
+
+    if(__saved_lockid_t)  { 
+        delete[] __saved_lockid_t; 
+        __saved_lockid_t=0; 
+    }
+    
+    if(__saved_xct_log_t) { 
+        delete __saved_xct_log_t; 
+        __saved_xct_log_t=0; 
+    }
+    // caller deletes core...
+}
+
+void
+xct_t::reset() {
     DBGX( << " ended: _log_bytes_rsvd " << _log_bytes_rsvd  
             << " _log_bytes_ready " << _log_bytes_ready
             << " _log_bytes_used " << _log_bytes_used
@@ -1596,21 +1637,10 @@ xct_t::~xct_t()
 
         while (_dependent_list.pop()) ;
 
-#if USE_BLOCK_ALLOC_FOR_LOGREC 
-        logrec_pool->destroy_object(_log_buf);
-#else
-        delete _log_buf;
-#endif
-
         // clean up what's stored in the thread
         me()->no_xct(this);
     }
 
-    if(__saved_lockid_t)  { 
-        delete[] __saved_lockid_t; 
-        __saved_lockid_t=0; 
-    }
-    
     xct_lock_info_t* li = lock_info();
     if(__saved_sdesc_cache_t && li->_sli_enabled) {
 	__saved_sdesc_cache_t->inherit_all();
@@ -1620,11 +1650,6 @@ xct_t::~xct_t()
         delete __saved_sdesc_cache_t;
         __saved_sdesc_cache_t=0; 
     }
-    if(__saved_xct_log_t) { 
-        delete __saved_xct_log_t; 
-        __saved_xct_log_t=0; 
-    }
-    // caller deletes core...
 }
 
 // common code needed by _commit(t_chain) and ~xct_t()

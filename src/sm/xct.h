@@ -79,6 +79,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define  LOG_COMMENT_USE(x) 
 #endif
 
+#include "block_alloc.h"
+
 class xct_dependent_t;
 
 /**\cond skip */
@@ -165,6 +167,7 @@ class xct_t : public smlevel_1 {
     friend class xct_prepare_lk_log; 
     friend class sm_quark_t; 
     friend class xct_lock_info_t;
+    friend class object_cache_initializing_factory<xct_t>;
 
 protected:
     enum commit_t { t_normal = 0, t_lazy = 1, t_chain = 2 };
@@ -191,14 +194,16 @@ public:
 
     static void			set_elr_enabled(bool enable);
 
-private:
     struct xct_core;            // forward  
-    NORET                        xct_t(
+private:
+    NORET                       xct_t();
+    void			init(
         xct_core*                     core,
         sm_stats_info_t*             stats,  // allocated by caller
         const lsn_t&                 last_lsn,
         const lsn_t&                 undo_nxt);
     NORET                       ~xct_t();
+    void			reset();
 
 public:
 
@@ -525,7 +530,7 @@ private:
     w_rc_t                     _sync_logbuf(bool block=true);
     void                       _teardown(bool is_chaining);
 
-private:
+public:
     /* A nearly-POD struct whose only job is to enable a N:1
        relationship between the log streams of a transaction (xct_t)
        and its core functionality such as locking and 2PC (xct_core).
@@ -539,7 +544,9 @@ private:
      */
     struct xct_core
     {
-        xct_core(tid_t const &t, state_t s, timeout_in_ms timeout);
+        void init(tid_t const &t, state_t s, timeout_in_ms timeout);
+	void reset();
+	xct_core();
         ~xct_core();
 
         //-- from xct.h ----------------------------------------------------
