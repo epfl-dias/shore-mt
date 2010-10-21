@@ -319,7 +319,9 @@ xct_lock_info_t::xct_lock_info_t()
 }
 
 // allows reuse rather than free/malloc of the structure
-xct_lock_info_t* xct_lock_info_t::reset_for_reuse() 
+xct_lock_info_t*
+xct_lock_info_t::reset_for_reuse(tid_t const &t,
+				 lockid_t::name_space_t l) 
 {
     // make sure the lock lists are empty
     for(int i=0; i < t_num_durations; i++) {
@@ -353,7 +355,9 @@ xct_lock_info_t* xct_lock_info_t::reset_for_reuse()
     membar_exit(); // can't let the status change precede the lock name read above!
     for(it.reset(sli_list); lock_request_t* req = it.next(); ++stats.inherited)
 	req->_sli_status = sli_inactive;
-    
+
+    set_tid(t);
+    set_lock_level(l);
     return this;
 }
                                                     

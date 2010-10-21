@@ -1381,20 +1381,13 @@ struct lock_info_ptr {
     
     lock_info_ptr() : _ptr(0) { }
     
-    xct_lock_info_t* take() {
-        if(xct_lock_info_t* rval = _ptr) {
-            _ptr = 0;
-            return rval;
-        }
-        return new xct_lock_info_t;
-    }
-    void put(xct_lock_info_t* ptr) {
-        if(_ptr)
-            delete _ptr;
-        _ptr = ptr? ptr->reset_for_reuse() : 0;
+    void swap(xct_lock_info_t* &ptr) {
+	if(!_ptr)
+	    _ptr = new xct_lock_info_t;
+	std::swap(_ptr, ptr);
     }
     
-    ~lock_info_ptr() { put(0); }
+    ~lock_info_ptr() { delete _ptr; }
 };
 
 DECLARE_TLS(lock_info_ptr, agent_lock_info);
@@ -1466,6 +1459,7 @@ xct_t::_xct_ended(xct_end_type type) {
  */
 xct_t::xct_core::xct_core()
     :
+    _lock_info(0),
     _storesToFree(stid_list_elem_t::link_offset(), &_1thread_xct),
     _loadStores(stid_list_elem_t::link_offset(), &_1thread_xct)
 {
@@ -1477,7 +1471,7 @@ void xct_t::xct_core::init(tid_t const &t, state_t s, timeout_in_ms timeout)
 {
     _timeout = timeout;
     _warn_on = true;
-    _lock_info = agent_lock_info->take();
+    agent_lock_info->swap(_lock_info);
     _lock_cache_enable = true;
     _updating_operations = 0;
     _threads_attached = 0;
@@ -1489,8 +1483,7 @@ void xct_t::xct_core::init(tid_t const &t, state_t s, timeout_in_ms timeout)
     _read_only = false;
     _xct_ended = 0;
 
-    _lock_info->set_tid(t);
-    _lock_info->set_lock_level ( convert(cc_alg) );
+    _lock_info->reset_for_reuse(t, convert(cc_alg) );
     w_assert1(_tid == _lock_info->tid());
     
     INC_TSTAT(begin_xct_cnt);
@@ -1579,9 +1572,7 @@ xct_t::xct_core::~xct_core()
 
 void xct_t::xct_core::reset() {
     w_assert3(_state == xct_ended);
-    if(_lock_info) {
-        agent_lock_info->put(_lock_info);
-    }
+    agent_lock_info->swap(_lock_info);
 }
 
 /*********************************************************************
