@@ -499,8 +499,8 @@ DECLARE_TLS(block_alloc<xct_t::xct_core>, core_pool);
 
 #elif USE_OBJECT_CACHE_FOR_XCT_IMPL
 #define COMMA2 COMMA
-DECLARE_TLS(PROTECT(object_cache<xct_t, object_cache_initializing_factory<xct_t> >), xct_pool);
-DECLARE_TLS(PROTECT(object_cache<xct_t::xct_core, object_cache_initializing_factory<xct_t::xct_core> >), core_pool);
+DECLARE_TLS(PROTECT(object_cache<xct_t, PROTECT(object_cache_initializing_factory<xct_t>)>), xct_pool);
+DECLARE_TLS(PROTECT(object_cache<xct_t::xct_core, PROTECT(object_cache_initializing_factory<xct_t::xct_core>)>), core_pool);
 #define NEW_XCT xct_pool->acquire
 #define DELETE_XCT(xd) xct_pool->release(xd)
 #define NEW_CORE core_pool->acquire
