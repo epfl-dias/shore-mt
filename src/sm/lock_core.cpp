@@ -319,32 +319,19 @@ xct_lock_info_t::xct_lock_info_t()
 }
 
 // allows reuse rather than free/malloc of the structure
-xct_lock_info_t*
-xct_lock_info_t::reset_for_reuse(tid_t const &t,
-				 lockid_t::name_space_t l) 
+void
+xct_lock_info_t::reset() 
 {
+    _lock_cache.reset();
+
+    // nothing to do for lock_info_mutex
+
     // make sure the lock lists are empty
     for(int i=0; i < t_num_durations; i++) {
         w_assert1(my_req_list[i].is_empty());
     }
 
-    /* horrible, dirty hack
-
-       Take a bit-wise backup of the sli_list object, then restore the
-       backup after clobbering /this/. This should be safe as long as
-       it's safe not to call the destructor (which we never have).
-
-       Meanwhile, calling the constructor to re-initialize the object
-       vastly reduces the chances of us forgetting to reset something,
-       or resetting it to the wrong value.
-     */
-    sdesc_cache_t* sdc = _sli_sdesc_cache;
-    long _tmp[(sizeof(sli_list)+sizeof(long)-1)/sizeof(long)];
-    memcpy(_tmp, &sli_list, sizeof(sli_list));
-    new (this) xct_lock_info_t;
-    memcpy(&sli_list, _tmp, sizeof(sli_list));
-    _sli_sdesc_cache = sdc;
-
+    // put the sli list into the cache and then inactivate its entries    
     request_list_i it(sli_list);
     lock_cache_elem_t ignore_me;// don't care...
     while(lock_request_t* req = it.next()) {
@@ -356,9 +343,37 @@ xct_lock_info_t::reset_for_reuse(tid_t const &t,
     for(it.reset(sli_list); lock_request_t* req = it.next(); ++stats.inherited)
 	req->_sli_status = sli_inactive;
 
+    // tid set by init()
+
+    w_assert2(!_wait_request);
+    w_assert2(!_blocking);
+
+    /* don't bother with the wait map. It should be empty already, and
+       even if it isn't, the worst that can happen is a false positive
+       deadlock.
+    */
+    
+    // _sli_enabled set by init()
+
+    _sli_purged = false;
+
+    // let the stats accumulate
+
+    // leave _sli_sdesc_cache alone
+
+    // _lock_level set by init()
+
+    w_assert2(!_quark_marker);
+    _noblock = false;
+}
+
+void
+xct_lock_info_t::init(tid_t const &t,
+		      lockid_t::name_space_t l)
+{
     set_tid(t);
+    _sli_enabled = global_sli_enabled;
     set_lock_level(l);
-    return this;
 }
                                                     
 

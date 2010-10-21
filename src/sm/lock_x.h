@@ -397,8 +397,8 @@ public:
     /// Prepare this structure for use by a new transaction.
     /// Used by the TLS agent when recycling a structure after the
     /// xct that used it goes away.
-    xct_lock_info_t* reset_for_reuse(tid_t const &t,
-				     lockid_t::name_space_t l); 
+    void	     init(tid_t const &t, lockid_t::name_space_t l); 
+    void 	     reset();
 
     /// Non-null indicates a thread is trying to satisfy this
     /// request for this xct, and is either blocked or is in the middle

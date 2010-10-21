@@ -1483,7 +1483,7 @@ void xct_t::xct_core::init(tid_t const &t, state_t s, timeout_in_ms timeout)
     _read_only = false;
     _xct_ended = 0;
 
-    _lock_info->reset_for_reuse(t, convert(cc_alg) );
+    _lock_info->init(t, convert(cc_alg) );
     w_assert1(_tid == _lock_info->tid());
     
     INC_TSTAT(begin_xct_cnt);
@@ -1572,6 +1572,7 @@ xct_t::xct_core::~xct_core()
 
 void xct_t::xct_core::reset() {
     w_assert3(_state == xct_ended);
+    _lock_info->reset();
     agent_lock_info->swap(_lock_info);
 }
 
