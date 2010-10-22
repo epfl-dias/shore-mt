@@ -482,19 +482,12 @@ smthread_t::join(timeout_in_ms timeout)
     {
         return RC(smlevel_0::ePINACTIVE);
     }
-    if( tcb()._lock_hierarchy != 0 )
-    {
-        fprintf(stderr, "non-null _lock_hierarcy on join\n");
-        return RC(smlevel_0::eINTRANS);
-    }
+    xct_t::delete_lock_hierarchy(tcb()._lock_hierarchy);
     if( tcb()._sdesc_cache != 0 ) {
         fprintf(stderr, "non-null _sdesc_cache on join\n");
         return RC(smlevel_0::eINTRANS);
     }
-    if( tcb()._xct_log != NULL ) {
-        fprintf(stderr, "non-null _xct_log on join\n");
-        return RC(smlevel_0::eINTRANS);
-    }
+    xct_t::delete_xct_log_t(tcb()._xct_log);
 
     return rc;
 }

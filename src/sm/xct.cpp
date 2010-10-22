@@ -931,12 +931,24 @@ xct_t::new_xct_log_t()
     return l;
 }
 
+void
+xct_t::delete_xct_log_t(xct_log_t* l)
+{
+    delete l;
+}
+
 lockid_t*          
 xct_t::new_lock_hierarchy()
 {
     lockid_t*          l = new lockid_t [lockid_t::NUMLEVELS];
     if (!l) W_FATAL(eOUTOFMEMORY);
     return l;
+}
+
+void
+xct_t::delete_lock_hierarchy(lockid_t* l)
+{
+    delete [] l;
 }
 
 sdesc_cache_t*                    
@@ -965,11 +977,8 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
     /* See comments in smthread_t::new_xct() */
     w_assert1(is_1thread_xct_mutex_mine());
     // Don't dup acquire. acquire_1thread_xct_mutex();
-    if( (l = __saved_lockid_t) != 0 ) {
-        __saved_lockid_t = 0;
-    } else {
-        l = new_lock_hierarchy(); // deleted when thread detaches or
-                                  // xct goes away
+    if( !l ) {
+        l = new_lock_hierarchy(); // deleted when thread goes away
     }
 
 #ifdef SDESC_CACHE_PER_THREAD
@@ -990,10 +999,8 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
 	s = __saved_sdesc_cache_t;
 #endif /* SDESC_CACHE_PER_THREAD */
 
-    if( (x = __saved_xct_log_t) ) {
-        __saved_xct_log_t = 0;
-    } else {
-        x = new_xct_log_t(); // deleted when thread detaches or xct finishes
+    if( !x ) {
+        x = new_xct_log_t(); // deleted when thread finishes
     }
     // Don't dup release
     // release_1thread_xct_mutex();
@@ -1007,25 +1014,15 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
  * thread that attaches to this xct.
  */
 void                        
-xct_t::stash(lockid_t*&l, sdesc_cache_t*&
+xct_t::stash(lockid_t*& /*l*/, sdesc_cache_t*&
 #if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
         s
 #endif
-        , xct_log_t*&x)
+        , xct_log_t*& /*x*/)
 {
     /* See comments in smthread_t::new_xct() */
     w_assert1(is_1thread_xct_mutex_mine());
     // don't dup acquire acquire_1thread_xct_mutex();
-    if(__saved_lockid_t != (lockid_t *)0)  { 
-        DBGX(<<"stash: delete " << l);
-        if(l) {
-            delete[] l; 
-        }
-    } else { 
-        __saved_lockid_t = l; 
-        DBGX(<<"stash: allocated " << l);
-    }
-    l = 0;
 
 #ifdef SDESC_CACHE_PER_THREAD
     if(__saved_sdesc_cache_t) {
@@ -1043,12 +1040,6 @@ xct_t::stash(lockid_t*&l, sdesc_cache_t*&
 	s = 0;
 #endif /* SDESC_CACHE_PER_THREAD */
 
-    if(__saved_xct_log_t) {
-        DBGX(<<"stash: delete " << x);
-        delete x; 
-    }
-    else { __saved_xct_log_t = x; }
-    x = 0;
     // dup acquire/release removed release_1thread_xct_mutex();
 }
     

@@ -388,9 +388,11 @@ protected:
     // doesn't know about the structures
     // and we have changed these to be a per-thread structures.
     static lockid_t*            new_lock_hierarchy();
+    static void			delete_lock_hierarchy(lockid_t* l);
     static sdesc_cache_t*       new_sdesc_cache_t();
     static void			delete_sdesc_cache_t(sdesc_cache_t* sdc);
     static xct_log_t*           new_xct_log_t();
+    static void			delete_xct_log_t(xct_log_t* l);
     void                        steal(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);
     void                        stash(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);
 
