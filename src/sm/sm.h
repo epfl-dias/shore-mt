@@ -2611,8 +2611,8 @@ public:
         const vec_t&             key, 
         el_filler&             ef,
         const bool             bIgnoreLocks = false,
-	const lpid_t           root = lpid_t::null,
-	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL,
+	const lpid_t           root = lpid_t::null);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -3729,8 +3729,8 @@ private:
         const vec_t&           key, 
         el_filler&           eg,
         const bool             bIgnoreLocks,
-	const lpid_t           root,
-	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,
+	const lpid_t           root);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
