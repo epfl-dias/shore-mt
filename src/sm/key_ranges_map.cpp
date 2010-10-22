@@ -119,31 +119,28 @@ key_ranges_map::~key_ranges_map()
  *
  ******************************************************************/
 
-uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey, 
+uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,*/ const uint size,
                                          const uint numParts, vector<lpid_t>& roots)
 {
-    /*
-    assert (minKey<=maxKey);
 
-    // IP: make sure that the store does not have any entries (isClean())
-    // pin: the check for this should be in SM-API call make_equal_partitions
+    assert (_minKey!=NULL);
+    assert (_maxKey!=NULL);
+    assert (strcmp(_minKey,_maxKey) < 0);
+
     
     _rwlock.acquire_write();
 
-    // Set min/max keys
-    uint minsz = minKey.size();
-    uint maxsz = maxKey.size();    
-    _minKey = (char*) malloc(minsz);
-    _maxKey = (char*) malloc(maxsz);    
-    minKey.copy_to(_minKey, sizeof(minsz));
-    maxKey.copy_to(_maxKey, sizeof(maxsz));
+    uint minsz = sizeof(_minKey);
+    uint maxsz = sizeof(_maxKey);
+    
+    uint keysz = 0; //min(minsz,maxsz); // Use that many chars for the keys entries
+    if(minsz<maxsz) { 
+    	keysz = minsz;
+    } else {
+    	keysz = maxsz;
+    }
 
-
-    int dummy_min = *((int*)_minKey);
-    int dummy_max = *((int*)_maxKey);
-	
-    uint keysz = 0//min(minsz,maxsz); // Use that many chars for the keys entries
-
+    /*
     uint partsCreated = 0; // In case it cannot divide to numParts partitions
 
     uint base=0;
@@ -152,29 +149,114 @@ uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
          base++; 
     }
 
+    uint sz = base;
+
+    uint space = 0;
+    uint diff = 0;
+    while(diff==0 && sz<=keysz) {
+	space = _maxKey[sz] - _minKey[sz];
+	diff = space / numParts;
+	sz++;
+    } 
+    
+    
     // To not to have integer overflow while computing the space between two strings
-    uint sz = (keysz - base < 4) ? (keysz - base) : 4;
+    //uint sz = (keysz - base < 4) ? (keysz - base) : 4;
     char** subParts = (char**)malloc(numParts*sizeof(char*));
-    char* A = (char*) malloc(base+sz+1);
-    char* B = (char*) malloc(base+sz+1);
-    partsCreated = _distributeSpace(strncpy(A, _minKey, base+sz), strncpy(B, _maxKey, base+sz),
-				    sz, numParts, subParts);
 
-    free(A);
-    free(B);
-
-    // put the partitions to map
-    _keyRangesMap.clear();
-    for(uint i = 0; i < partsCreated; i++) { 
-        _keyRangesMap[subParts[i]] = roots[i];
+    subParts[0] = (char*) malloc(sz);
+    memcpy(subParts[0], _minKey, sz);
+    
+    //char currentEnding = _minKey[sz-1];
+    
+    for(partsCreated = 1;
+	partsCreated < numParts && umemcmp(subParts[partsCreated-1], _maxKey, sz) <= 0;
+	partsCreated++) {
+    	subParts[partsCreated] = (char*) malloc(sz);
+    	//currentEnding += diff;
+    	memcpy(subParts[partsCreated], subParts[partsCreated-1], sz);
+    	subParts[partsCreated][sz-1] += diff;
     }
 
+    //char* A = (char*) malloc(base);
+    //char* B = (char*) malloc(base);
+    //partsCreated = _distributeSpace(strncpy(A, _minKey, base), strncpy(B, _maxKey, base),
+    // 				    base, numParts, subParts);
+
+    //free(A);
+    //free(B);
+    */
+
+    uint partsCreated = 0;
+
+    uint base=0;
+    while(_minKey[base] == _maxKey[base]) {
+	base++;
+    }
+
+    char** subParts = (char**) malloc(numParts*sizeof(char*));
+    uint bytesToChange = (size - base) < 3 ? (size - base) : 3;
+
+    uint space = 0;
+
+    uint powArray[3];
+    double two = 2;
+    powArray[0] = 1;
+    powArray[1] = (uint) pow(two,8);
+    powArray[2] = (uint) pow(two,16);
+
+    for(uint i=0; i<bytesToChange; i++) {
+	space = space +
+	    ((unsigned char)_maxKey[base+i] - (unsigned char)_minKey[base+i]) * powArray[bytesToChange-i-1];
+    }
+
+
+    uint diff = space / numParts;
+    uint diffTemp = diff;
+    uint diffArray[3];
+    diffArray[2] = (uint) (diffTemp / powArray[2]);
+    diffTemp = diffTemp % powArray[2];
+    diffArray[1] = (uint) (diffTemp / powArray[1]);
+    diffArray[0] = diffTemp % powArray[1];
+     
+    subParts[0] = _minKey;
+
+    for(partsCreated=1;
+	      partsCreated < numParts &&
+	    umemcmp(subParts[partsCreated-1], _maxKey, size) < 0;
+	partsCreated++) {
+
+	subParts[partsCreated] = (char*) malloc(size);
+	memcpy(subParts[partsCreated], subParts[partsCreated-1], size);
+	for(uint i=0; i<bytesToChange; i++) {
+	    if((unsigned char)subParts[partsCreated][base+i] +
+	       (unsigned char)diffArray[bytesToChange-i-1] < powArray[bytesToChange-i]) {
+		subParts[partsCreated][base+i] = (unsigned char)subParts[partsCreated][base+i]
+		    + diffArray[bytesToChange-i-1];
+	    } else {
+		subParts[partsCreated][base+i-1] = (unsigned char)subParts[partsCreated][base+i-1] + 1;
+		subParts[partsCreated][base+i] = (unsigned char)subParts[partsCreated][base+i] +
+		    ((unsigned char)subParts[partsCreated][base+i] + diffArray[bytesToChange-i-1] - powArray[bytesToChange-i]);
+	    }
+	}
+
+    }
+
+    // put the partitions to map
+    //_keyRangesMap.clear();
+    for(uint i = 1; i < partsCreated; i++) { 
+        _keyRangesMap[subParts[i]] = roots[i-1];
+    }
+    
     _rwlock.release_write();
 
     assert (partsCreated != 0); // Should have created at least one partition
+
+    _numPartitions = partsCreated;
+	
     return (partsCreated);
-    */
-    return 1;
+    
+    //return 1;
 }
 
 
@@ -203,24 +285,24 @@ uint key_ranges_map::_distributeSpace(const char* A,
                                       const uint partitions, 
                                       char** subParts)
 {
-    /*
-    assert (strcmp(A,B)); // It should A<B
+    
+    assert (strcmp(A,B)<0); // It should A<B
 
-    uint numASCII = 95;
+    double numASCII = 95;
     uint startASCII = 31;
     int totalSize = strlen(A);
 
     // compute the space between two strings
     uint space = 0;
     for(int i=totalSize-1, j=0; i>totalSize-sz-1; i--,j++)
-	;//space = space + ((int) B[i] - (int) A[i]) * (int) pow(numASCII, j);
+	space = space + ((int) B[i] - (int) A[i]) * (int) pow(numASCII, j);
 
     // find the approximate range each partitions should keep
     uint range = space / partitions;
-   
+       
     // compute the partitions
-    char* currentKey = (char*) malloc(totalSize+1);
-    char* nextKey = (char*) malloc(totalSize+1);
+    char* currentKey = (char*) malloc(sz);
+    char* nextKey = (char*) malloc(sz);
     strcpy(nextKey, A);
     
     uint currentDest;
@@ -264,8 +346,8 @@ uint key_ranges_map::_distributeSpace(const char* A,
     free(nextKey);
     
     return pcreated;
-    */
-    return 1;
+        
+    //return 1;
 }
 
 
@@ -719,11 +801,11 @@ void key_ranges_map::setMinKey(const Key& minKey)
 	_minKey = (char*) malloc(minKey.size()); 
     }
     minKey.copy_to(_minKey);
-
+    
     // insert the new minKey
     keysIter iter = _keyRangesMap.lower_bound(_minKey);
     if(iter == _keyRangesMap.end()) {
-	iter--;
+    	iter--;
     }
     _keyRangesMap[_minKey] = iter->second;
 

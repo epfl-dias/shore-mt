@@ -91,7 +91,7 @@ rc_t ranges_m::delete_partition(const lpid_t& pid, const lpid_t& root_to_delete,
 rc_t ranges_m::fill_ranges_map(const lpid_t& pid, key_ranges_map& partitions)
 {
     ranges_p page;
-    W_DO(page.fix(pid, LATCH_EX));
+    W_DO(page.fix(pid, LATCH_SH));
     W_DO(page.fill_ranges_map(partitions));
     page.unfix();
     return RCOK;
@@ -138,24 +138,14 @@ rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 
 rc_t ranges_p::fill_page(key_ranges_map& partitions)
 {
-    // pin: should only be used after make_equal_partitions
-    
     map<char*, lpid_t, cmp_greater> partitions_map = partitions.getMap();
 
-    // special case, the first partition (the default partition needs to be overwritten
-    key_ranges_map::keysIter iter = partitions_map.begin();
-    uint4_t i = 1;
-    cvec_t v;
-    // put subroot
-    char* subroot = (char*)(&(iter->second));
-    v.put(subroot, sizeof(lpid_t));
-    // put key
-    v.put(iter->first, sizeof(iter->first));
-    // add this key-subroot pair to page's data
-    W_DO(page_p::overwrite(i, 0, v));
-
+    uint4_t i = 2;
+ 
     // put rest of the partitions' info
-    for(; iter != partitions_map.end(); iter++, i++) {
+    for(key_ranges_map::keysIter iter = partitions_map.begin();
+	i < partitions.getNumPartitions() && iter != partitions_map.end();
+	iter++, i++) {
 	cvec_t v;
 	// put subroot
 	v.put((char*)(&iter->second), sizeof(lpid_t));
@@ -189,11 +179,6 @@ rc_t ranges_p::fill_page(vector<cvec_t*>& keys, vector<lpid_t>& subroots)
 	// add this key-subroot pair to page's data
 	W_DO(page_p::reclaim(i, v, true));
     } */
-
-    // pin: to debug
-    if(*(keys[0]) == *(keys[1])) {
-	cout << "keys are equal" << endl;
-    }
 
     for(; i < keys.size(); i++) {
 	cvec_t v;

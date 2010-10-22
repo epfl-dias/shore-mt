@@ -294,6 +294,43 @@ scan_index_i::_init(
             }
         }
         break;
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
+        {
+            _btcursor = new bt_cursor_t(!_skip_nulls);
+            if (! _btcursor) {
+                _error_occurred = RC(eOUTOFMEMORY);
+                return;
+            }
+            bool inclusive = (cond == eq || cond == ge || cond == le);
+
+            cvec_t* elem = 0;
+
+            elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
+
+	    int dummy_init = 0;
+	    cvec_t dummy_init_vec((char*)(&dummy_init),sizeof(int));
+            _error_occurred = bt->fetch_init(*_btcursor, sd->root(dummy_init_vec), 
+                                            sd->sinfo().nkc, sd->sinfo().kc,
+                                            ntype == t_uni_btree,
+                                            key_lock_level,
+                                            bound, *elem, 
+                                             cond, c2, b2, mode);
+            if (_error_occurred.is_error())  {
+                return;
+            }
+            if(_btcursor->is_backward()) {
+                // Not fully supported
+                _error_occurred = RC(eNOTIMPLEMENTED);
+                return;
+            }
+        }
+        break;
+
     default:
         W_FATAL(eINTERNAL);
    }
@@ -337,6 +374,12 @@ scan_index_i::finish()
     switch (ntype)  {
     case t_btree:
     case t_uni_btree:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
         if (_btcursor)  {
             delete _btcursor;
             _btcursor = 0;
@@ -391,6 +434,12 @@ scan_index_i::_fetch(
     switch (ntype)  {
     case t_btree:
     case t_uni_btree:
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    case t_mrbtree_l:
+    case t_uni_mrbtree_l:
+    case t_mrbtree_p:
+    case t_uni_mrbtree_p:
         if (skip) {
             /*
              *  Advance cursor.

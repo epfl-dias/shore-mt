@@ -499,11 +499,11 @@ rc_t ss_m::print_mr_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef, 
 			   const bool bIgnoreLocks, // = false
-			   const lpid_t root, // lpid_t::null
-			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL 
+			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,  // = NULL 
+			   const lpid_t root) // lpid_t::null
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
-    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, root, relocate_callback));
+    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, relocate_callback, root));
     return RCOK;
 }
 
@@ -661,9 +661,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
 	 // create the ranges_p
 	 W_DO( ra->create(stid, root, subroot) );
-
-	 // pin:
-	 //W_DO( ra->add_partition(root, *real_key, subroot) );
 
 	 break;
 
@@ -973,8 +970,8 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			    const vec_t&         key, 
 			    el_filler&         ef,
 			    const bool bIgnoreLocks, // = false
-			    const lpid_t root, // = lpid_t::null
-			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL
+			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback, // = NULL
+			    const lpid_t root) // = lpid_t::null
 {
 
     // usually we will do kvl locking and already have an IX lock
@@ -1344,11 +1341,6 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 				 const vec_t& maxKey, uint numParts)
 {
-    // pin: TODO: this method shouldn't be used, delete it
-    
-    // since this should only be called initially
-    // we don't have to call different versions for different mrbtree types
-    
     FUNC(ss_m::_make_equal_partitions);
 
     DBG(<<" stid " << stid);
@@ -1368,7 +1360,7 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     //       this should only be called initially, no assocs in the index yet
 
     bool isCompressed = sinfo.kc[0].compressed != 0;
-    for(uint i=0; i<numParts; i++) {
+    for(uint i=0; i<numParts-1; i++) {
 	lpid_t root;
 	W_DO(bt->create(stid, root, isCompressed));
 	roots.push_back(root);
@@ -1379,12 +1371,12 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
     sd->partitions().setMaxKey(*real_maxKey);
 	
-    //uint partsCreated = sd->partitions().makeEqualPartitions(numParts, roots);
+    uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
 
-    //while(partsCreated < numParts-1) {
-    //	W_DO( io->free_page(roots[partsCreated], false/*checkstore*/) );
-    //	partsCreated++;
-    //}
+    while(partsCreated < numParts-1) {
+     	W_DO( io->free_page(roots[partsCreated], false/*checkstore*/) );
+     	partsCreated++;
+    }
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
