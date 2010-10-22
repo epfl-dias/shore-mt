@@ -499,30 +499,33 @@ rc_t ss_m::print_mr_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef, 
 			   const bool bIgnoreLocks, // = false
+			   const lpid_t root, // lpid_t::null
 			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL 
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
-    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, relocate_callback));
+    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, root, relocate_callback));
     return RCOK;
 }
 
 /*--------------------------------------------------------------*
  *  ss_m::destroy_mr_assoc()                                    *
  *--------------------------------------------------------------*/
-rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el, const bool bIgnoreLocks)
+rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
+			    const bool bIgnoreLocks, const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks));
+    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, root));
     return RCOK;
 }
 
 /*--------------------------------------------------------------*
  *  ss_m::destroy_mr_all_assoc()                                *
  *--------------------------------------------------------------*/
-rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num, const bool bIgnoreLocks)
+rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
+				const bool bIgnoreLocks, const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks));
+    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, root));
     return RCOK;
 }
 
@@ -531,10 +534,10 @@ rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num, const b
  *--------------------------------------------------------------*/
 rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key, 
 			 void* el, smsize_t& elen, bool& found,
-			 const bool bIgnoreLocks)
+			 const bool bIgnoreLocks, const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::find_mr_assoc, in_xct, read_only, 0);
-    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks));
+    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, root));
     return RCOK;
 }
 
@@ -544,7 +547,7 @@ rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key,
 rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
 				 const vec_t& maxKey, uint numParts)
 {
-    SM_PROLOGUE_RC(ss_m::make_equal_partitions, not_in_xct, read_only, 0);
+    SM_PROLOGUE_RC(ss_m::make_equal_partitions, in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
     W_DO(_make_equal_partitions(stid, minKey, maxKey, numParts));
     return RCOK;
@@ -555,7 +558,7 @@ rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
  *--------------------------------------------------------------*/
 rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
 {
-    SM_PROLOGUE_RC(ss_m::add_partition_init, not_in_xct, read_write, 0);
+    SM_PROLOGUE_RC(ss_m::add_partition_init, in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
     W_DO(_add_partition_init(stid, key, bIgnoreLocks));
     return RCOK;
@@ -724,7 +727,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
      for(uint i=0; i< ranges.getNumPartitions(); i++) {
 	 lpid_t subroot;
 	 W_DO(bt->create(stid, subroot, isCompressed, bIgnoreLatches));
-	 cout << "subroot " << subroot << endl;
        	 roots.push_back(subroot);
      }
 
@@ -971,6 +973,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			    const vec_t&         key, 
 			    el_filler&         ef,
 			    const bool bIgnoreLocks, // = false
+			    const lpid_t root, // = lpid_t::null
 			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback) // = NULL
 {
 
@@ -1014,8 +1017,14 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
-    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));	
-
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	subroot = sd->root(*real_key);
+    }
+    
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
@@ -1023,7 +1032,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_mrbtree:
     case t_uni_mrbtree:
 
- 	W_DO(bt->mr_insert(sd->root(*real_key), 
+ 	W_DO(bt->mr_insert(subroot, 
 			   is_unique, 
 			   cc,
 			   *real_key, ef._el, 50, 
@@ -1034,7 +1043,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_uni_mrbtree_l:
 
 	_ef = &ef;
-	W_DO(bt->mr_insert_l(sd->root(*real_key), 
+	W_DO(bt->mr_insert_l(subroot, 
 			     is_unique, 
 			     cc,
 			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
@@ -1046,7 +1055,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_uni_mrbtree_p:
 
 	_ef = &ef;
-	W_DO(bt->mr_insert_p(sd->root(*real_key), 
+	W_DO(bt->mr_insert_p(subroot, 
 			     is_unique, 
 			     cc,
 			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
@@ -1071,7 +1080,8 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid, 
 			     const vec_t&         key, 
 			     const vec_t&         el,
-			     const bool bIgnoreLocks)
+			     const bool bIgnoreLocks,
+			     const lpid_t root)
 {
 
     concurrency_t cc = t_cc_bad;
@@ -1116,7 +1126,15 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
-	
+
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	subroot = sd->root(*real_key);
+    }
+    
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
@@ -1128,8 +1146,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
     
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-        W_DO(bt->mr_remove(sd->root(*real_key), 
+        W_DO(bt->mr_remove(subroot, 
 			   is_unique,
 			   cc, *real_key, el, bIgnoreLocks) );
         break;
@@ -1147,7 +1164,8 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 /*--------------------------------------------------------------*
  *  ss_m::_destroy_mr_all_assoc()                               *
  *--------------------------------------------------------------*/
-rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num, bool const bIgnoreLocks)
+rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
+				 bool const bIgnoreLocks, const lpid_t root)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -1196,7 +1214,15 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
     bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
-	
+
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	subroot = sd->root(*real_key);
+    }
+    
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
@@ -1208,8 +1234,7 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 	
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-        W_DO(bt->mr_remove_key(sd->root(*real_key), 
+        W_DO(bt->mr_remove_key(subroot, 
 			       sd->sinfo().nkc, sd->sinfo().kc,
 			       is_unique,
 			       cc, *real_key, num, bIgnoreLocks));
@@ -1234,7 +1259,8 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 			  void*                 el, 
 			  smsize_t&             elen, 
 			  bool&                 found,
-			  const bool bIgnoreLocks)
+			  const bool bIgnoreLocks,
+			  const lpid_t root)
 {
 
     concurrency_t cc = t_cc_bad;
@@ -1278,7 +1304,15 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     bool is_unique = sd->sinfo().ntype == t_uni_mrbtree ||
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
-	
+
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	subroot = sd->root(*real_key);
+    }
+
     switch (sd->sinfo().ntype) {
     case t_bad_ndx_t:
         return RC(eBADNDXTYPE);
@@ -1290,9 +1324,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
     
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
-	//INC_TSTAT(bt_access_cnt[sd->root(*real_key)]);
-        W_DO(bt->mr_lookup(sd->root(*real_key), 
+        W_DO(bt->mr_lookup(subroot, 
 			   is_unique,
 			   cc,
 			   *real_key, el, elen, found, bIgnoreLocks) );
@@ -1317,26 +1349,24 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     // since this should only be called initially
     // we don't have to call different versions for different mrbtree types
     
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-
     FUNC(ss_m::_make_equal_partitions);
 
     DBG(<<" stid " << stid);
-    vector<lpid_t> roots;
 
     // get the sinfo from sdesc
     sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+
+    vector<lpid_t> roots;
     cvec_t* real_minKey;
     cvec_t* real_maxKey;
-   
-    W_DO(dir->access(stid, sd, EX));
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     // TODO: might give an error here if some partitions already exists
     //       this should only be called initially, no assocs in the index yet
-  
+
     bool isCompressed = sinfo.kc[0].compressed != 0;
     for(uint i=0; i<numParts; i++) {
 	lpid_t root;
@@ -1344,15 +1374,20 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 	roots.push_back(root);
     }
 
-    W_DO(bt->_scramble_key(real_minKey, minKey, sd->sinfo().nkc, sd->sinfo().kc));
-    W_DO(bt->_scramble_key(real_maxKey, maxKey, sd->sinfo().nkc, sd->sinfo().kc));
+    W_DO(bt->_scramble_key(real_minKey, minKey, minKey.count(), sd->sinfo().kc));
+    sd->partitions().setMinKey(*real_minKey);
+    W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
+    sd->partitions().setMaxKey(*real_maxKey);
+	
+    //uint partsCreated = sd->partitions().makeEqualPartitions(numParts, roots);
 
-    sd->partitions().makeEqualPartitions(*real_minKey, *real_maxKey, numParts, roots);
+    //while(partsCreated < numParts-1) {
+    //	W_DO( io->free_page(roots[partsCreated], false/*checkstore*/) );
+    //	partsCreated++;
+    //}
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
-
-    W_DO(xct_auto.commit());
 
     return RCOK;    
 }
@@ -1360,8 +1395,6 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
 {
 
-    xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
-    
     FUNC(ss_m::_add_partition_init);
     
     DBG(<<" stid " << stid);
@@ -1413,8 +1446,6 @@ rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnore
         return RC(eBADNDXTYPE);
     }
         
-    W_DO(xct_auto.commit());	     
-
     return RCOK;    
 }
 

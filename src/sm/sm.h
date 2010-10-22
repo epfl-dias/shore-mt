@@ -2611,6 +2611,7 @@ public:
         const vec_t&             key, 
         el_filler&             ef,
         const bool             bIgnoreLocks = false,
+	const lpid_t           root = lpid_t::null,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
@@ -2624,7 +2625,8 @@ public:
         stid_t                   stid, 
         const vec_t&             key,
         const vec_t&             el,
-        const bool             bIgnoreLocks = false);
+        const bool             bIgnoreLocks = false,
+	const lpid_t           root = lpid_t::null);
 
     /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
      * \ingroup SSMBTREE
@@ -2637,8 +2639,8 @@ public:
         stid_t                  stid, 
         const vec_t&            key,
         int&                    num_removed,
-	const bool              bIgnoreLatches = false
-    );
+	const bool              bIgnoreLatches = false,
+	const lpid_t           root = lpid_t::null);
 
     /**\brief Find an entry associated with a key in a Multi-rooted B+-Tree index. 
      * \ingroup SSMBTREE
@@ -2664,8 +2666,8 @@ public:
 				      void*                   el, 
 				      smsize_t&               elen, 
 				      bool&                   found,
-				      const bool             bIgnoreLocks = false
-				      );
+				      const bool             bIgnoreLocks = false,
+				      const lpid_t           root = lpid_t::null);
     
 
     /**\brief Partition the space between the given minKey and maxKey equally depending on the given
@@ -3727,27 +3729,31 @@ private:
         const vec_t&           key, 
         el_filler&           eg,
         const bool             bIgnoreLocks,
+	const lpid_t           root,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
         const vec_t&          key,
         const vec_t&          el,
-        const bool             bIgnoreLocks);
+        const bool             bIgnoreLocks,
+	const lpid_t           root);
 
     static rc_t            _destroy_mr_all_assoc(
         const stid_t&        stid, 
         const vec_t&         key,
         int&                 num_removed,
-	const bool          bIgnoreLatches
-    );
+	const bool          bIgnoreLatches,
+	const lpid_t           root);
+    
     static rc_t            _find_mr_assoc(
         const stid_t&        stid, 
         const vec_t&         key, 
         void*                el, 
         smsize_t&            elen, 
         bool&                found,
-        const bool             bIgnoreLocks);
+        const bool             bIgnoreLocks,
+	const lpid_t           root);
     
     static rc_t _make_equal_partitions(stid_t stid,
 				       const vec_t& minKey,
