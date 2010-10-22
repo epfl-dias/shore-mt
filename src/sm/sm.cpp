@@ -2898,7 +2898,19 @@ ss_m::_get_du_statistics( const stid_t& stpgid, sm_du_stats_t& du, bool audit)
             DBG(<<"t_btree");
         case t_uni_btree:
             DBG(<<"t_uni_btree");
-            {
+	case t_mrbtree:
+	    DBG(<<"t_mrbtree");
+	case t_uni_mrbtree:
+	    DBG(<<"t_uni_mrbtree");
+	case t_mrbtree_l:
+	    DBG(<<"t_mrbtree_l");
+	case t_uni_mrbtree_l:
+	    DBG(<<"t_uni_mrbtree_l");
+	case t_mrbtree_p:
+	    DBG(<<"t_mrbtree_p");
+	case t_uni_mrbtree_p:
+	    DBG(<<"t_uni_mrbtree_p");
+	{
                 btree_stats_t btree_stats;
                 W_DO( bt->get_du_statistics(sd->root(), btree_stats, audit));
                 if (audit) {
