@@ -122,14 +122,35 @@ key_ranges_map::~key_ranges_map()
 uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,*/ const uint size,
                                          const uint numParts, vector<lpid_t>& roots)
 {
+#warning PT: makeEqualPartitions works only for ints now! has to be re-written
 
     assert (_minKey!=NULL);
     assert (_maxKey!=NULL);
-    assert (strcmp(_minKey,_maxKey) < 0);
+    assert (umemcmp(_minKey,_maxKey, size) < 0);
 
     
     _rwlock.acquire_write();
 
+    uint lower_bound = *(uint*)_minKey;
+    uint upper_bound = *(uint*)_maxKey;
+
+    uint space = upper_bound - lower_bound;
+    uint diff = space / numParts;
+
+    char** subParts = (char**)malloc(numParts*sizeof(char*));
+    uint partsCreated = 0; // In case it cannot divide to numParts partitions
+    
+    uint current = lower_bound;
+    while(partsCreated < numParts - 1) {
+	current = current + diff;
+	uint startKey = current;
+	subParts[partsCreated] = (char*) malloc(size);
+	subParts[partsCreated] = (char*) (&startKey);
+	partsCreated++;
+    }
+
+    
+        /*
     uint minsz = sizeof(_minKey);
     uint maxsz = sizeof(_maxKey);
     
@@ -140,7 +161,7 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
     	keysz = maxsz;
     }
 
-    /*
+
     uint partsCreated = 0; // In case it cannot divide to numParts partitions
 
     uint base=0;
@@ -186,7 +207,7 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
     //free(A);
     //free(B);
     */
-
+    /*
     uint partsCreated = 0;
 
     uint base=0;
@@ -246,20 +267,21 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
 	partsCreated--;
 	free(subParts[partsCreated]);
     }
+    */
     
     // put the partitions to map
     //_keyRangesMap.clear();
-    for(uint i = 1; i < partsCreated; i++) { 
-        _keyRangesMap[subParts[i]] = roots[i-1];
+    for(uint i = 0; i < partsCreated; i++) { 
+        _keyRangesMap[subParts[i]] = roots[i];
     }
-    
+
     _rwlock.release_write();
 
     assert (partsCreated != 0); // Should have created at least one partition
 
-    _numPartitions = partsCreated;
+    _numPartitions = partsCreated + 1;
 	
-    return (partsCreated);
+    return (_numPartitions);
     
     //return 1;
 }

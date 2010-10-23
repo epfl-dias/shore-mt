@@ -1350,8 +1350,8 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     W_DO(dir->access(stid, sd, EX));
 
     vector<lpid_t> roots;
-    cvec_t* real_minKey;
-    cvec_t* real_maxKey;
+    ///cvec_t* real_minKey;
+    ///cvec_t* real_maxKey;
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
@@ -1366,17 +1366,38 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 	roots.push_back(root);
     }
 
-    W_DO(bt->_scramble_key(real_minKey, minKey, minKey.count(), sd->sinfo().kc));
-    sd->partitions().setMinKey(*real_minKey);
-    W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
-    sd->partitions().setMaxKey(*real_maxKey);
-	
-    uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
+    // ------------- HACK FOR THE DEADLINE ------------------------
+    cvec_t* real_key;
+    int lower_bound = 0;
+    int upper_bound = 0;
+    minKey.copy_to(&lower_bound, sizeof(int));
+    maxKey.copy_to(&upper_bound, sizeof(int));
 
-    while(partsCreated < numParts) {
-     	W_DO( io->free_page(roots[partsCreated-2], false/*checkstore*/) );
-     	partsCreated++;
+    int space = upper_bound - lower_bound;
+    int diff = space / numParts;
+    uint partsCreated = 0; // In case it cannot divide to numParts partitions
+    
+    int current_key = lower_bound;
+    while(partsCreated < numParts - 1) {
+	current_key = current_key + diff;
+	cvec_t start_key_vec((char*)(&current_key), sizeof(int));
+	W_DO(bt->_scramble_key(real_key, start_key_vec, minKey.count(), sd->sinfo().kc));
+	sd->partitions().addPartition(*real_key, roots[partsCreated]);
+	partsCreated++;
     }
+    // --------------------------------------------------------------
+    
+    ///W_DO(bt->_scramble_key(real_minKey, minKey, minKey.count(), sd->sinfo().kc));
+    ///sd->partitions().setMinKey(*real_minKey);
+    ///W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
+    ///sd->partitions().setMaxKey(*real_maxKey);
+	
+    ///uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
+
+    //while(partsCreated < numParts) {
+    // 	W_DO( io->free_page(roots[partsCreated-2], false/*checkstore*/) );
+    // 	partsCreated++;
+    //}
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
