@@ -236,12 +236,17 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
 	    } else {
 		subParts[partsCreated][base+i-1] = (unsigned char)subParts[partsCreated][base+i-1] + 1;
 		subParts[partsCreated][base+i] = (unsigned char)subParts[partsCreated][base+i] +
-		    ((unsigned char)subParts[partsCreated][base+i] + diffArray[bytesToChange-i-1] - powArray[bytesToChange-i]);
+		    diffArray[bytesToChange-i-1] - powArray[bytesToChange-i];
 	    }
 	}
 
     }
 
+    if(umemcmp(subParts[partsCreated-1], _maxKey, size) > 0) {
+	partsCreated--;
+	free(subParts[partsCreated]);
+    }
+    
     // put the partitions to map
     //_keyRangesMap.clear();
     for(uint i = 1; i < partsCreated; i++) { 

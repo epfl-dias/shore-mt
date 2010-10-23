@@ -1373,8 +1373,8 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 	
     uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
 
-    while(partsCreated < numParts-1) {
-     	W_DO( io->free_page(roots[partsCreated], false/*checkstore*/) );
+    while(partsCreated < numParts) {
+     	W_DO( io->free_page(roots[partsCreated-2], false/*checkstore*/) );
      	partsCreated++;
     }
 

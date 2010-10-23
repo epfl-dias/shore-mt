@@ -140,11 +140,12 @@ rc_t ranges_p::fill_page(key_ranges_map& partitions)
 {
     map<char*, lpid_t, cmp_greater> partitions_map = partitions.getMap();
 
-    uint4_t i = 2;
+    page_p::mark_free(1);
+    uint4_t i = 1;
  
     // put rest of the partitions' info
     for(key_ranges_map::keysIter iter = partitions_map.begin();
-	i < partitions.getNumPartitions() && iter != partitions_map.end();
+	iter != partitions_map.end();
 	iter++, i++) {
 	cvec_t v;
 	// put subroot
