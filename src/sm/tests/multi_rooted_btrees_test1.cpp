@@ -141,6 +141,7 @@ public:
     w_rc_t mr_index_test5();
     w_rc_t mr_index_test6();
     w_rc_t mr_index_test7();
+    w_rc_t mr_index_test8();
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
     w_rc_t static print_updated_rids(const stid_t& stid, rid_t* old_rids, rid_t* new_rids, uint nrecs);
@@ -285,9 +286,11 @@ rc_t smthread_user_t::mr_index_test0()
 
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
+
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
-
+    W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
 
@@ -308,23 +311,23 @@ rc_t smthread_user_t::mr_index_test1()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-
     int key1 = 700;
-    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec1));
     
     
     int key2 = 500;
-    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec2));
-
+    W_DO(ssm->add_partition_init(stid, key_vec2));                   
+    W_DO(ssm->commit_xct());
 
     W_DO(insert_rec_to_index(stid));
 
@@ -347,9 +350,10 @@ rc_t smthread_user_t::mr_index_test2()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
-
+    W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
 
@@ -358,7 +362,7 @@ rc_t smthread_user_t::mr_index_test2()
 
 	
     int key = 700;
-    cvec_t key_vec((char*)(&key), sizeof(key));
+    vec_t key_vec((char*)(&key), sizeof(key));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key << endl;
     W_DO(ssm->add_partition(stid, key_vec));
@@ -371,7 +375,7 @@ rc_t smthread_user_t::mr_index_test2()
     cout << "ssm->create_mr_assoc" << endl;
     el_filler2 eg1;
     int new_key = 1000;
-    cvec_t new_key_vec((char*)(&new_key), sizeof(new_key));
+    vec_t new_key_vec((char*)(&new_key), sizeof(new_key));
     cout << "Record key "  << new_key << endl;
     cout << "key size " << new_key_vec.size() << endl;    
     vec_t el((char*)(&_end_rid), sizeof(rid_t));
@@ -380,10 +384,11 @@ rc_t smthread_user_t::mr_index_test2()
     eg1._el.put(el);
     W_DO(ssm->create_mr_assoc(stid, new_key_vec, eg1));
 
+    
     cout << "ssm->create_mr_assoc" << endl;
     el_filler2 eg2;
     int new_key2 = 0;
-    cvec_t new_key_vec2((char*)(&new_key2), sizeof(new_key2));
+    vec_t new_key_vec2((char*)(&new_key2), sizeof(new_key2));
     cout << "Record key "  << new_key2 << endl;
     cout << "key size " << new_key_vec.size() << endl;    
     vec_t el2((char*)(&_start_rid), sizeof(rid_t));
@@ -410,9 +415,10 @@ rc_t smthread_user_t::mr_index_test3()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
-
+    W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
 
@@ -421,7 +427,7 @@ rc_t smthread_user_t::mr_index_test3()
 
     
     int key1 = 200;
-    cvec_t key1_vec((char*)(&key1), sizeof(key1));
+    vec_t key1_vec((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
     W_DO(ssm->add_partition(stid, key1_vec));
@@ -431,7 +437,7 @@ rc_t smthread_user_t::mr_index_test3()
 
 
     int key2 = 400;
-    cvec_t key2_vec((char*)(&key2), sizeof(key2));
+    vec_t key2_vec((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key2 << endl;
     W_DO(ssm->add_partition(stid, key2_vec));
@@ -441,7 +447,7 @@ rc_t smthread_user_t::mr_index_test3()
 
 
     int key3 = 600;
-    cvec_t key3_vec((char*)(&key3), sizeof(key3));
+    vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key3 << endl;
     W_DO(ssm->add_partition(stid, key3_vec));
@@ -451,7 +457,7 @@ rc_t smthread_user_t::mr_index_test3()
 
 
     int key4 = 800;
-    cvec_t key4_vec((char*)(&key4), sizeof(key4));
+    vec_t key4_vec((char*)(&key4), sizeof(key4));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key4 << endl;
     W_DO(ssm->add_partition(stid, key4_vec));
@@ -469,7 +475,7 @@ rc_t smthread_user_t::mr_index_test3()
 
 
     int key5 = 700;
-    cvec_t key5_vec((char*)(&key5), sizeof(key5));
+    vec_t key5_vec((char*)(&key5), sizeof(key5));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key5 << endl;
     W_DO(ssm->delete_partition(stid, key5_vec));
@@ -479,7 +485,7 @@ rc_t smthread_user_t::mr_index_test3()
 
     
     int key6 = 500;
-    cvec_t key6_vec((char*)(&key6), sizeof(key6));
+    vec_t key6_vec((char*)(&key6), sizeof(key6));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key6 << endl;
     W_DO(ssm->delete_partition(stid, key6_vec));
@@ -503,25 +509,24 @@ rc_t smthread_user_t::mr_index_test4()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
-
-
+ 
     int key1 = 700;
-    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec1));
     
     
     int key2 = 500;
-    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec2));
 
 
-    W_DO(ssm->begin_xct());
     sm_du_stats_t stats;
     cout << "ssm->bulkld_mr_index(stid = " << stid
 	 << ", file = " << _fid << endl;
@@ -546,22 +551,23 @@ rc_t smthread_user_t::mr_index_test5()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-
     int key1 = 700;
-    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec1));
     
     
     int key2 = 500;
-    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec2));
+    W_DO(ssm->commit_xct());
 
 
     W_DO(insert_rec_to_index(stid));
@@ -571,7 +577,7 @@ rc_t smthread_user_t::mr_index_test5()
 
 
     int key3 = 600;
-    cvec_t key3_vec((char*)(&key3), sizeof(key3));
+    vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key = " << key3 << endl;
     W_DO(ssm->delete_partition(stid, key3_vec));
@@ -594,22 +600,23 @@ rc_t smthread_user_t::mr_index_test6()
     
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid));
 
-
     int key1 = 700;
-    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec1));
     
     
     int key2 = 500;
-    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
     W_DO(ssm->add_partition_init(stid, key_vec2));
+    W_DO(ssm->commit_xct());
 
 
     W_DO(insert_rec_to_index(stid));
@@ -619,7 +626,7 @@ rc_t smthread_user_t::mr_index_test6()
 
 
     int key3 = 800;
-    cvec_t key3_vec((char*)(&key3), sizeof(key3));
+    vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key = " << key3 << endl;
     W_DO(ssm->delete_partition(stid, key3_vec));
@@ -641,25 +648,77 @@ rc_t smthread_user_t::mr_index_test7()
     cout << "Form the ranges map with 4 partitions (0 300 700 850)" << endl;
     key_ranges_map ranges;
     int key1 = 0;
-    cvec_t key_vec1((char*)(&key1), sizeof(key1));
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
     int key2 = 300;
-    cvec_t key_vec2((char*)(&key2), sizeof(key2));
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
     int key3 = 700;
-    cvec_t key_vec3((char*)(&key3), sizeof(key3));
+    vec_t key_vec3((char*)(&key3), sizeof(key3));
     int key4 = 850;
-    cvec_t key_vec4((char*)(&key4), sizeof(key4));
+    vec_t key_vec4((char*)(&key4), sizeof(key4));
     lpid_t dummy_pid;
     ranges.addPartition(key_vec1, dummy_pid);
     ranges.addPartition(key_vec2, dummy_pid);
     ranges.addPartition(key_vec3, dummy_pid);
     ranges.addPartition(key_vec4, dummy_pid);
-
+    ranges.printPartitions();
 
     cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
+    W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
 			      "i4", smlevel_0::t_cc_kvl, stid, ranges));
+    W_DO(ssm->commit_xct());
 
+    W_DO(insert_rec_to_index(stid));
+
+    
+    W_DO(print_the_mr_index(stid));
+
+    
+    return RCOK;
+}
+
+rc_t smthread_user_t::mr_index_test8()
+{
+    cout << endl;
+    cout << " ------- TEST8 -------" << endl;
+    cout << "Test make equal partitions!" << endl;
+    cout << endl;
+
+    cout << "Form the ranges map with min 0, max 100, 10 partitions" << endl;
+    key_ranges_map ranges;
+    int min_key = 0;
+    vec_t min_key_vec((char*)(&min_key), sizeof(min_key));
+    int max_key = 1000;
+    vec_t max_key_vec((char*)(&max_key), sizeof(max_key));
+
+
+
+    int key1 = 0;
+    vec_t key_vec1((char*)(&key1), sizeof(key1));
+    int key2 = 200;
+    vec_t key_vec2((char*)(&key2), sizeof(key2));
+    int key3 = 400;
+    vec_t key_vec3((char*)(&key3), sizeof(key3));
+    int key4 = 600;
+    vec_t key_vec4((char*)(&key4), sizeof(key4));
+    int key5 = 800;
+    vec_t key_vec5((char*)(&key5), sizeof(key5));
+
+    
+    cout << "Creating multi rooted btree index." << endl;
+    stid_t stid;    
+    W_DO(ssm->begin_xct());
+    W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
+			      "i4", smlevel_0::t_cc_kvl, stid));
+    //W_DO(ssm->add_partition_init(stid, key_vec1));
+    //W_DO(ssm->add_partition_init(stid, key_vec2));                   
+    //W_DO(ssm->add_partition_init(stid, key_vec3));
+    //W_DO(ssm->add_partition_init(stid, key_vec4));                   
+    //W_DO(ssm->add_partition_init(stid, key_vec5));
+
+    W_DO(ssm->make_equal_partitions(stid, min_key_vec, max_key_vec, 10));
+    W_DO(ssm->commit_xct());
 
     W_DO(insert_rec_to_index(stid));
 
@@ -696,7 +755,7 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
     }
     
     cout << "Record " << i << "/" << _num_rec << endl;
-    cvec_t       key(cursor->hdr(), cursor->hdr_size());
+    vec_t       key(cursor->hdr(), cursor->hdr_size());
     int         hdrcontents;
     key.copy_to(&hdrcontents, sizeof(hdrcontents));
     cout << "Key: "  << hdrcontents << endl;
@@ -916,6 +975,9 @@ smthread_user_t::no_init()
     case 7:
 	W_DO(mr_index_test7()); //
 	break;
+    case 8:
+      W_DO(mr_index_test8()); //
+      break;
     }
     return RCOK;
 }
@@ -994,7 +1056,7 @@ w_rc_t smthread_user_t::handle_options()
 
     // Process the command line: looking for the "-h" flag
     int option;
-    while ((option = getopt(_argc, _argv, "hi01234567")) != -1) {
+    while ((option = getopt(_argc, _argv, "hi012345678")) != -1) {
         switch (option) {
         case 'i' :
             _initialize_device = true;
@@ -1035,6 +1097,10 @@ w_rc_t smthread_user_t::handle_options()
 	case '7':
 	    _test_no = 7;
 	    break;
+
+	case '8':
+	  _test_no = 8;
+	  break;
 	    
         default:
             usage(options);
