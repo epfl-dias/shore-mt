@@ -312,13 +312,16 @@ scan_index_i::_init(
 
             elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
 
-	    // TODO: traverse all the subtrees that covers the region [bound,b2]
-	    _error_occurred = bt->fetch_init(*_btcursor, sd->root(bound), 
-                                            sd->sinfo().nkc, sd->sinfo().kc,
-                                            ntype == t_uni_btree,
-                                            key_lock_level,
-                                            bound, *elem, 
-                                             cond, c2, b2, mode);
+	    // traverse all the subtrees that covers the region [bound,b2]
+	    vector<lpid_t> roots;
+	    _error_occurred = sd->partitions().getPartitions(bound, inclusive, b2,
+							     c2 == eq || c2 == ge || c2 == le, roots);
+	    _error_occurred = bt->mr_fetch_init(*_btcursor, roots, 
+						sd->sinfo().nkc, sd->sinfo().kc,
+						ntype == t_uni_btree,
+						key_lock_level,
+						bound, *elem, 
+						cond, c2, b2, mode);
             if (_error_occurred.is_error())  {
                 return;
             }

@@ -141,6 +141,33 @@ bt_cursor_t::set_up_part_2(cmp_t cond1, const cvec_t& bound1)
     return check_bounds();
 }
 
+// -- mrbt
+void
+bt_cursor_t::set_roots(vector<lpid_t>& roots) {
+    is_mrbt = true;
+    _roots = roots;
+    if(_backward) {
+	_next_root = 1;
+    } else {
+	_next_root = roots.size() - 2;
+    }
+}
+
+bool
+bt_cursor_t::get_next_root() {
+    if(_backward && _next_root != _roots.size()) {
+	_root = _roots[_next_root];
+	_next_root++;
+	return true;
+    } else if(_next_root >= 0) {
+	_root = _roots[_next_root];
+	_next_root--;
+	return true;
+    } else {
+	return false;
+    }
+}
+// --
 
 /*********************************************************************
  *

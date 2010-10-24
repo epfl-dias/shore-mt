@@ -306,6 +306,22 @@ public:
         const cvec_t&                    bound2,
         lock_mode_t                    mode = SH,
 	const bool bIgnoreLatches = false);
+    // -- mrbt
+        static rc_t                        mr_fetch_init(
+        cursor_t&                     cursor, 
+        vector<lpid_t>&                     roots,
+        int                            nkc,
+        const key_type_s*            kc,
+        bool                             unique, 
+        concurrency_t                    cc,
+        const cvec_t&                     key, 
+        const cvec_t&                     elem,
+        cmp_t                            cond1,
+        cmp_t                           cond2,
+        const cvec_t&                    bound2,
+        lock_mode_t                    mode = SH,
+	const bool bIgnoreLatches = false);
+    // -- 
     static rc_t                        fetch_reinit(cursor_t& cursor, const bool bIgnoreLatches = false); 
     static rc_t                        fetch(cursor_t& cursor,
 					     const bool bIgnoreLatches = false);

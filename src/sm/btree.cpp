@@ -1013,6 +1013,105 @@ btree_m::fetch_init(
     return RCOK;
 }
 
+// -- mrbt
+/*********************************************************************
+ *
+ *  btree_m::mr_fetch_init(cursor, roots, numkeys, unique, 
+ *        is-unique, cc, key, elem,
+ *        cond1, cond2, bound2)
+ *
+ *  Initialize cursor for a scan for entries greater(less, if backward)
+ *  than or equal to <key, elem>.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_fetch_init(
+    cursor_t&                 cursor, // IO- cursor to be filled in
+    vector<lpid_t>&         roots,        // I-  roots of the subtrees
+    int                        nkc,
+    const key_type_s*        kc,
+    bool                unique,        // I-  true if btree is unique
+    concurrency_t        cc,        // I-  concurrency control
+    const cvec_t&         ukey,        // I-  <key, elem> to start
+    const cvec_t&         elem,        // I-
+    cmp_t                cond1,        // I-  condition on lower bound
+    cmp_t                cond2,        // I-  condition on upper bound
+    const cvec_t&        bound2,        // I-  upper bound
+    lock_mode_t                mode,        // I-  mode to lock index keys in
+    const bool          bIgnoreLatches)
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+    w_assert1(kc && nkc > 0);
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e); 
+    }
+    INC_TSTAT(bt_scan_cnt);
+
+    lpid_t root = roots.back();
+    
+    /*
+     *  Initialize constant parts of the cursor
+     */
+    cvec_t* key;
+    cvec_t* bound2_key;
+
+    DBGTHRD(<<"");
+    W_DO(_scramble_key(bound2_key, bound2, nkc, kc));
+    W_DO(cursor.set_up(root, nkc, kc, unique, cc, 
+                       cond2, *bound2_key, mode));
+
+    DBGTHRD(<<"");
+    W_DO(_scramble_key(key, ukey, nkc, kc));
+    W_DO(cursor.set_up_part_2( cond1, *key));
+
+    cursor.set_roots(roots);
+
+    /*
+     * GROT: For scans: TODO
+     * To handle backward scans from scan.cpp, we have to
+     * reverse the elem in the backward case: replace it with
+        elem = &(inclusive ? cvec_t::pos_inf : cvec_t::neg_inf);
+     */
+
+    cursor.first_time = true;
+
+    if((cc == t_cc_modkvl) ) {
+        /*
+         * only allow scans of the form ==x ==x
+         * and grab a SH lock on x, whether or not
+         * this is a unique index.
+         */
+        if(cond1 != eq || cond2 != eq) {
+            return RC(eBADSCAN);
+        }
+        lockid_t k;
+        btree_impl::mk_kvl(cc, k, root.stid(), true, *key);
+        // wait for commit-duration share lock on key
+        W_DO (lm->lock(k, mode, t_long));
+    }
+
+    bool         found=false;
+    smsize_t         elen = elem.size();
+
+    DBGTHRD(<<"Scan is backward? " << cursor.is_backward());
+
+    W_DO (btree_impl::_lookup( cursor.root(), cursor.unique(), cursor.cc(),
+			       *key, elem, found, &cursor, cursor.elem(), elen, bIgnoreLatches));
+
+    DBGTHRD(<<"found=" << found);
+
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
+    return RCOK;
+}
+//
+
 /*********************************************************************
  *
  *  btree_m::fetch_reinit(cursor)
@@ -1101,8 +1200,8 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
         if(cursor.key()) {
             //  either was in_bounds or keep_going is true
             if( !cursor.keep_going ) {
-                // OK- satisfies both
-                return RCOK;
+		// OK- satisfies both
+		return RCOK;
             }
             // else  keep_going
         } else {
@@ -1169,6 +1268,26 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
 
             w_assert3(child->is_fixed());
             w_assert3(child->is_leaf());
+
+	    // -- mrbt
+	    if(__eof && cursor.is_mrbt) {
+		if(cursor.get_next_root()) {
+		    p1.unfix();
+		    lpid_t pid = cursor.root();
+		    btree_p page;
+		    W_DO( page.fix(pid, mode) );
+		    while(page.level() > 1) {
+			pid.page = page.pid0();
+			page.unfix();
+			W_DO( page.fix(pid, mode) );
+		    }
+		    cursor.set_slot(0);
+		    cursor.set_pid(pid);
+		    cursor.update_lsn(page);
+		    goto again;
+		}
+	    }
+	    // --
 
 
             if(__eof) {
