@@ -201,7 +201,7 @@ public:
 
     // -- mrbt
     inline
-    const lpid_t        root(cvec_t& key) {
+    const lpid_t        root(const cvec_t& key) {
 	lpid_t r;
 	partitions().getPartitionByKey(key, r);
 	return r;

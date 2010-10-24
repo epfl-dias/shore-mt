@@ -312,9 +312,8 @@ scan_index_i::_init(
 
             elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
 
-	    int dummy_init = 0;
-	    cvec_t dummy_init_vec((char*)(&dummy_init),sizeof(int));
-            _error_occurred = bt->fetch_init(*_btcursor, sd->root(dummy_init_vec), 
+	    // TODO: traverse all the subtrees that covers the region [bound,b2]
+	    _error_occurred = bt->fetch_init(*_btcursor, sd->root(bound), 
                                             sd->sinfo().nkc, sd->sinfo().kc,
                                             ntype == t_uni_btree,
                                             key_lock_level,

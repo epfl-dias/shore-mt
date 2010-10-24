@@ -590,8 +590,9 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
 	iter1++;
     }
     // check for !key2Included
-    if(key2Included || strcmp(iter1->first,key2S)!=0)
+    if(key2Included || umemcmp(iter1->first,key2S,key2.size())!=0) {
 	pidVec.push_back(iter1->second);
+    }
     _rwlock.release_read();
 
     return (r);
