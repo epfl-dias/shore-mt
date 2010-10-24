@@ -1917,7 +1917,7 @@ log_core::~log_core()
 	for(int i=0; i < _active_slots; i++) {
 	    long old_count = atomic_swap_ulong((unsigned long*) &_slots[i]->count, SLOT_UNUSED);
 	    if(old_count != SLOT_AVAILABLE && old_count != SLOT_UNUSED) {
-		fprintf(stderr, "old_count = %d", old_count);
+		fprintf(stderr, "old_count = %ld", old_count);
 		w_assert1(old_count == SLOT_AVAILABLE || old_count == SLOT_UNUSED);
 	    }
 	}
