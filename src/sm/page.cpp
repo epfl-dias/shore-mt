@@ -66,6 +66,12 @@
 #include <page.h>
 #include <page_h.h>
 
+// -- mrbt test
+//pthread_mutex_t page_p::_glmutex = PTHREAD_MUTEX_INITIALIZER;
+//ofstream page_p::_accesses("page_accesses.txt");
+//timeval page_p::curr_time;
+// --
+
 w_base_t::w_base_t::uint4_t
 page_p::get_store_flags() const
 {
@@ -633,6 +639,10 @@ page_p::tag_name(tag_t t)
         return "t_rtree_p";
     case t_file_p:
         return "t_file_p";
+    case t_ranges_p:
+        return "t_ranges_p";
+    case t_file_mrbt_p:
+        return "t_file_mrbt_p";
     default:
         W_FATAL(eINTERNAL);
     }
@@ -767,7 +777,7 @@ page_p::_format(const lpid_t& pid, tag_t tag,
     _pp->end = _pp->nslots = _pp->nvacant = 0;
 
 
-    if(_pp->tag != t_file_p) {
+    if(_pp->tag != t_file_p || _pp->tag != t_file_mrbt_p) {
         /* 
          * Could have been a t_file_p when fix() occured,
          * but format could have changed it.  Make the
@@ -811,6 +821,14 @@ page_p::_fix(
     w_assert3(!_pp || bf->is_bf_page(_pp, false));
     store_flag_t        ret_store_flags = store_flags;
 
+    // -- mrbt test
+    //pthread_mutex_lock(&_glmutex);
+    //gettimeofday(&curr_time, NULL);
+    //_accesses << "Page: " << pid << " Thread: " << pthread_self() << " Latch mode: " << m
+    //	      << " Time: sec-> " << curr_time.tv_sec << " usec-> " << curr_time.tv_usec << endl;
+    //pthread_mutex_unlock(&_glmutex);
+    // --
+    
     if (store_flags & st_insert_file)  {
         store_flags = (store_flag_t) (store_flags|st_tmp); 
         // is st_tmp and st_insert_file
@@ -1060,7 +1078,7 @@ page_p::mark_free(slotid_t idx)
      * is not sufficient to ensure that the page hasn't been deallocated
      * already.)
      */
-    if(idx == 0 && tag() == t_file_p) 
+    if(idx == 0 && (tag() == t_file_p || tag() == t_file_mrbt_p)) 
     {
       w_assert1(latch_mode() == LATCH_EX);
       /*

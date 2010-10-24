@@ -68,6 +68,7 @@ include_HEADERS = \
 	bf.h bf_core.h  bf_htab.h bf_transit_bucket.h\
 	bf_prefetch.h bf_s.h \
 	btcursor.h btree.h btree_impl.h btree_p.h \
+	btree_latch_manager.h \
 	chkpt.h chkpt_serial.h \
 	crash.h \
 	device.h dir.h \
@@ -77,10 +78,12 @@ include_HEADERS = \
 	lgrec.h lid.h \
 	lock.h lock_cache.h lock_core.h lock_s.h lock_s_inline.h lock_x.h \
 	log.h log_core.h partition.h logrec.h \
+	key_ranges_map.h \
 	page.h page_alias.h page_h.h page_s.h \
 	pin.h \
 	pmap.h \
 	prologue.h \
+	ranges_p.h \
 	restart.h restart_s.h \
 	rtree.h rtree_p.h \
 	scan.h sdesc.h \
@@ -101,6 +104,7 @@ libsm_a_SOURCES      =  \
 	bf_htab.cpp bf_htab_test.cpp \
 	bf_prefetch.cpp \
 	btcursor.cpp btree.cpp btree_bl.cpp btree_impl.cpp btree_p.cpp \
+	btree_latch_manager.cpp \
 	chkpt.cpp chkpt_serial.cpp \
 	common_templates.cpp \
 	crash.cpp \
@@ -108,7 +112,8 @@ libsm_a_SOURCES      =  \
 	dir.cpp \
 	file.cpp \
 	histo.cpp \
-	keyed.cpp zkeyed.cpp \
+	key_ranges_map.cpp keyed.cpp zkeyed.cpp \
+	ranges_p.cpp \
 	lexify.cpp \
 	lgrec.cpp \
 	lid.cpp \

@@ -61,6 +61,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
+// -- mrbt
+#include <set>
+// --
+
 #ifndef BTREE_H
 #include "btree.h"
 #endif
@@ -82,16 +86,123 @@ class btree_impl : protected btree_m  {
 
 protected:
 
-    static rc_t                        _alloc_page(
+    // -- mrbt
+    static rc_t                        _split_tree(
+        const lpid_t&                   root_old,
+	const lpid_t&                   root_new,
+        const cvec_t&                   key,
+	lpid_t&                         leaf_old,
+	lpid_t&                         leaf_new,
+	const bool                      bIgnoreLatches);
+    
+    static rc_t                        _relocate_recs_l(
+        lpid_t&                   leaf_old,
+	const lpid_t&                   leaf_new,
+	const bool                      was_root,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                        _relocate_recs_p(
+        const lpid_t&                   root_old,
+        const lpid_t&                   root_new,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                        _merge_trees(
+        lpid_t&                         root,			      	    
+        const lpid_t&                   root1,
+	const lpid_t&                   root2,
+	cvec_t&                         startKey2,	
+	const bool                      update_owner,
+	const bool                      bIgnoreLatches);
+    
+    static rc_t                        _mr_insert(
         const lpid_t&                     root,
-        int2_t                             level,
-        const lpid_t&                     near,
-        btree_p&                     ret_page,
-        shpid_t                     pid0 = 0,
-        bool                            set_its_smo=false,
-        bool                            compress=false,
-        store_flag_t                     stf = st_regular
-        );
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+	rc_t (*fill_el)(vec_t&, const lpid_t&), 
+	size_t el_size,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                        _insert_l(
+        const lpid_t&                     root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+        cvec_t&                     elem,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false);
+
+    static rc_t                        _insert_p(
+        const lpid_t&                     root,
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                     key,
+        cvec_t&                     elem,
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false);
+
+    static rc_t                 _split_leaf_and_relocate_recs(
+        const lpid_t&                    root_pid,         // I - root of tree
+        btree_p&                    leaf,         // I - page to be split
+        const cvec_t&                    key,        // I-  which key causes split
+        const cvec_t&                    el,                // I-  which element causes split
+        int                             split_factor,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    static rc_t                       _link_after_merge(
+	const lpid_t& root,
+	shpid_t p1,
+	shpid_t p2,
+	bool set_root1,
+	const bool bIgnoreLatches);
+
+    static rc_t                       _update_owner(
+	const lpid_t& new_owner,
+	const lpid_t& old_owner,
+	const bool bIgnoreLatches);
+
+    static rc_t _move_recs_l(
+	const stid_t& fid,
+	bool& first,
+	const lpid_t& leaf,
+	btree_p& leaf_page,
+	file_mrbt_p& new_page,
+	file_mrbt_p& old_page,
+	vector<rid_t>& recs,
+	map<rid_t, slotid_t>& slot_map,
+	vector<rid_t>& old_rids,
+	vector<rid_t>& new_rids,
+	const bool bIgnoreLatches); 
+
+    static rc_t _move_recs_p(
+        const stid_t& fid,
+	bool& first,
+	const lpid_t& root,
+	file_mrbt_p& new_page,
+	file_mrbt_p& old_page,
+	vector<rid_t>& recs,
+	map<rid_t, slotid_t>& slot_map,
+	map<rid_t, lpid_t>& leaf_map,
+	vector<rid_t>& old_rids,
+	vector<rid_t>& new_rids,
+	const bool bIgnoreLatches); 
+// --
+
+    static rc_t                        _alloc_page(
+        const lpid_t&                    root,
+        int2_t                           level,
+        const lpid_t&                    near,
+        btree_p&                         ret_page,
+        shpid_t                          pid0 = 0,
+        bool                             set_its_smo=false,
+        bool                             compress=false,
+        store_flag_t                     stf = st_regular,
+	const bool                       bIgnoreLatches = false);
 
     static rc_t                        _insert(
         const lpid_t&                     root,
@@ -99,13 +210,15 @@ protected:
         concurrency_t                    cc,
         const cvec_t&                     key,
         const cvec_t&                     elem,
-        int                             split_factor = 50);
+        int                             split_factor = 50,
+	const bool bIgnoreLatches = false);
     static rc_t                        _remove(
         const lpid_t&                    root,
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-        const cvec_t&                     elem);
+        const cvec_t&                     elem,
+	const bool bIgnoreLatches = false);
 
     static rc_t                 _lookup(
         const lpid_t&                     root,  // I-  root of btree
@@ -116,8 +229,8 @@ protected:
         bool&                             found, // O-  true if key is found
         bt_cursor_t*                    cursor,// I/o - put result here OR
         void*                             el,           // I/o-  buffer to put el if !cursor
-        smsize_t&                     elen   // IO- size of el if !cursor
-        );        
+        smsize_t&                     elen,   // IO- size of el if !cursor
+	const bool bIgnoreLatches = false);        
 
     static rc_t                 _skip_one_slot(
         btree_p&                    p1, 
@@ -126,8 +239,8 @@ protected:
         slotid_t&                     slot, // I/O
         bool&                            eof,
         bool&                            found,
-        bool                             backward=false
-        );
+        bool                             backward=false,
+	const bool bIgnoreLatches = false);
 
     static rc_t                 _propagate(
         const lpid_t&                     root_pid,         // I-  root page  -- fixed
@@ -136,8 +249,8 @@ protected:
         const lpid_t&                    _child_pid, // I-  pid of leaf page removed
                                         //  or of the page that was split
         int                            child_level, // I - level of child_pid
-        bool                              isdelete     // I-  true if delete being propagated
-        );
+        bool                              isdelete,     // I-  true if delete being propagated
+	const bool bIgnoreLatches = false);
     static void                         _skip_one_slot(
         btree_p&                     p1,
         btree_p&                     p2,
@@ -206,21 +319,22 @@ private:
         btree_p&                     leaf,        // O-  leaf satisfying search
         btree_p&                     parent,        // O-  parent of leaf satisfying search
         lsn_t&                             leaf_lsn,        // O-  lsn of leaf 
-        lsn_t&                             parent_lsn        // O-  lsn of parent 
-        ); 
+        lsn_t&                             parent_lsn,        // O-  lsn of parent 
+	const bool bIgnoreLatches); 
     static rc_t                 _propagate_split(
         btree_p&                     parent,     // I - page to get the insertion
         const lpid_t&                    _pid,       // I - pid of child that was split
         slotid_t                      slot,        // I - slot where the split page sits
                                     //  which is < slot where the new entry goes
-        bool&                        was_split   // O - true if parent was split by this
-        );
+        bool&                        was_split,   // O - true if parent was split by this
+	const bool bIgnoreLatches);
     static rc_t                 _split_leaf(
         const lpid_t&                    root_pid,         // I - root of tree
         btree_p&                    leaf,         // I - page to be split
         const cvec_t&                    key,        // I-  which key causes split
         const cvec_t&                    el,                // I-  which element causes split
-        int                             split_factor);
+        int                             split_factor,
+	const bool bIgnoreLatches);
 
     static rc_t                 __split_page(
         btree_p&                    page,        // IO- page that needs to split
@@ -228,11 +342,13 @@ private:
         bool&                               left_heavy,        // O-  true if insert should go to left
         slotid_t&                   slot,        // IO- slot of insertion after split
         int                            addition,        // I-  # bytes intended to insert
-        int                            split_factor// I-  % of left page that should remain
-        );
+        int                            split_factor, // I-  % of left page that should remain
+	const bool bIgnoreLatches);
 
-    static rc_t                        _grow_tree(btree_p& root);
-    static rc_t                        _shrink_tree(btree_p& root);
+    static rc_t                        _grow_tree(btree_p& root,
+						  const bool bIgnoreLatches);
+    static rc_t                        _shrink_tree(btree_p& root,
+						    const bool bIgnoreLatches);
     
 
     static rc_t                 _handle_dup_keys(
@@ -245,7 +361,9 @@ private:
         lpid_t&                            pid,
         int                            nkc,
             const key_type_s*            kc,
-        bool                            lexify_keys);
+        bool                            lexify_keys,
+        const bool bIgnoreLatches = false);
+
 };
 
 /************************************************************************** 
@@ -276,7 +394,8 @@ public:
                       latch_mode_t   p1mode,
                       bool           relatch_p2, //relatch, if it was latched
                       btree_p*       p2,
-                      latch_mode_t   p2mode);
+                      latch_mode_t   p2mode,
+		      const bool     bIgnoreLatches = false);
     
     //btree_p&                page()        { return _page; }
     void                  unfix();

@@ -57,6 +57,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
+#include "key_ranges_map.h"
+
 /*
  * This file describes Store Descriptors (sdesc_t).  Store
  * descriptors consist of a persistent portion (sinfo_s) 
@@ -114,7 +116,9 @@ public:
      *          following snum_t must be located after pff,eff.
      */
     snum_t        large_store;        // store for large record pages
+    
     shpid_t        root;                // root page (of main index)
+    
     w_base_t::uint4_t        nkc;                // # components in key
     key_type_s        kc[smlevel_0::max_keycomp];
 
@@ -146,8 +150,8 @@ public:
         // pff = other.pff; 
         eff = other.eff;
         isf = other.isf;
-        root = other.root; 
-        nkc = other.nkc;
+	root = other.root;
+	nkc = other.nkc;
         memcpy(kc, other.kc, sizeof(kc));
         large_store = other.large_store;
         return *this;
@@ -164,10 +168,17 @@ class sdesc_t {
     friend class append_file_i;
     friend class sdesc_cache_t;
 
+    // -- mrbt
+private:
+    key_ranges_map _partitions;
+    bool _partitions_filled;
+    // --
+
 public:
     typedef smlevel_0::store_t store_t;
 
-    NORET sdesc_t() : _histoid(0), _last_pid(0), _inherited(false) {};
+    NORET sdesc_t() : _partitions_filled(false), _histoid(0), _last_pid(0), _inherited(false) {};
+
     NORET ~sdesc_t() { invalidate(); }
 
     void                init(const stid_t& stid, const sinfo_s& s)
@@ -190,6 +201,15 @@ public:
         return r;
     }
 
+    // -- mrbt
+    inline
+    const lpid_t        root(const cvec_t& key) {
+	lpid_t r;
+	partitions().getPartitionByKey(key, r);
+	return r;
+    }
+    // --
+
     // store id for large object pages
     inline
     const stid_t        large_stid() const {
@@ -207,11 +227,20 @@ public:
                             return _histoid;
                         }
     void                invalidate_sdesc() { invalidate(); }
+
     void		set_inherited(bool flag) { _inherited = flag; }
     bool		is_inherited() const { return _inherited; }
 
     friend ostream &operator<<(ostream &os, sdesc_t const &sd);
     
+    // -- mrbt
+    inline stid_t stid() { return _stid; }
+    inline bool has_partitions() { return _partitions_filled; } 
+    key_ranges_map& partitions();
+    rc_t fill_partitions_map();
+    rc_t store_partitions();
+    // --
+
 protected:
     sdesc_t&            operator=(const sdesc_t& other);
     void                invalidate(); 

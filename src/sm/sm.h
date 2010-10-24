@@ -460,6 +460,10 @@ class option_t;
 class prologue_rc_t;
 class rtree_m;
 class sort_stream_i;
+// -- mrbt
+class ranges_m;
+class key_ranges_map;
+// --
 
 /**\addtogroup SSMSP  
  * A transaction may perform a partial rollback using savepoints.
@@ -581,6 +585,10 @@ public:
     typedef smlevel_0::ndx_t ndx_t;
     typedef smlevel_0::concurrency_t concurrency_t;
     typedef smlevel_1::xct_state_t xct_state_t;
+
+    // -- mrbt
+    typedef smlevel_0::RELOCATE_RECORD_CALLBACK_FUNC RELOCATE_RECORD_CALLBACK_FUNC;
+    // --
 
     typedef sm_store_property_t store_property_t;
 
@@ -2430,6 +2438,303 @@ public:
 #endif
     );
 
+    // -- mrbt
+    
+    // TODO: add explaination for MRBT (SSMMRBTREE :)
+
+    /**\brief Create a MR-B+-Tree index.
+     * \ingroup SSMBTREE
+     * @param[in] vid   Volume on which to create the index.
+     * @param[in] ntype   Type of index. Legitimate values are: 
+     *  - t_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_mrbtree_l : Multi-rooted B+-Tree with duplicate keys allowed (2nd design)
+     *  - t_uni_mrbtree_l : Multi-rooted B+-Tree without duplicate keys (2nd design)
+     *  - t_mrbtree_p : Multi-rooted B+-Tree with duplicate keys allowed (3rd design)
+     *  - t_uni_mrbtree_p : Multi-rooted B+-Tree without duplicate keys (3rd design)
+     * @param[in] property Logging level of store. Legitimate values are:
+     *  - t_regular
+     *  - t_load_file
+     *  - t_insert_file
+     *  See sm_store_property_t for details.
+     * @param[in] key_desc Description of key type.
+     *  See \ref key_description for details.
+     * @param[in] cc The locking protocol to use with this index. See
+     * smlevel_0::concurrency_t and \ref SSMBTREE.
+     * @param[out] stid New store ID will be returned here.
+     */
+    static rc_t            create_mr_index(
+                vid_t                 vid, 
+                ndx_t                 ntype, 
+                store_property_t      property,
+                const char*           key_desc,
+                concurrency_t         cc, 
+                stid_t&               stid,
+		const bool            bIgnoreLatches = false
+    );
+
+    /**\brief Create a MR-B+-Tree index based on initial partitions.
+     * \ingroup SSMBTREE
+     * @param[in] vid   Volume on which to create the index.
+     * @param[in] ntype   Type of index. Legitimate values are: 
+     *  - t_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_mrbtree_l : Multi-rooted B+-Tree with duplicate keys allowed (2nd design)
+     *  - t_uni_mrbtree_l : Multi-rooted B+-Tree without duplicate keys (2nd design)
+     *  - t_mrbtree_p : Multi-rooted B+-Tree with duplicate keys allowed (3rd design)
+     *  - t_uni_mrbtree_p : Multi-rooted B+-Tree without duplicate keys (3rd design)
+     * @param[in] property Logging level of store. Legitimate values are:
+     *  - t_regular
+     *  - t_load_file
+     *  - t_insert_file
+     *  See sm_store_property_t for details.
+     * @param[in] key_desc Description of key type.
+     *  See \ref key_description for details.
+     * @param[in] cc The locking protocol to use with this index. See
+     * smlevel_0::concurrency_t and \ref SSMBTREE.
+     * @param[out] stid New store ID will be returned here.
+     * @param[in] ranges Initial partitions
+     */
+    static rc_t            create_mr_index(
+                vid_t                 vid, 
+                ndx_t                 ntype, 
+                store_property_t      property,
+                const char*           key_desc,
+                concurrency_t         cc, 
+                stid_t&               stid,
+		key_ranges_map&       ranges,
+		const bool            bIgnoreLatches = false
+    );
+
+    /**\brief Destroy a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] iid  ID of the index to be destroyed.
+     */
+    static rc_t            destroy_mr_index(const stid_t& iid); 
+
+    /**\brief Bulk-load a Multi-rooted B+-Tree index from multiple data sources.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] nsrcs  Number of files used for data sources.
+     * @param[in] source  Array of IDs of files used for data sources.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     * @param[in] sort_duplicates  If "true" the bulk-load will sort
+     * duplicates by value.
+     * @param[in] lexify_keys  If "true" the keys are assumed not to
+     * be in 
+     * lexicographic format, and the bulk-load will reformat the key before
+     * storing it in the index,
+     * otherwise they are assumed already to be in lexicographic format.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        int                       nsrcs,
+        const stid_t*             source,
+        sm_du_stats_t&            stats,
+        bool                      sort_duplicates = true,
+        bool                      lexify_keys = true,
+	const bool                bIgnoreLatches = false
+    );
+
+    /**\brief Bulk-load a  Multi-rooted B+-Tree index from a single data source.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] source  IDs of file used for data source.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     * @param[in] sort_duplicates  If "true" the bulk-load will sort
+     * duplicates by value.
+     * @param[in] lexify_keys  If "true" the keys are assumed not to
+     * be in 
+     * lexicographic format, and the bulk-load will reformat the key before
+     * storing it in the index,
+     * otherwise they are assumed already to be in lexicographic format.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        const stid_t&             source,
+        sm_du_stats_t&            stats,
+        bool                      sort_duplicates = true,
+        bool                      lexify_keys = true,
+	const bool                bIgnoreLatches = false
+    );
+
+    /**\brief Bulk-load a Multi-rooted B+-Tree index from a single data stream.
+     * \ingroup SSMBULKLD
+     *
+     * @param[in] stid  ID of the index to be loaded.
+     * @param[in] sorted_stream  Iterator that serves as the data source.
+     * @param[out] stats  Statistics concerning the load activity will be
+     *                     written here.
+     *
+     * See sort_stream_i.
+     */
+    static rc_t            bulkld_mr_index(
+        const stid_t&             stid, 
+        sort_stream_i&            sorted_stream,
+        sm_du_stats_t&            stats);
+
+    /**\cond skip */
+    static rc_t            print_mr_index(stid_t stid);
+    /**\endcond skip */
+
+    /**\brief Helper struct for create_mr_assoc.
+     * \ingroup SSMBTREE
+     *
+     */
+     struct el_filler {
+	 size_t _el_size; // the size of the element
+	 vec_t _el; // to give the element if it's already determined (for the 1st design)
+	 
+	 /* to be used as a callback function during btree insert (for the 2nd and 3rd designs)
+	  * @param[out] el  the element, contents to be determined after leaf page is found
+	  * @param[in] leaf  leaf page that the insertion will take place for the el  
+	  */
+	 virtual rc_t fill_el(vec_t& /* el */, const lpid_t& /* leaf */) { return RCOK; }
+	 
+	 // destructor
+	 virtual ~el_filler() {}
+    };
+
+    /**\brief Create an entry in a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key  Key for the association to be created.
+     * @param[in] ef  Struct that wraps the element for the association to be created
+     *
+     * The combined sizes of the key and element vectors must
+     * be less than or equal to \ref max_entry_size.
+     */
+    static rc_t            create_mr_assoc(
+        stid_t                   stid, 
+        const vec_t&             key, 
+        el_filler&             ef,
+        const bool             bIgnoreLocks = false,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL,
+	const lpid_t           root = lpid_t::null);
+
+    /**\brief Remove an entry from a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entry to be removed.
+     * @param[in] el   Element (value) of the entry to be removed.
+     */
+    static rc_t            destroy_mr_assoc(
+        stid_t                   stid, 
+        const vec_t&             key,
+        const vec_t&             el,
+        const bool             bIgnoreLocks = false,
+	const lpid_t           root = lpid_t::null);
+
+    /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entries to be removed.
+     * @param[out] num_removed   The number of entries removed is returned here.
+     */
+    static rc_t            destroy_mr_all_assoc(
+        stid_t                  stid, 
+        const vec_t&            key,
+        int&                    num_removed,
+	const bool              bIgnoreLatches = false,
+	const lpid_t           root = lpid_t::null);
+
+    /**\brief Find an entry associated with a key in a Multi-rooted B+-Tree index. 
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid  ID of the index. 
+     * @param[in] key   Key of the entries to be removed.
+     * @param[out] el   Element associated with the given key will be copied into this buffer.
+     * @param[in] elen Length of buffer into which the 
+     *                  result will be written. If too small, eRECWONTFIT will
+     *                  be returned.
+     *                 Length of result will be returned here.
+     * @param[out] found   True if an entry is found.
+     *
+     * If the index is not unique (allows duplicates), the first
+     * element found with the given key will be returned.
+     *
+     * To locate all entries associated with a non-unique key, you must
+     * use scan_index_i, q.v.. 
+     */
+    static rc_t            find_mr_assoc(
+				      stid_t                  stid, 
+				      const vec_t&            key, 
+				      void*                   el, 
+				      smsize_t&               elen, 
+				      bool&                   found,
+				      const bool             bIgnoreLocks = false,
+				      const lpid_t           root = lpid_t::null);
+    
+
+    /**\brief Partition the space between the given minKey and maxKey equally depending on the given
+     * partition count in a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] minKey   The lower bound on the keys in the index.
+     * @param[in] maxKey   The upper bound on the keys in the index.
+     * @param[in] numParts The number of partitions wanted.
+     */
+    static rc_t make_equal_partitions(stid_t stid,
+				      const vec_t& minKey,
+				      const vec_t& maxKey,
+				      uint numParts);
+
+    /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
+     * This is for initially creating some partitions, when there are no assocs created
+     * in index yet.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The startKey of the new partition.
+     */
+    static rc_t add_partition_init(stid_t stid,
+				   const vec_t& key,
+				   const bool bIgnoreLocks = false);
+    
+    /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The startKey of the new partition.
+     */
+    static rc_t add_partition(stid_t stid,
+			      const vec_t& key,
+			      const bool bIgnoreLocks = false, 
+			      RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
+
+    /**\brief Delete the partition that contains the given key and add it to its previous partition
+     * in a Multi-rooted B+-Tree index.  
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] key      The key whose partition is going to be deleted.
+     */
+    static rc_t delete_partition(stid_t stid,
+				 const vec_t& key,
+				 const bool bIgnoreLatches = false);
+
+    /**\brief Delete the partition that is kept by the tree with the root and add it to its previous partition
+     * in a Multi-rooted B+-Tree index.  
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid     ID of the index.
+     * @param[in] root     The root of the tree which keeps the partition to be deleted.
+     */
+    static rc_t delete_partition(stid_t stid,
+				 lpid_t& root,
+				 const bool bIgnoreLatches = false);
+
+    // --
+
     //
     // Functions for R*tree (multi-dimensional(MD), spatial) Indexes
     //
@@ -2840,6 +3145,119 @@ public:
         bool&                    should_forward 
     );
 
+    // -- mrbt
+    /**\addtogroup SSMFILE
+     * 
+     * This functions are for the heap file that are used in MRBtree design
+     * when it is enforced that a heap file is pointed by only one leaf page
+     * or sub-btree, because for these two designs the file_mrbt_p should be
+     * used instead of file_p. 
+     *
+     * The only difference between these two page
+     * types is that file_mrbt_p keeps the id of the leaf page or the btree
+     * root page that points to it. So it has less space for data than file_p.
+     * 
+     * Other than the file page type difference and bIgnoreLatches flag
+     * the below functions are same as the above file management functions.
+     * 
+     * There is one additional function though, which is create_file_in_page.
+     * The description for this function is below.
+     */
+    
+    static rc_t            create_mrbt_file( 
+        vid_t                   vid, 
+        stid_t&                 fid,
+        store_property_t        property,
+        shpid_t                 cluster_hint = 0
+    ); 
+
+    static rc_t            destroy_mrbt_file(const stid_t& fid); 
+
+    static rc_t            create_mrbt_rec(
+        const stid_t&            fid, 
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+    ); 
+
+    /**\brief Create a new record in given page.
+     * \ingroup SSMFILE
+     * \details
+     * @param[in] fid  ID of the file in which to create a record.
+     * @param[in] page The page that we want to put the record.
+     * @param[in] hdr  What to put in the record's header.
+     * @param[in] len_hint  Hint about how big the record will ultimately be.
+     * This is used to determine the initial format of the record. If you plan
+     * to append to the record and know that it will ultimately become a large
+     * record, it is more efficient to give a size hint that is larger than
+     * a page here. Otherwise, the record will be made small (as determined by
+     * the size of the parameter \a data ), and subsequent appends will cause 
+     * the record to be converted to a large record.
+     * @param[in] data  What to put in the record's body. 
+     * @param[out] new_rid  ID of the newly created record.
+     * @param[in] space_found indicates whether the record insertion to the given
+     *                        page was successful or not
+     */
+    static rc_t            create_mrbt_rec_in_page(
+        const stid_t&            fid,
+	file_p&                  page,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+	bool&                    space_found,
+        const bool             bIgnoreLocks = false);
+
+    // TODO: comment on this if they decide to use
+    static rc_t            find_page_and_create_mrbt_rec(
+        const stid_t&            fid,
+	const lpid_t&            leaf,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+        const bool             bIgnoreLocks = false); 
+
+    static rc_t            destroy_mrbt_rec(const rid_t& rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+                                       );
+
+    static rc_t            update_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             data);
+
+    static rc_t            update_mrbt_rec_hdr(
+        const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             hdr);
+
+    static rc_t            append_mrbt_rec(
+        const rid_t&             rid, 
+        const vec_t&             data,
+	const bool               bIgnoreLatches = false
+                );
+
+    static rc_t            truncate_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 amount,
+	const bool               bIgnoreLatches = false
+    );
+
+    static rc_t            truncate_mrbt_rec(
+        const rid_t&             rid, 
+        smsize_t                 amount,
+        bool&                    should_forward,
+	const bool               bIgnoreLatches = false
+    );
+    // --
+    
 #ifdef OLDSORT_COMPATIBILITY
     typedef ssm_sort::key_info_t key_info_t;
 
@@ -3122,7 +3540,13 @@ private:
     static option_t* _log_warn_percent;
     static option_t* _num_page_writers;
     static option_t* _logging;
+    // -- mrbt
+    static el_filler* _ef;
 
+    static rc_t _el_filler_wrapper(
+        vec_t&                 el,
+        const lpid_t&          leaf);
+    // --
 
     static rc_t            _set_option_logsize(
         option_t*              opt,
@@ -3267,6 +3691,103 @@ private:
 #endif
     );
 
+    // -- mrbt
+
+    static rc_t            _create_mr_index(
+        vid_t                 vid, 
+        ndx_t                 ntype, 
+        store_property_t      property,
+        const char*           key_desc,
+        concurrency_t         cc,
+        stid_t&               stid,
+	const bool            bIgnoreLatches
+    );
+
+    static rc_t            _create_mr_index(
+        vid_t                 vid, 
+        ndx_t                 ntype, 
+        store_property_t      property,
+        const char*           key_desc,
+        concurrency_t         cc,
+        stid_t&               stid,
+	key_ranges_map&       ranges,
+	const bool            bIgnoreLatches
+    );
+
+    static rc_t            _destroy_mr_index(const stid_t& iid); 
+
+    static rc_t            _bulkld_mr_index(
+        const stid_t&         stid,
+        int                   nsrcs,
+        const stid_t*         source,
+        sm_du_stats_t&        stats,
+        bool                  sort_duplicates = true,
+        bool                  lexify_keys = true,
+	const bool            bIgnoreLatches = false
+    );
+
+    static rc_t            _bulkld_mr_index(
+        const stid_t&          stid, 
+        sort_stream_i&         sorted_stream,
+        sm_du_stats_t&         stats
+    );
+
+    static rc_t            _print_mr_index(const stid_t &iid);
+
+    static rc_t            _create_mr_assoc(
+        const stid_t  &        stid, 
+        const vec_t&           key, 
+        el_filler&           eg,
+        const bool             bIgnoreLocks,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,
+	const lpid_t           root);
+
+    static rc_t            _destroy_mr_assoc(
+        const stid_t &        stid, 
+        const vec_t&          key,
+        const vec_t&          el,
+        const bool             bIgnoreLocks,
+	const lpid_t           root);
+
+    static rc_t            _destroy_mr_all_assoc(
+        const stid_t&        stid, 
+        const vec_t&         key,
+        int&                 num_removed,
+	const bool          bIgnoreLatches,
+	const lpid_t           root);
+    
+    static rc_t            _find_mr_assoc(
+        const stid_t&        stid, 
+        const vec_t&         key, 
+        void*                el, 
+        smsize_t&            elen, 
+        bool&                found,
+        const bool             bIgnoreLocks,
+	const lpid_t           root);
+    
+    static rc_t _make_equal_partitions(stid_t stid,
+				       const vec_t& minKey,
+				       const vec_t& maxKey,
+				       uint numParts);
+
+    static rc_t _add_partition_init(stid_t stid,
+				    const vec_t& key,
+				    const bool bIgnoreLocks);
+    
+    static rc_t _add_partition(stid_t stid,
+			       const vec_t& key,
+			       const bool bIgnoreLocks,
+			       RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
+    
+    static rc_t _delete_partition(stid_t stid,
+				  const vec_t& key,
+				  const bool bIgnoreLatches);
+
+    static rc_t _delete_partition(stid_t stid,
+				  lpid_t& root,
+				  const bool bIgnoreLatches);
+    // --
+
     // below method overloaded for rtree
     static rc_t            _create_md_index(
         vid_t                 vid, 
@@ -3377,6 +3898,58 @@ private:
             bool&                should_forward
         );
 
+    // -- mrbt
+    static rc_t            _create_mrbt_file(
+        vid_t                 vid, 
+        stid_t&               fid,
+        store_property_t     property,
+        shpid_t              cluster_hint = 0
+    ); 
+
+    static rc_t            _create_mrbt_rec(
+        const stid_t&            fid, 
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false
+#endif
+        ); 
+
+    static rc_t            _create_mrbt_rec_in_page(
+        const stid_t&            fid, 
+	file_p&                  page,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+	bool&                    space_found,
+        const bool             bIgnoreLocks = false); 
+
+    static rc_t            _find_page_and_create_mrbt_rec(
+        const stid_t&            fid,
+	const lpid_t&            leaf,
+        const vec_t&             hdr, 
+        smsize_t                 len_hint, 
+        const vec_t&             data, 
+        rid_t&                   new_rid,
+        const bool             bIgnoreLocks = false);
+    
+    static rc_t            _append_mrbt_rec(
+        const rid_t&             rid, 
+        const vec_t&             data,
+	const bool               bIgnoreLatches
+        );
+
+    static rc_t            _truncate_mrbt_rec(
+            const rid_t&         rid, 
+            smsize_t             amount,
+            bool&                should_forward,
+	    const bool           bIgnoreLatches
+        );
+    // --
+    
     static rc_t            _draw_rtree(const stid_t& stid, ostream &);
 
     static rc_t            _rtree_stats(
@@ -3489,7 +4062,7 @@ public:
 
     /// Store number for associated large-page store, if there is one.
     snum_t    large_store; 
-    /// Root page if this is an index.
+    /// Root pages if this is an index.
     shpid_t    root;        
     /// Number of key components if this is an index.
     w_base_t::uint4_t    nkc;  

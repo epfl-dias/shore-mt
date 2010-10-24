@@ -45,12 +45,18 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 class btree_m;
 class file_m;
 class rtree_m;
+// -- mrbt
+class ranges_m;
+// --
 
 class smlevel_2 : public smlevel_1 {
 public:
     static btree_m* bt;
     static file_m* fi;
     static rtree_m* rt;
+    // -- mrbt
+    static ranges_m* ra;
+    // --    
 };
 
 #if (SM_LEVEL >= 2)
@@ -69,6 +75,9 @@ public:
 #    include <nbox.h>
 #    include <rtree.h>
 #    include <file.h>
+// -- mrbt
+#    include <ranges_p.h>
+//
 #endif
 
 /*<std-footer incl-file-exclusion='SM_INT_2_H'>  -- do not edit anything below this line -- */

@@ -120,13 +120,13 @@ struct mcs_lock {
     qnode* spin_on_next(qnode* me); // no-inline.cpp
     
     void release(ext_qnode *me) { 
-        w_assert1(is_mine(me));
+      //w_assert1(is_mine(me));
         me->_held = 0; release((qnode*) me); 
     }
     void release(ext_qnode &me) { release(&me); }
     void release(qnode &me) { release(&me); }
     void release(qnode* me) {
-        w_assert1(is_mine(me));
+      //w_assert1(is_mine(me));
         membar_exit();
 
         qnode* next;

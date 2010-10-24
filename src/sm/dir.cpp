@@ -72,6 +72,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_p.h"  
 #include "btcursor.h"  
 
+// -- mrbt
+#include "ranges_p.h"
+// --
+
 #ifdef EXPLICIT_TEMPLATE
 // template class w_auto_delete_array_t<snum_t>;
 template class w_auto_delete_array_t<sinfo_s>;
@@ -453,7 +457,7 @@ dir_m::insert(const stid_t& stid, const sinfo_s& sinfo)
     if (xct()) {
         w_assert3(xct()->sdesc_cache());
         sdesc_t *sd = xct()->sdesc_cache()->add(stid, sinfo);
-        sd->set_last_pid(sinfo.root);
+        sd->set_last_pid(sd->root().page);
     }
 
     return RCOK;
@@ -731,6 +735,11 @@ sdesc_cache_t::remove(const stid_t& stid)
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             if (_sdescsBuckets[i][j].stid() == stid) {
+		// -- mrbt
+		//if(_sdescsBuckets[i][j].has_partitions()) {
+		//    _sdescsBuckets[i][j].store_partitions();
+		//}
+		// --
                 DBG(<<"");
                 _sdescsBuckets[i][j].invalidate();
                 if (i < _minFreeBucket && j < _minFreeBucketIndex)  {
@@ -752,6 +761,11 @@ sdesc_cache_t::remove_all()
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             DBG(<<"");
+	    // -- mrbt
+	    //if(_sdescsBuckets[i][j].has_partitions()) {
+	    //_sdescsBuckets[i][j].store_partitions();
+	    //}
+	    // --
             _sdescsBuckets[i][j].invalidate();
         }
     }
@@ -892,5 +906,30 @@ sdesc_t::operator=(const sdesc_t& other)
         DBGTHRD(<<"copying sdesc_t");
         add_store_utilization(other._histoid->copy());
     }
+
     return *this;
 } 
+
+// -- mrbt
+key_ranges_map& sdesc_t::partitions()
+{
+    if(!_partitions_filled) {
+	fill_partitions_map();
+	_partitions_filled = true;
+    }
+    return _partitions;
+}
+
+rc_t sdesc_t::fill_partitions_map() 
+{
+    W_DO( ranges_m::fill_ranges_map(root(), _partitions) );
+    return RCOK;
+}
+
+rc_t sdesc_t::store_partitions()
+{
+    W_DO( ranges_m::fill_page(root(), _partitions) );
+    return RCOK;
+}
+
+// --

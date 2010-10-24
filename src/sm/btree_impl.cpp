@@ -86,10 +86,11 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_impl.h"
 #include "btcursor.h"
 #include <crash.h>
-
 #include <store_latch_manager.h>
+#include "btree_latch_manager.h"
 // common/store_latch_manager.h defines or undefs the following:
 extern store_latch_manager store_latches; // sm_io.cpp
+extern btree_latch_manager btree_latches; // smindex.cpp
 
 #if W_DEBUG_LEVEL > 3
 /* change these at will */
@@ -207,7 +208,7 @@ tree_latch::tree_latch(const lpid_t pid)
     // If there isn't already one for this store, we create a latch_t
     // for it.  This allows us to grab read/write/upgradable/downgradable
     // locks on a store.
-    _latch(store_latches.find_latch(pid.stid())), _fixed(false)
+    _latch(btree_latches.find_latch(pid)), _fixed(false)
 {
     check(); 
     // w_assert2(_latch.held_by_me() == 0); might be wrong until the first 
@@ -322,13 +323,15 @@ tree_latch::get_for_smo(
     latch_mode_t        p1mode,
     bool                relatch_p2, // do relatch it, if it was latched
     btree_p*            p2,         // might be latched
-    latch_mode_t        p2mode
-)
+    latch_mode_t        p2mode,
+    const bool bIgnoreLatches)        
 {
-    check(); 
-    get_latches(___s,___e); // for checking that we
-            // exit with the same number of latches, +1
-
+    check();
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); // for checking that we
+                                // exit with the same number of latches, +1
+    }
+    
     w_assert2(p1.is_fixed());
 
     lpid_t         p1_pid = p1.pid();
@@ -365,15 +368,17 @@ tree_latch::get_for_smo(
             // could skip the mode also.
 
             if(conditional) {
-                // Should only be upgrading to LATCH_EX
-                w_assert2(mode == LATCH_EX);
+		if(!bIgnoreLatches) {
+		    // Should only be upgrading to LATCH_EX
+		    w_assert2(mode == LATCH_EX);
+		}
                 bool would_block = false;
                 w_rc_t rc = _latch.upgrade_if_not_block(would_block);
                 if(rc.is_error()) return rc.err_num();
 
                 if(would_block) {
                     conditional = false; // try unconditional
-                } else {
+                } else if(!bIgnoreLatches) {
                     w_assert2(latch_mode() == LATCH_EX );
                 }
             }
@@ -442,7 +447,7 @@ tree_latch::get_for_smo(
 
         bool page_has_changed= ( p1_lsn != p1.lsn() );
 
-        if(relatch_p2 && p2_pid.page) {
+        if(!bIgnoreLatches && relatch_p2 && p2_pid.page) {
             w_assert2(p2mode > LATCH_NL);
 
             w_rc_t rc = p2->fix(p2_pid, p2mode);
@@ -453,7 +458,9 @@ tree_latch::get_for_smo(
 
         if(page_has_changed)  
         {
-            check_latches(___s+1,___e+1, ___s+___e+1);
+	    if(!bIgnoreLatches) {
+		check_latches(___s+1,___e+1, ___s+___e+1);
+	    }
             // Keep the tree latch and p1,p2 fixed, tell the
             // caller that the lsns have changed. Caller
             // will unfix
@@ -472,105 +479,1020 @@ tree_latch::get_for_smo(
             w_assert9(!p2->is_fixed());
         }
     }
-    check_latches(___s+1,___e+1, ___s+___e+1);
-
+    if(!bIgnoreLatches) {
+	check_latches(___s+1,___e+1, ___s+___e+1);
+    }
     // posc found if we were able to grab the latches
     INC_TSTAT(bt_posc);
     check();
     return smlevel_0::eOK;
 }
 
-/*********************************************************************
+// -- mrbt
+/******************************************************************
  *
- *  btree_impl::_alloc_page(root, level, near, ret_page, pid0,
- *                           set_its_smo, compressed)
+ *  btree_impl::_split_tree(root_old, root_new, key, leaf_old, leaf_new)
  *
- *  Allocate a page for btree rooted at root. Fix the page allocated
- *  and return it in ret_page.
+ *  Mrbtree modification after adding a new partition
  *
- *          ============ IMPORTANT ============
- *  This function should be called in a compensating
- *  action so that it does not get undone if the xct
- *  aborts. The page allocated would become part of
- *  the btree as soon as other pages started pointing
- *  to it. So, page allocation as well as other
- *  operations to linkup the page should be a single
- *  top-level action.
- *
- *********************************************************************/
+ ******************************************************************/
+
 rc_t
-btree_impl::_alloc_page(
-    const lpid_t& root, 
-    int2_t level,
-    const lpid_t& near_p,
-    btree_p& ret_page,
-    shpid_t pid0, // = 0
-    bool set_its_smo, // = false
-    bool compressed,  // = false
-    store_flag_t stf  // = st_regular,
-)
+btree_impl::_split_tree(
+    const lpid_t&       root_old,            // I-  root of the old btree
+    const lpid_t&       root_new,           // I - root of the new btree
+    const cvec_t&       key,                // I-  which key
+    lpid_t&       leaf_old,               // O - the leaf whose contents shifted
+    lpid_t&       leaf_new,               // O - the new leaf
+    const bool bIgnoreLatches)
 {
-    FUNC(btree_impl::_alloc_page);
 
-    lpid_t pid;
-    w_assert9(near_p != lpid_t::null);
+    FUNC(btree_impl::_split_tree);
 
-    // temporary btrees are not supported: use st_regular
-    // only way to exploit st_tmp here is through bulk-loading
-    DBG(<<"stid " << root.stid());
-    W_DO(smlevel_0::io->alloc_a_page(
-        root.stid(), 
-        near_p,         // hint
-        pid,         // output
-        true,         //  may_realloc 
-        NL,        //  ignored
-        true        // search file
-        )) ;
-    W_DO( ret_page.fix(pid, LATCH_EX, ret_page.t_virgin, stf) );
+    DBGTHRD(<<"_split_tree: " << " key=" << key );
 
-    btree_p::flag_t f = compressed? btree_p::t_compressed : btree_p::t_none;
-
-    if(set_its_smo) {
-        f = (btree_p::flag_t)
-                (((unsigned int) f) | ((unsigned int) btree_p::t_smo));
+    btree_p         root_page_new;
+  
+    latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
     }
-    W_DO( ret_page.set_hdr(root.page, level, pid0, (uint2_t)f) );
 
+    cvec_t dummy_el; // not important since we're only interested in the key now
+    bool found = false;
+    bool found_elem = false;
+    slotid_t ret_slot;
+    vector<slotid_t> ret_slots;
+    vector<lpid_t> pids;
+    btree_p page;
+    shpid_t prev_child = root_old.page;
+    lpid_t pid;
+    pid._stid = root_old._stid;
+    bool is_leaf = false;
+    shpid_t pid0;
+	
+    // find the key's first appearence on the tree
+    while(!found && !is_leaf) {
+	pid.page = prev_child;
+	W_DO( page.fix(pid, latch) );
+	W_DO( page.search(key, dummy_el, found, found_elem, ret_slot) );
+	ret_slots.push_back(ret_slot);
+	pids.push_back(pid);
+	btrec_t rec(page, ret_slot-1);
+	prev_child = rec.child();
+	is_leaf = page.is_leaf();
+	page.unfix();
+    }
 
-    DBGTHRD(<<"allocated btree page " << pid << " at level " << level);
+    latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+
+    // to be used for updating prev/next pointers
+    btree_p next_page;
+    shpid_t next_page_id;
+    lpid_t next_page_pid;
+    next_page_pid._stid = root_old._stid;
+	
+    // special case for first one
+    // pid0 is rec.child here while for the other's it's new_tree_page.pid
+    W_DO( page.fix(pid, latch) );
+    btrec_t rec(page, ret_slot);
+    btree_p new_tree_page;
+    pid0 = rec.child();
+    if( pid != root_old ) {
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  rec.child(), false, page.is_compressed(),
+                          st_regular, bIgnoreLatches) );
+	if(ret_slot < page.nrecs()) {
+	    W_DO( page.shift(ret_slot, new_tree_page) );
+	}
+	pid0 = new_tree_page.pid().page;
+	// update prev/next pointers
+	next_page_id = page.next();
+	W_DO( page.link_up(page.prev(), 0) );
+	W_DO( new_tree_page.link_up(0, next_page_id) );
+	if(next_page_id != 0) {
+	    next_page_pid.page = next_page_id;
+	    W_DO( next_page.fix(next_page_pid, latch) );
+	    W_DO( next_page.link_up(pid0, next_page.next()) );
+	    next_page.unfix();
+	}
+	if(page.is_leaf()) {
+	    // special case for leaf pages; set pid0 to 0
+	    // if we don't do this it gets a dummy value
+	    W_DO( new_tree_page.set_pid0(0) );
+	    leaf_new = new_tree_page.pid();
+	    leaf_old = pid;
+	}
+	// set the root of the new page to root_new
+	W_DO( new_tree_page.set_root(root_new.page) );
+	new_tree_page.unfix();
+    }
+    page.unfix();
+	
+    // move the records starting from the first location the key is found (a bottom-up process)
+    for(uint i = ret_slots.size() - 2; i > 0; i--) {
+	ret_slot = ret_slots[i];
+	pid = pids[i];
+	W_DO( page.fix(pid, latch) );
+	btrec_t rec(page, ret_slot);
+	btree_p new_tree_page;
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  pid0, false, page.is_compressed(),
+                          st_regular, bIgnoreLatches));
+	if(ret_slot < page.nrecs()) {
+	    W_DO( page.shift(ret_slot, new_tree_page) );
+	}
+	page.unfix();
+	pid0 = new_tree_page.pid().page;
+	// update prev/next pointers
+	next_page_id = page.next();
+	W_DO( page.link_up(page.prev(), 0) );
+	W_DO( new_tree_page.link_up(0, next_page_id) );
+	if(next_page_id != 0) {
+	    next_page_pid.page = next_page_id;
+	    W_DO( next_page.fix(next_page_pid, latch) );
+	    W_DO( next_page.link_up(pid0, next_page.next()) );
+	    next_page.unfix();
+	}
+	// set the root of the new page to root_new
+	W_DO( new_tree_page.set_root(root_new.page) );
+	new_tree_page.unfix();
+    }
+    
+    // special case : new tree root
+    W_DO( root_page_new.fix(root_new, latch) );
+    ret_slot = ret_slots[0];
+    pid = pids[0];
+    w_assert9( pid == root_old );
+    W_DO( page.fix(pid, latch) );
+    W_DO( root_page_new.set_hdr(root_new.page,
+				page.level(), 
+				pid0, 
+				page.is_compressed()) );
+    if(ret_slot < page.nrecs()) {
+	W_DO( page.shift(ret_slot, root_page_new) );
+    }
+    if(page.is_leaf()) {
+	// special case for leaf pages; set pid0 to 0
+	// if we don't do this it gets a dummy value
+	W_DO( root_page_new.set_pid0(0) );
+	leaf_new = root_new;
+	leaf_old = root_old;
+    }
+    page.unfix();
+    root_page_new.unfix();	    
+    
     return RCOK;
 }
 
 /******************************************************************
  *
- * btree_impl::_insert(root, unique, cc, key, el, split_factor)
- *  The essence of Mohan's insert function.  cc should take
- *  t_cc_none, t_cc_im, t_cc_kvl, t_cc_modkvl
+ *  btree_impl::_relocate_recs_l(leaf_old, leaf_new, was_root)
+ *
+ *  Places that this function is called:  
+ *  1) Called after _split_tree during add_partition for the design
+ *  where a heap page is pointed by only one leaf page
+ *  to maintain this property.
+ *  2) Called from _split_leaf_and_reloce_recs
+ *  When a leaf split happens the record's whose assocs are moved to
+ *  the new heap page has to be moved to another heap page to
+ *  satisfy the constraint of a heap page is pointed by just one leaf..
+ *  If the _split_leaf happened for a root page then leaf_split
+ *  is also a new page so the owner of the old heap pages should be
+ *  updated. (was_root is to handle this)
  *
  ******************************************************************/
 
 rc_t
-btree_impl::_insert(
+btree_impl::_relocate_recs_l(
+    lpid_t&       leaf_old,  // I - leaf page whose contents are shifted
+    const lpid_t&       leaf_new,  // I - the new leaf page
+    const bool was_root,  // I - indicates whether there was a root page split
+    const bool bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
+{
+    FUNC(btree_impl::_relocate_recs_l);
+
+    DBGTHRD(<<"_relocate_recs_l: " << " leaf_old = " << leaf_old
+	    <<" leaf_new = " << leaf_new);
+
+    vector<rid_t> old_rids;
+    vector<rid_t> new_rids;
+
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    btree_p leaf_page_old;
+    btree_p leaf_page_new;
+    W_DO( leaf_page_old.fix(leaf_old, latch) );
+    W_DO( leaf_page_new.fix(leaf_new, latch) );
+
+    if(was_root) {
+	leaf_old.page = leaf_page_old.pid0();
+	leaf_page_old.unfix();
+	W_DO( leaf_page_old.fix(leaf_old, latch) );
+    }
+
+    // if some of the heap pages the new leaf page points to are not pointed by any other leaf page already
+    // we don't have to split that heap page, we just have to set the owner for that heap page
+
+    // if in an heap page, the number of records pointed by the new leaf page is more than the ones pointed
+    // by the old leaf page, then the records that are pointed by the old leaf page are relocated
+
+    // 1. collect info on the heap_pages
+    // 1.1 from the new page
+    map<lpid_t, vector<rid_t> > recs_map_new;
+    map<rid_t, slotid_t> slot_map_new;
+    for(int i=0; i < leaf_page_new.nrecs(); i++) {
+	btrec_t rec(leaf_page_new, i);
+	rid_t rid;
+	rec.elem().copy_to(&rid, sizeof(rid_t));
+	recs_map_new[rid.pid].push_back(rid);
+	slot_map_new[rid] = i;
+    }
+    // 1.2 from the old page
+    map<lpid_t, vector<rid_t> > recs_map_old;
+    map<rid_t, slotid_t> slot_map_old;
+    for(int i=0; i < leaf_page_old.nrecs(); i++) {
+	btrec_t rec(leaf_page_old, i);
+	rid_t rid;
+	rec.elem().copy_to(&rid, sizeof(rid_t));
+	recs_map_old[rid.pid].push_back(rid);
+	slot_map_old[rid] = i;
+    }
+
+    // 2. determine the heap pages that needs to be split
+    file_mrbt_p heap_page;
+    file_mrbt_p new_page_old;
+    file_mrbt_p new_page_new;
+    bool first_old = true;
+    bool first_new = true;
+    for(map<lpid_t, vector<rid_t> >::iterator iter = recs_map_new.begin(); iter != recs_map_new.end(); iter++) {
+	W_DO( heap_page.fix(iter->first, latch) );
+	if( recs_map_old[iter->first].size() > (iter->second).size() ) {
+	    // have to move some records that are pointed by the new leaf page
+	    W_DO( _move_recs_l((iter->first)._stid,
+			       first_new,
+			       leaf_new,
+			       leaf_page_new,
+			       new_page_new,
+			       heap_page,
+			       iter->second,
+			       slot_map_new,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
+	    if(was_root) {
+		W_DO( heap_page.set_owner(leaf_old) );
+	    }
+	} else if(recs_map_old[iter->first].size() > 0) {
+	    // have to move some records that are pointed by the old leaf page
+	    W_DO( _move_recs_l((iter->first)._stid,
+			       first_old,
+			       leaf_old,
+			       leaf_page_old,
+			       new_page_old,
+			       heap_page,
+			       recs_map_old[iter->first],
+			       slot_map_old,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
+	    W_DO( heap_page.set_owner(leaf_new) );
+	} else { // we don't have to move recs from this heap page but update its hdr
+	    W_DO( heap_page.set_owner(leaf_new) );
+	}
+	heap_page.unfix();
+    }
+
+    // 3. unfix pages
+    if(new_page_old.is_fixed()) {
+	new_page_old.unfix();
+    }
+    if(new_page_new.is_fixed()) {
+	new_page_new.unfix();
+    }
+    leaf_page_old.unfix();
+    leaf_page_new.unfix();
+
+    // 4. callback to update the secondary indexes
+    W_DO( (*relocate_callback)(leaf_new._stid, old_rids, new_rids) );
+    
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_move_recs_l(...)
+ *
+ *  Helper function for _relocate_recs_l. Should only be called from this function.
+ *  Simply moves the records in the given "recs" list to another heap page and
+ *  performs the necessary updates due to changing rids.
+ *
+ ******************************************************************/
+rc_t
+btree_impl::_move_recs_l(
+    const stid_t& fid,
+    bool& first,
+    const lpid_t& leaf,
+    btree_p& leaf_page,
+    file_mrbt_p& new_page,
+    file_mrbt_p& old_page,
+    vector<rid_t>& recs,
+    map<rid_t, slotid_t>& slot_map,
+    vector<rid_t>& old_rids,
+    vector<rid_t>& new_rids,
+    const bool bIgnoreLatches) 
+{
+    lpid_t new_page_id;
+    bool space_found = true;
+    if(first) { // create the new heap page for the first record move	   
+	W_DO( file_m::_alloc_mrbt_page(fid,
+				       lpid_t::eof,
+				       new_page_id,
+				       new_page,
+				       true) );
+	W_DO( new_page.set_owner(leaf) );
+	first = false;
+    }
+    // move the recs pointed by the leaf page 
+    for(uint i=0; i < recs.size(); i++) {	
+	rid_t rid = recs[i];
+	// get the rec from the heap_page
+	record_t* rec;
+	W_DO( old_page.get_rec(rid.slot, rec) );
+	// move it to new page
+	vec_t hdr_vec;
+	vec_t data_vec;
+	char* hdr = (char*) malloc((*rec).hdr_size());
+	memcpy(hdr, (*rec).hdr(), (*rec).hdr_size());
+	char* data = (char*) malloc((*rec).body_size());
+	memcpy(data, (*rec).body(), (*rec).body_size());
+	rid_t new_rid;
+	hdr_vec.put(hdr, (*rec).hdr_size());
+	data_vec.put(data, (*rec).body_size());
+	W_DO( file_m::move_mrbt_rec_to_given_page(0,
+						  hdr_vec,
+						  data_vec,
+						  new_rid,
+						  new_page,
+						  space_found,
+						  bIgnoreLatches) );
+	if(!space_found) { // we have to create a new heap_page
+	    W_DO( file_m::_alloc_mrbt_page(fid,
+					   lpid_t::eof,
+					   new_page_id,
+					   new_page,
+					   true) );
+	    W_DO( new_page.set_owner(leaf) );
+	    // retry the insert
+	    W_DO( file_m::move_mrbt_rec_to_given_page(0,
+						      hdr_vec,
+						      data_vec,
+						      new_rid,
+						      new_page,
+						      space_found,
+						      bIgnoreLatches) );	    
+	}
+	// add old&new rid to the list
+	old_rids.push_back(rid);
+	new_rids.push_back(new_rid);
+	// delete the record from its prev page
+	W_DO( file_m::destroy_rec_slot(rid, old_page) );
+	// update rid in leaf_page
+	btrec_t btree_rec(leaf_page, slot_map[rid]);
+	cvec_t elem;
+	elem.put((char*)(&new_rid), sizeof(rid_t));
+	W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
+    }
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_relocate_recs_p(root_old, root_new)
+ *
+ *  Called after _split_tree during add_partition for the design
+ *  where a heap page is pointed by only one partition's sub-tree
+ *  to maintain this property.
+ *  
+ ******************************************************************/
+
+rc_t
+btree_impl::_relocate_recs_p(
+    const lpid_t&       root_old,  // I - root of the old sub-tree
+    const lpid_t&       root_new,  // I - root of the new sub-tree
+    const bool bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
+{
+    
+    FUNC(btree_impl::_relocate_recs_p);
+
+    DBGTHRD(<<"_relocate_recs_p: " << " root_old = " << root_old
+	    << " root_new = " << root_new);
+
+    vector<rid_t> old_rids;
+    vector<rid_t> new_rids;
+
+    latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+
+    // if some of the heap pages the new sub-tree points to are not pointed by any other sub-tree already
+    // we don't have to split that heap page, we just have to set the owner for that heap page
+
+    // if in an heap page, the number of records pointed by the new sub-tree is more than the ones pointed
+    // by the old sub-tree, then the records that are pointed by the old sub-tree page are relocated
+
+    // 0. find the left-most leaf page in old&new sub-tree
+    lpid_t pid_old(root_old._stid, root_old.page);
+    btree_p page_old;
+    W_DO( page_old.fix(pid_old, latch) );
+    while(page_old.level() > 1) {
+	pid_old.page = page_old.pid0();
+	page_old.unfix();
+	W_DO( page_old.fix(pid_old, latch) );
+    }
+    lpid_t pid_new(root_new._stid, root_new.page);
+    btree_p page_new;
+    W_DO( page_new.fix(pid_new, latch) );
+    while(page_new.level() > 1) {
+	pid_new.page = page_new.pid0();
+	page_new.unfix();
+	W_DO( page_new.fix(pid_new, latch) );
+    }
+
+    // 1. collect info on the heap_pages
+    // 1.1 for old sub-tree
+    map<lpid_t, vector<rid_t> > recs_map_old;
+    map<rid_t, slotid_t> slot_map_old;
+    map<rid_t, lpid_t> leaf_page_map_old;
+    int i = 0;
+    while(true) {
+	if(i >= page_old.nrecs()) {
+	    pid_old.page = page_old.next();
+	    page_old.unfix();
+	    if(pid_old.page != 0) {
+		i = 0;
+		W_DO( page_old.fix(pid_old, latch) );
+	    } else {
+		break;
+	    }
+	}
+	btrec_t rec(page_old, i);
+	rid_t rid;
+	rec.elem().copy_to(&rid, sizeof(rid_t));
+	recs_map_old[rid.pid].push_back(rid);
+	slot_map_old[rid] = i;
+	leaf_page_map_old[rid] = pid_old;
+	i++;
+    }
+    // 1.2 for new sub-tree
+    map<lpid_t, vector<rid_t> > recs_map_new;
+    map<rid_t, slotid_t> slot_map_new;
+    map<rid_t, lpid_t> leaf_page_map_new;
+    i = 0;
+    while(true) {
+	if(i >= page_new.nrecs()) {
+	    pid_new.page = page_new.next();
+	    page_new.unfix();
+	    if(pid_new.page != 0) {
+		i = 0;
+		W_DO( page_new.fix(pid_new, latch) );
+	    } else {
+		break;
+	    }
+	}
+	btrec_t rec(page_new, i);
+	rid_t rid;
+	rec.elem().copy_to(&rid, sizeof(rid_t));
+	recs_map_new[rid.pid].push_back(rid);
+	slot_map_new[rid] = i;
+	leaf_page_map_new[rid] = pid_new;
+	i++;
+    }
+
+    // 2. determine the heap pages that needs to be split
+    file_mrbt_p heap_page;
+    file_mrbt_p new_page_old;
+    file_mrbt_p new_page_new;
+    bool first_old = true;
+    bool first_new = true;
+    latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    for(map<lpid_t, vector<rid_t> >::iterator iter = recs_map_new.begin(); iter != recs_map_new.end(); iter++) {
+	W_DO( heap_page.fix(iter->first, latch) );
+	if( recs_map_old[iter->first].size() > (iter->second).size() ) {
+	    // have to move some records from the heap_page that are pointed by the new sub-tree
+	    W_DO( _move_recs_p((iter->first)._stid,
+			       first_new,
+			       root_new,
+			       new_page_new,
+			       heap_page,
+			       iter->second,
+			       slot_map_new,
+			       leaf_page_map_new,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
+	} else if(recs_map_old[iter->first].size() > 0) {
+	    // have to move some records that are pointed by the old sub-tree
+	    W_DO( _move_recs_p((iter->first)._stid,
+			       first_old,
+			       root_old,
+			       new_page_old,
+			       heap_page,
+			       recs_map_old[iter->first],
+			       slot_map_old,
+			       leaf_page_map_old,
+			       old_rids,
+			       new_rids,
+			       bIgnoreLatches) ); 
+	    W_DO( heap_page.set_owner(root_new) );
+	} else { // we don't have to move recs from this heap page but update its hdr
+	    W_DO( heap_page.set_owner(root_new) );
+	}
+	heap_page.unfix();
+    }
+
+    // 3. unfix pages
+    if(new_page_old.is_fixed()) {
+	new_page_old.unfix();
+    }
+    if(new_page_new.is_fixed()) {
+	new_page_new.unfix();
+    }
+
+    // 4. callback to update the secondary indexes
+    W_DO( (*relocate_callback)(root_new._stid, old_rids, new_rids) );
+    
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_move_recs_p(...)
+ *
+ *  Helper function for _relocate_recs_p. Should only be called from this function.
+ *  Simply moves the records in the given "recs" list to another heap page and
+ *  performs the necessary updates due to changing rids.
+ *
+ ******************************************************************/  
+rc_t
+btree_impl::_move_recs_p(
+    const stid_t& fid,
+    bool& first,
+    const lpid_t& root,
+    file_mrbt_p& new_page,
+    file_mrbt_p& old_page,
+    vector<rid_t>& recs,
+    map<rid_t, slotid_t>& slot_map,
+    map<rid_t, lpid_t>& leaf_map,
+    vector<rid_t>& old_rids,
+    vector<rid_t>& new_rids,
+    const bool bIgnoreLatches) 
+{
+    lpid_t new_page_id;
+    bool space_found = true;
+    btree_p leaf_page;
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    if(first) { // create the new heap page for the first record move
+	W_DO( file_m::_alloc_mrbt_page(fid,
+				       lpid_t::eof,
+				       new_page_id,
+				       new_page,
+				       true) );
+	W_DO( new_page.set_owner(root) );
+	first = false;
+    }
+    // move the recs pointed by the sub-tree 
+    for(uint i=0; i < recs.size(); i++) {
+	rid_t rid = recs[i];
+	// get the rec from the heap_page
+	record_t* rec;
+	W_DO( old_page.get_rec(rid.slot, rec) );
+	// move it to new page
+	vec_t hdr_vec;
+	vec_t data_vec;
+	char* hdr = (char*) malloc((*rec).hdr_size());
+	memcpy(hdr, (*rec).hdr(), (*rec).hdr_size());
+	char* data = (char*) malloc((*rec).body_size());
+	memcpy(data, (*rec).body(), (*rec).body_size());
+	rid_t new_rid;
+	hdr_vec.put(hdr, (*rec).hdr_size());
+	data_vec.put(data, (*rec).body_size());
+	W_DO( file_m::move_mrbt_rec_to_given_page(0,
+						  hdr_vec,
+						  data_vec,
+						  new_rid,
+						  new_page,
+						  space_found,
+						  bIgnoreLatches) );
+	if(!space_found) { // we have to create a new heap_page
+	    W_DO( file_m::_alloc_mrbt_page(fid,
+					   lpid_t::eof,
+					   new_page_id,
+					   new_page,
+					   true) );
+	    W_DO( new_page.set_owner(root) );
+	    // retry the insert
+	    W_DO( file_m::move_mrbt_rec_to_given_page(0,
+						      hdr_vec,
+						      data_vec,
+						      new_rid,
+						      new_page,
+						      space_found,
+						      bIgnoreLatches) );
+	}
+	// add old&new rid to the list
+	old_rids.push_back(rid);
+	new_rids.push_back(new_rid);
+	// delete the record from its prev page
+	W_DO( file_m::destroy_rec_slot(rid, old_page) );
+	// update rid in leaf_page
+	W_DO( leaf_page.fix(leaf_map[rid], latch) );
+	btrec_t btree_rec(leaf_page, slot_map[rid]);
+	cvec_t elem;
+	elem.put((char*)(&new_rid), sizeof(rid_t));
+	W_DO( leaf_page.overwrite(slot_map[rid]+1, btree_rec.klen()+sizeof(int4_t), elem) );
+	leaf_page.unfix();
+    }
+    return RCOK;
+}
+
+/*********************************************************************
+ * 
+ *  btree_impl::_split_leaf_and_relocate_recs(root, page, key, el, split_factor)
+ *
+ *  Does the same things with _split_leaf but in the end has a call
+ *  to _relocate_recs_l. For the MRBT design where an heap page is 
+ *  only pointed by one leaf page.
+ *
+ *********************************************************************/
+rc_t
+btree_impl::_split_leaf_and_relocate_recs(
+    lpid_t const &        root_pid,         // I - root of tree
+    btree_p&              leaf,         // I - page to be split
+    const cvec_t&         key,        // I-  which key causes split
+    const cvec_t&         el,        // I-  which element causes split
+    int                   split_factor,
+    const bool bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)        
+{
+    w_assert9(leaf.is_fixed());
+    w_assert9(!bIgnoreLatches || leaf.latch_mode() == LATCH_EX);
+	
+    lsn_t         anchor;         // serves as savepoint too
+    xct_t*         xd = xct();
+
+    check_compensated_op_nesting ccon(xd, __LINE__, __FILE__);
+    if (xd)  anchor = xd->anchor();
+
+#if BTREE_LOG_COMMENT_ON
+    W_DO(log_comment("start leaf split"));
+#endif 
+
+    int            addition = key.size() + el.size() + 2;
+    lpid_t         rsib_pid;
+    lpid_t         leaf_pid = leaf.pid();;
+    int            level = leaf.level();
+    {
+        bool         left_heavy;
+        slotid_t     slot=1; // use 1 to leave at least one
+                             // record in the left page.
+        w_assert9(leaf.nrecs()>0);
+
+        X_DO( __split_page(leaf, rsib_pid,  left_heavy,
+			   slot, addition, split_factor, bIgnoreLatches), anchor );
+        leaf.unfix();
+    }
+
+    X_DO(_propagate(root_pid, key, el, leaf_pid, level, false /*not delete*/, bIgnoreLatches), anchor);
+
+    
+#if BTREE_LOG_COMMENT_ON
+    W_DO(log_comment("end leaf split"));
+#endif 
+    if (xd)  {
+        SSMTEST("btree.propagate.s.1");
+        xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
+    }
+
+    if(relocate_callback != NULL) {
+	W_DO( _relocate_recs_l(leaf_pid, rsib_pid, root_pid == leaf_pid, bIgnoreLatches, relocate_callback) );
+    }
+
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_link_after_merge()
+ *
+ *  After merge of btrees we have to set the prev/next values of
+ *  pages properly. We also have to update the root of the pages in
+ *  the merged tree. This function is to be called from _merge_trees
+ *  for the above purposes.
+ *
+ ******************************************************************/
+
+rc_t btree_impl::_link_after_merge(const lpid_t& root,
+				   shpid_t p1, shpid_t p2,
+				   bool set_root1,
+				   const bool bIgnoreLatches) 
+{
+    FUNC(btree_impl::_link_after_merge);
+
+    DBGTHRD(<<"_link_after_merge: " << " root = " << root
+	    <<" p1: " << p1 << " p2: " << p2);
+
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+
+    stid_t stid = root._stid;
+    lpid_t current_p1(stid, p1);
+    lpid_t current_p2(stid, p2);
+    btree_p page1;
+    btree_p page2;
+
+    W_DO( page1.fix(current_p1, latch) );
+    W_DO( page2.fix(current_p2, latch) );
+    
+    w_assert9( page1.level() == page2.level() );
+
+    // update prev/next values
+    W_DO( page1.link_up(page1.prev(), p2) );
+    W_DO( page2.link_up(p1, page2.next()) );
+    
+    // update root value
+    if(set_root1) {
+	W_DO( page1.set_root(root.page) );
+    } else {
+	W_DO( page2.set_root(root.page) );
+    }
+    
+    // go update next level
+    if(!page1.is_leaf()) {
+	shpid_t new_p1 = page1.child(page1.nrecs());
+	shpid_t new_p2 = page2.pid0();
+	
+	page1.unfix();
+	page2.unfix();
+
+	W_DO( _link_after_merge(root, new_p1, new_p2, set_root1, bIgnoreLatches) );
+    } else {
+	page1.unfix();
+	page2.unfix();
+    }
+
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_update_owner()
+ *
+ *  After merge of btrees we have to set the new owner for the design
+ *  where heap pages are pointed by only one sub-tree.
+ *  Called from _merge_trees.
+ *
+ ******************************************************************/
+
+rc_t btree_impl::_update_owner(const lpid_t& new_owner,
+			       const lpid_t& old_owner,
+			       const bool bIgnoreLatches) 
+{
+    FUNC(btree_impl::_update_owner);
+
+    DBGTHRD(<<"_update_owner: " << " new_owner = " << new_owner <<" old_owner: " << old_owner);
+
+    latch_mode_t leaf_latch = LATCH_SH;
+    latch_mode_t heap_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	leaf_latch = LATCH_NL;
+	heap_latch = LATCH_NL;
+    }
+
+    // 0. find the left-most leaf page in this sub-tree
+    lpid_t pid(old_owner._stid, old_owner.page);
+    btree_p page;
+    W_DO( page.fix(pid, leaf_latch) );
+    while(page.level() > 1) {
+	pid.page = page.pid0();
+	page.unfix();
+	W_DO( page.fix(pid, leaf_latch) );
+    }
+
+    // 1. update the owners of the heap_pages
+    int i = 0;
+    file_mrbt_p heap_page;
+    set<lpid_t> pages;
+    while(true) {
+	if(i >= page.nrecs()) {
+	    pid.page = page.next();
+	    page.unfix();
+	    if(pid.page != 0) {
+		i = 0;
+		W_DO( page.fix(pid, leaf_latch) );
+	    } else {
+		break;
+	    }
+	}
+	btrec_t rec(page, i);
+	rid_t rid;
+	rec.elem().copy_to(&rid, sizeof(rid_t));
+	if(pages.find(rid.pid) == pages.end()) {
+	    W_DO( heap_page.fix(rid.pid, heap_latch) );
+	    W_DO( heap_page.set_owner(new_owner) );
+	    heap_page.unfix();
+	    pages.insert(rid.pid);
+	}
+	i++;
+    }
+    
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ *  btree_impl::_merge_trees(root, root1, root2, start_key1)
+ *
+ *  Mrbtree modification after deleting a new partition
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_merge_trees(
+    lpid_t&             root,         // O- the root after merge
+    const lpid_t&       root1,        // I- roots of the btrees to be merged
+    const lpid_t&       root2,           
+    cvec_t&             start_key2,    // I- starting boundary key for the second sub-tree (root2) 
+    const bool          update_owner,
+    const bool bIgnoreLatches)    
+{
+    FUNC(btree_impl::_merge_trees);
+
+    DBGTHRD(<<"_merge_trees: root1 = " << root1 << " root2 = " << root2);
+
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+
+    btree_p         root_page_1;
+    btree_p         root_page_2;
+    W_DO( root_page_1.fix(root1, latch) );
+    W_DO( root_page_2.fix(root2, latch) );
+    int level_1 = root_page_1.level();
+    int level_2 = root_page_2.level();
+    root_page_1.unfix();
+    root_page_2.unfix();
+
+    cvec_t elem_to_insert; // dummy
+    if ( level_1 < level_2 ) { // root2 has a higher level than root1
+	                       // put root1 into appropriate slot in btree with root2
+	if(update_owner) {
+	    W_DO( _update_owner(root2, root1, bIgnoreLatches) );
+	}
+	root = root2;
+	cvec_t elem_to_insert; // dummy
+	// find the page to insert the other tree
+	btrec_t rec;
+	lpid_t pid(root2._stid, root2.page);
+	btree_p page_to_insert;
+	W_DO( page_to_insert.fix(pid, latch) );
+	while(page_to_insert.level() > level_1+1) {
+	    page_to_insert.unfix();
+	    rec.set(page_to_insert, 0);
+	    pid.page = rec.child();
+	    W_DO( page_to_insert.fix(pid, latch) );
+	}
+	W_DO( page_to_insert.insert( start_key2, elem_to_insert, 0, page_to_insert.pid0()) );
+	W_DO( page_to_insert.set_pid0( root1.page ) );
+	W_DO( _link_after_merge(root, root1.page, page_to_insert.child(0), true, bIgnoreLatches) );
+	page_to_insert.unfix();
+
+	btree_latches.destroy_latches(root1);
+    }
+    else if ( level_2 < level_1 ) { // root1 has a higher level than root2
+	                            // put root2 into appropriate slot in btree with root1
+	if(update_owner) {
+	    W_DO( _update_owner(root1, root2, bIgnoreLatches) );
+	}
+	root = root1;
+	// find the page to insert the other tree
+	btrec_t rec;
+	lpid_t pid(root1._stid, root1.page);
+	btree_p page_to_insert;
+	W_DO( page_to_insert.fix(pid, latch) );
+	while(page_to_insert.level() > level_2+1) {
+	    page_to_insert.unfix();
+	    rec.set(page_to_insert, page_to_insert.nrecs() - 1);
+	    pid.page = rec.child();
+	    W_DO( page_to_insert.fix(pid, latch) );
+	}
+	W_DO( page_to_insert.insert( start_key2, elem_to_insert, page_to_insert.nrecs(), root2.page) );
+	W_DO( _link_after_merge(root, page_to_insert.child(page_to_insert.nrecs()-2),
+				root2.page, false, bIgnoreLatches) );
+	page_to_insert.unfix();
+
+	btree_latches.destroy_latches(root2);
+    }
+    else { // both btrees have the same height
+	   // append root2 entries to root1
+	   // TODO: if root1 doesn't have enough space, don't let merge
+	if(update_owner) {
+	    W_DO( _update_owner(root1, root2, bIgnoreLatches) );
+	}
+	btree_p         root_page_1;
+	btree_p         root_page_2;
+	W_DO( root_page_1.fix(root1, latch) );
+	W_DO( root_page_2.fix(root2, latch) );
+	int nrecs = root_page_1.nrecs();
+	W_DO( root_page_1.insert( start_key2, elem_to_insert,
+				  root_page_1.nrecs(), root_page_2.pid0()) );
+ 	W_DO( root_page_2.shift(0, root_page_1.nrecs(), root_page_1) );
+	root = root1;
+	W_DO( _link_after_merge(root, root_page_1.child(nrecs-1), root_page_1.child(nrecs),
+				false, bIgnoreLatches) );
+	root_page_1.unfix();
+	root_page_2.unfix();
+
+	// free root2
+	W_DO( io->free_page(root2, false/*checkstore*/) );
+	
+	btree_latches.destroy_latches(root2);
+    }
+    
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ * btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor)
+ *
+ * For the 2nd and 3rd MRBT designs.
+ *
+ * Called before the actual record insert to see which leaf page the
+ * record's association will be placed to put the actual record in
+ * one of the heap pages already pointed by this leaf page.
+ * The fill_el call back function serves the purpose of informing the 
+ * higher levels about the records position in the btree.
+ * 
+ * The rest is same as the _insert function.
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_mr_insert(
     const lpid_t&        root,                // I-  root of btree
     bool                unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    const cvec_t&        el,                // I-  which element
-    int                 split_factor)        // I-  tune split in %
+    rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    size_t el_size,                          // I - size of the element
+    int                 split_factor,        // I-  tune split in %
+    const bool bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
-    FUNC(btree_impl::_insert);
+    FUNC(btree_impl::_mr_insert);
     lpid_t                  search_start_pid = root;
     lsn_t                  search_start_lsn = lsn_t::null;
     stid_t                 stid = root.stid();
 
+    void* tmp_el = malloc(el_size);
+    vec_t el(tmp_el, el_size);
+    vec_t el2;
+    
     INC_TSTAT(bt_insert_cnt);
 
     DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
         << " key=" << key );
-    get_latches(___s,___e);
 
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
+    
     {
         tree_latch         tree_root(root);
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
 again:
     {
         btree_p         leaf;
@@ -589,29 +1511,37 @@ again:
         w_assert9( !leaf.is_fixed());
         w_assert9( !parent.is_fixed());
 
-        if(tree_root.is_fixed()) {
-            check_latches(___s+1,___e+1, ___s+___e+1);
-        } else {
-            check_latches(___s,___e, ___s+___e);
-        }
+	if(!bIgnoreLatches) {
+	    if(tree_root.is_fixed()) {
+		check_latches(___s+1,___e+1, ___s+___e+1);
+	    } else {
+		check_latches(___s,___e, ___s+___e);
+	    }
+	}
 
         /*
          *  Walk down the tree.  Traverse doesn't
          *  search the leaf page; it's our responsibility
          *  to check that we're at the correct leaf.
          */
-
+	traverse_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+	
         W_DO( _traverse(root, search_start_pid,
             search_start_lsn,
             key, el, found, 
-            LATCH_EX, leaf, parent,
-            leaf_lsn, parent_lsn) );
+            traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
 
-        if(leaf.pid() == root) {
-            check_latches(___s,___e+2, ___s+___e+2);
-        } else {
-            check_latches(___s+1,___e+1, ___s+___e+2);
-        }
+	if(!bIgnoreLatches) {
+	    if(leaf.pid() == root) {
+		check_latches(___s,___e+2, ___s+___e+2);
+	    } else {
+		check_latches(___s+1,___e+1, ___s+___e+2);
+	    }
+	}
 
         w_assert9( leaf.is_fixed());
         w_assert9( leaf.is_leaf());
@@ -638,19 +1568,30 @@ again:
              * below, not far.
              */
             w_assert2(parent.is_fixed());
-            w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
-            w_assert2(leaf.is_fixed());
-            w_assert2(leaf.latch_mode() == LATCH_EX);
-            /* conditional=true, try to get tree latch in SH mode,
+	    w_assert2(leaf.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
+		w_assert2(leaf.latch_mode() == LATCH_EX);
+	    }
+	    /* conditional=true, try to get tree latch in SH mode,
              */
-            w_error_t::err_num_t rce = tree_root.get_for_smo(true, LATCH_SH, 
-                        leaf, LATCH_EX, false, &parent, LATCH_NL);
+	    smo_mode = LATCH_SH;
+	    smo_p1mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
+	    w_error_t::err_num_t rce = tree_root.get_for_smo(true, smo_mode, 
+							     leaf, smo_p1mode, false, &parent,
+							     LATCH_NL, bIgnoreLatches);
 
             w_assert9(leaf.is_fixed());
-            w_assert9(leaf.latch_mode() == LATCH_EX);
             w_assert9(tree_root.is_fixed());
-            w_assert9(tree_root.latch_mode()>= LATCH_SH);
-            w_assert9(! parent.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert9(leaf.latch_mode() == LATCH_EX);
+		w_assert9(tree_root.latch_mode()>= LATCH_SH);
+            }
+	    w_assert9(! parent.is_fixed());
 
             if(rce) {
                 if(rce == eRETRY) {
@@ -785,7 +1726,11 @@ again:
                         btree_p cousin;
 
                         if(cousin_pid.page) {
-                            rc = cousin.conditional_fix(cousin_pid, LATCH_EX);
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = cousin.conditional_fix(cousin_pid, fix_latch);
                             W_IFDEBUG1(
                             if(!rc.is_error())
                                 w_assert1(cousin.prev() == leaf.pid().page);)
@@ -795,10 +1740,14 @@ again:
                         
                         if(!rc.is_error()) {
                             unsigned int required_space  =
-                                2 *(key.size() + el.size() +
+                                2 *(key.size() + el_size +
                                 btree_p::overhead_requirement_per_entry);
 
-                            rc = parent.conditional_fix(parent_pid, LATCH_EX);
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = parent.conditional_fix(parent_pid, fix_latch);
                             if(!rc.is_error()) {
                                 /* check if parent has space for the new
                                    key. To avoid running afoul of shore's
@@ -826,7 +1775,7 @@ again:
                                     lpid_t rsib_pid;
                                     bool left_heavy;
                                     slotid_t slot = 1;
-                                    int addition = key.size() + el.size() + 2;
+                                    int addition = key.size() + el_size + 2;
                                     check_compensated_op_nesting ccond(xd, __LINE__, __FILE__);
                                     if(xd) anchor = xd->anchor();
                 DBG(<<" splitting page " << leaf.pid() 
@@ -834,7 +1783,7 @@ again:
                         << " required_space = " << required_space
                         << " addition = " << addition
                    );
-                                    rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor);
+		rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor, bIgnoreLatches);
 
                                     // stolen from xct.h
                                     if(rc.is_error()) {
@@ -860,7 +1809,8 @@ again:
                                         else {
                                             // stolen from _propagate_split
                                             bool was_split = false;
-                                            rc = _propagate_split(parent, leaf.pid(), child_slot, was_split);
+                                            rc = _propagate_split(parent, leaf.pid(), child_slot,
+								  was_split, bIgnoreLatches);
                                             if(rc.is_error()) {
                                                 if(xd) {
                                                     W_COERCE(xd->rollback(anchor));
@@ -897,9 +1847,2788 @@ again:
                          * tree latch, we'll start all over, having
                          * free the tree latch.
                          */
+			smo_mode = LATCH_EX;
+			smo_p1mode = LATCH_EX;
+			if(bIgnoreLatches) {
+			    smo_mode = LATCH_NL;
+			    smo_p1mode = LATCH_NL;
+			}
                         w_error_t::err_num_t rce = 
-                            tree_root.get_for_smo(true, LATCH_EX,
-                                leaf, LATCH_EX, false, 0, LATCH_NL);
+                            tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, 0, LATCH_NL, bIgnoreLatches);
+
+                        w_assert2(tree_root.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert9(! parent.is_fixed());
+
+                        if(rce) {
+                            if(rce== eRETRY) {
+                                /*
+                                 * One of the pages had changed since
+                                 * we unlatched and awaited the tree latch,
+                                 * so free the tree latch and 
+                                 * re-start the search.
+                                 */
+                                tree_root.unfix();
+                                leaf.unfix();
+                                DBGTHRD(<<"-->again TREE LATCH MODE "
+                                    << int(tree_root.latch_mode())
+                                    );
+                                goto again;
+                            }
+                            return RC(rce);
+                        }
+                        w_assert2(!parent.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert2(tree_root.is_fixed());
+                        W_DO( _split_leaf_and_relocate_recs(tree_root.pid(), leaf, key, 
+							    el, split_factor, bIgnoreLatches,
+							    relocate_callback) );
+                        SSMTEST("btree.insert.3");
+
+                        tree_root.unfix();
+                        DBG(<<"split -->again");
+                        goto again;
+                    }
+                } else {
+                    return RC_AUGMENT(rc);
+                }
+            }
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+        } // check for need to split
+
+        slotid_t                 slot = -1;
+        {
+        /*
+          * We know we're at the correct leaf now, and we
+         * don't have to split.
+         * Get the slot in the leaf, and figure out if
+         * we have to lock the next key value.
+         */
+
+        btree_p                p2; // possibly needed for 2nd leaf
+        lpid_t                p2_pid = lpid_t::null;
+        lsn_t                p2_lsn;
+        uint                whatcase;
+        bool                 eof=false;
+        slotid_t                 next_slot = 0;
+
+        W_DO( _satisfy(leaf, key, el, found, 
+                    total_match, slot, whatcase));
+
+        DBGTHRD(<<"found = " << found
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid()
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+        w_assert9(!parent.is_fixed());
+
+        lock_duration_t this_duration = t_long;
+        lock_duration_t next_duration = t_instant;
+        lock_mode_t        this_mode = EX;
+        lock_mode_t        next_mode = IX;
+        bool                 lock_next = true;
+
+        bool                look_on_next_page = false;
+        switch(whatcase) {
+
+            case m_not_found_end_of_file:
+                // Will use EOF lock
+                w_assert9( !total_match ); // but found (key) could be true
+                eof = true;
+                break;
+
+            case m_satisfying_key_found_same_page: {
+                /*
+                 * found means we found the key we're seeking, which
+                 *   will ultimately result in an eDUPLICATE, and we won't
+                 *   have to lock the next key.
+                 *
+                 *  !found means the satisfying key is the next key
+                 *   and it's on the this page
+                 */
+                p2 = leaf; // refixes
+                if(!found) {
+                    next_slot = slot;
+                    break;
+                } else {
+                    // Next entry might be on next page
+                    next_slot = slot+1;
+                    if(next_slot < leaf.nrecs()) {
+                        break;
+                    } else if( !leaf.next()) {
+                        eof = true;
+                        break;
+                    }
+                }
+                look_on_next_page = true;
+            } break; 
+
+            case m_not_found_end_of_non_empty_page: {
+                look_on_next_page = true;
+            } break;
+
+            case m_not_found_page_is_empty:
+                /*
+                 * there should be no smos in progress: 
+                 * can't be the case during forward processing.
+                 * but during undo we can get here.
+                 */
+                w_assert9(smlevel_0::in_recovery());
+                w_assert9(leaf.next());
+                look_on_next_page = true;
+                break;
+        }
+        if(look_on_next_page) {
+            /*
+             * the next key is on the NEXT page, (if the next 
+             * page isn't empty- we don't know that because we haven't yet
+             * traversed there).
+             */
+
+            /*
+             * This much is taken from the Fetch/lookup cases
+             * since Mohan just says "in a manner similar to fetch"
+             */
+            w_assert9(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+            /*
+             * Mohan: unlatch the parent and latch the successor.
+             * If the successor is empty or does not have a
+             * satisfying key, unlatch both pages and request
+             * the tree latch in S mode, then restart the search
+             * from the parent.
+             */
+            parent.unfix();
+
+            w_assert9(leaf.next());
+            p2_pid = root; // get volume, store part
+            p2_pid.page = leaf.next();
+
+            INC_TSTAT(bt_links);
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(p2_pid, fix_latch) );
+            next_slot = 0; //first rec on next page
+
+            w_assert9(p2.nrecs());  // else we'd have been at
+                                    // case m_not_found_end_of_file
+            w_assert9( !found || !total_match ||
+                    (whatcase == m_satisfying_key_found_same_page));
+        } 
+
+        /*
+         *  Create KVL lock for to-be-inserted key value
+         *  We need to use it in the determination (below)
+         *  of lock/don't lock the next key-value
+         */
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        lockid_t kvl;
+        mk_kvl(cc, kvl, stid, unique, key, el);
+
+        /*
+         * Figure out if we need to lock the next key-value
+         * Ref: Figure 1 in VLDB KVL paper
+         */
+
+        if(unique && found) {
+            /*
+             * Try a conditional, commit-duration (gives RR -- instant
+             * would satisfy CS) lock on the found key value
+             * to make sure the found key is committed, or else
+             * was put there by this xct. 
+             */
+            this_duration = t_long;
+            this_mode = SH;
+            lock_next = false;  
+
+        } else if ( (!unique) && total_match ) {
+            /*  non-unique index, total match */
+            this_mode = IX;
+            this_duration = t_long;
+            lock_next = false;
+            /*
+             * we will return eDUPLICATE.  See Mohan KVL 3.3 Insert,
+             * paragraph 2 for explanation why the IX lock on THIS key
+             * is sufficient for CS,RR, and we don't have to go through
+             * the rigamarole of getting the share latch, as in the case
+             * of a unique index.
+             */
+        } else {
+            w_assert9((unique && !found)  ||
+                        (!unique && !total_match));
+            this_mode = IX; // See note way below before we
+                                // grab the THIS lock
+            this_duration = t_long;
+            lock_next = true;
+            next_mode = IX;
+            next_duration = t_instant;
+        }
+
+        /* 
+         * Grab the key-value lock for the next key, if needed.
+         * First try conditionally.  If that fails, unlatch the
+         * leaf page(s) and try unconditionally.
+         */
+        if( (cc == t_cc_none) || (cc == t_cc_modkvl) ) lock_next = false;
+
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        if(lock_next) {
+            lockid_t nxt_kvl;
+
+            if(eof) {
+                mk_kvl_eof(cc, nxt_kvl, stid);
+            } else {
+                w_assert9(p2.is_fixed());
+                btrec_t r(p2, next_slot); 
+                mk_kvl(cc, nxt_kvl, stid, unique, r);
+            }
+            rc = lm->lock(nxt_kvl, next_mode, next_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc= " << rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); 
+                    p2_lsn = p2.lsn(); 
+                    p2.unfix();
+                } else {
+                  w_assert9(!p2_pid.valid());
+                }
+                leaf.unfix();
+                W_DO(lm->lock(nxt_kvl, next_mode, next_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+                    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+                if(p2_pid.page) {
+		    fix_latch = LATCH_SH;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    W_DO(p2.fix(p2_pid, fix_latch));
+                    if(p2.lsn() != p2_lsn) {
+                        /*
+                         * Have to re-compute next value.
+                         * TODO (performance): we should avoid this re-traversal
+                         * but instead just 
+                         * go from leaf -> leaf.next() again.
+                         */
+                        leaf.unfix();
+                        p2.unfix();
+                        DBG(<<"-->again");
+                        goto again;
+                    }
+                }
+            }
+        }
+        p2.unfix();
+
+        /* WARNING: If this gets fixed, so we keep the IX lock,
+         * we must change the way locks are logged at prepare time!
+         * (Lock on next value is of instant duration, so it's ok.)
+         */
+        
+        this_mode = EX;
+
+        if(cc > t_cc_none) {
+            /* 
+             * Grab the key-value lock for the found key.
+             * First try conditionally.  If that fails, unlatch the
+             * leaf page(s) and try unconditionally.
+             */
+                rc = lm->lock(kvl, this_mode, this_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc=" <<rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); // might be null
+                    p2_lsn = p2.lsn(); // might be null
+                    p2.unfix();
+                }
+                leaf.unfix();
+                W_DO(lm->lock(kvl, this_mode, this_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+                    parent.unfix();
+                    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+            }
+        }
+        if((found && unique) || total_match) {
+            /* 
+             * Didn't have to wait for a lock, or waited and the
+             * pages didn't change. It's found, is really there, 
+             * and it's an error.
+             */
+            DBG(<<"DUPLICATE");
+            return RC(eDUPLICATE);
+        }
+
+        } // getting locks
+
+        w_assert9(leaf.is_fixed());
+
+        /* 
+         * Ok - all necessary latches and locks are held.
+         * If we have a sibling and had to get the next key value,
+         *  we already released that page.
+         */
+
+	// place to make a call back to kits and inform it about the leaf page
+	    el.reset();
+	    free(tmp_el);
+	    lpid_t leaf_page_pid = leaf.pid();
+	    leaf.unfix();
+
+	    (*fill_el)(el2, leaf_page_pid);
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+	    W_DO( leaf.fix(leaf_page_pid, fix_latch) );
+	    //
+
+        /*
+         *  Do the insert.
+         *  Turn off logging and perform physical insert.
+         */
+        {
+            w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+            xct_log_switch_t toggle(OFF);
+
+            w_assert9(slot >= 0 && slot <= leaf.nrecs());
+
+            DBG(<<"insert in leaf at slot " << slot);
+            rc = leaf.insert(key, el2, slot); 
+            if(rc.is_error()) {
+                DBG(<<"rc= " << rc);
+                leaf.discard(); // force the page out.
+                return rc.reset();
+            }
+            // Keep pinned until logging is done.
+        }
+        SSMTEST("btree.insert.4");
+        /*
+         *  Log is on here. Log a logical insert.
+         *  If we get a retry, then retry a few times.
+         */
+        rc = log_btree_insert(leaf, slot, key, el2, unique);
+        int count=10;
+        while (rc.is_error() && (rc.err_num() == eRETRY) && --count > 0) {
+            rc = log_btree_insert(leaf, slot, key, el2, unique);
+        }
+
+        SSMTEST("btree.insert.5");
+        if (rc.is_error())  {
+            /*
+             *  Failed writing log. Manually undo physical insert.
+             */
+            xct_log_switch_t toggle(OFF);
+            DBG(<<"log_btree_insert failed" << rc );
+
+            w_rc_t rc2 = 
+                leaf.remove(slot, leaf.is_compressed()); // zkeyed_p::remove
+            if(rc2.is_error()) {
+                DBG(<<"subsequent remove failed" << rc2 );
+                leaf.discard(); // force the page out.
+                return rc2.reset();
+            }
+            // The problem here is that the leaf page changes
+            // might *still* not have been logged.
+            if(rc.err_num() == eRETRY) {
+                leaf.discard(); // force the page out.
+            }
+            return rc.reset();
+        }
+        w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+    }
+    }
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
+    
+    return RCOK;
+}
+
+/******************************************************************
+ * TODO: might be removed!
+ * btree_impl::_insert_l(root, unique, cc, key, el, split_factor)
+ * Same as the _insert function except if the record whose assoc is
+ * about to be inserted is in a heap page that is pointed by another
+ * leaf page, then this record has to be moved to one of the heap pages
+ * that the corresponding leaf page points to.
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_insert_l(
+    const lpid_t&        root,                // I-  root of btree
+    bool                unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    cvec_t&        el,                // I-  which element
+    int                 split_factor,        // I-  tune split in %
+    const bool bIgnoreLatches)
+{
+    FUNC(btree_impl::_insert_l);
+    lpid_t                  search_start_pid = root;
+    lsn_t                  search_start_lsn = lsn_t::null;
+    stid_t                 stid = root.stid();
+
+    INC_TSTAT(bt_insert_cnt);
+
+    DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
+        << " key=" << key );
+
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
+    
+    {
+        tree_latch         tree_root(root);
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+again:
+    {
+        btree_p         leaf;
+        lpid_t          leaf_pid;
+        lsn_t           leaf_lsn;
+        btree_p         parent;
+        lsn_t           parent_lsn;
+        lpid_t          parent_pid;
+        bool            found = false;
+        bool            total_match = false;
+        rc_t            rc;
+
+
+        DBGTHRD(<<"_insert.again:");
+
+        w_assert9( !leaf.is_fixed());
+        w_assert9( !parent.is_fixed());
+
+	if(!bIgnoreLatches) {
+	    if(tree_root.is_fixed()) {
+		check_latches(___s+1,___e+1, ___s+___e+1);
+	    } else {
+		check_latches(___s,___e, ___s+___e);
+	    }
+	}
+
+        /*
+         *  Walk down the tree.  Traverse doesn't
+         *  search the leaf page; it's our responsibility
+         *  to check that we're at the correct leaf.
+         */
+	traverse_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+	
+        W_DO( _traverse(root, search_start_pid,
+            search_start_lsn,
+            key, el, found, 
+            traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
+
+	if(!bIgnoreLatches) {
+	    if(leaf.pid() == root) {
+		check_latches(___s,___e+2, ___s+___e+2);
+	    } else {
+		check_latches(___s+1,___e+1, ___s+___e+2);
+	    }
+	}
+
+        w_assert9( leaf.is_fixed());
+        w_assert9( leaf.is_leaf());
+
+        w_assert9( parent.is_fixed());
+        w_assert9( parent.is_node() || (parent.is_leaf() &&
+                    leaf.pid() == root  ));
+        w_assert9( parent.is_leaf_parent() || parent.is_leaf());
+
+        /*
+         * Deal with SMOs :  traversal checked the nodes, but
+         * not the leaf.  We check the leaf for smo, delete bits.
+         * (Delete only checks for smo bits.)
+         */
+
+        leaf_pid = leaf.pid();
+        parent_pid = parent.pid(); 
+
+        if(leaf.is_smo() || leaf.is_delete()) {
+
+            /* 
+             * SH-latch the tree for manual duration -- paragraph 1
+             * of 3.3 Insert of KVL paper.  It gets unlatched
+             * below, not far.
+             */
+	    w_assert2(parent.is_fixed());
+	    w_assert2(leaf.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
+		w_assert2(leaf.latch_mode() == LATCH_EX);
+	    }
+	    /* conditional=true, try to get tree latch in SH mode,
+             */
+	    smo_mode = LATCH_SH;
+	    smo_p1mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
+	    w_error_t::err_num_t rce = tree_root.get_for_smo(true, smo_mode, 
+							     leaf, smo_p1mode, false, &parent,
+							     LATCH_NL, bIgnoreLatches);
+
+            w_assert9(leaf.is_fixed());
+            w_assert9(tree_root.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert9(leaf.latch_mode() == LATCH_EX);
+		w_assert9(tree_root.latch_mode()>= LATCH_SH);
+            }
+	    w_assert9(! parent.is_fixed());
+
+            if(rce) {
+                if(rce == eRETRY) {
+                    leaf.unfix();
+                    parent.unfix();
+                    /*
+                     * Re-search, holding the tree-root latch.
+                     * That search will culminate in 
+                     * the leaf no longer having the bit set,
+                     * OR it'll still be set but because we
+                     * already held the latch, we'll not
+                     * end up with eRETRY
+                     */
+                  DBGTHRD(<<"-->again TREE LATCH MODE "
+                                << int(tree_root.latch_mode())
+                                );
+                    goto again;
+                }
+                return RC(rce);
+            }
+            w_assert9(leaf.is_fixed());
+
+            /* 
+             * Paragraph 1, 3.3 Insert of KVL paper.
+             * if the tree root latch is granted, the
+             * insert algorithm releases the latches on the root and the
+             * parent, clears the SMO bit on the leaf
+             * and continues with the insert
+             */
+	    tree_root.unfix();
+            parent.unfix();
+
+            /*
+             * SMO is completed
+             */
+          if(leaf.is_smo())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_smo/I"));
+#endif
+                W_DO( leaf.clr_smo(true) );
+            }
+            SSMTEST("btree.insert.2");
+            if(leaf.is_delete())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_delete"));
+#endif
+                W_DO( leaf.clr_delete() );
+            }
+        } else {
+            // release parent right away
+            parent.unfix();
+        }
+        /*
+         * case we grabbed the tree latch and then
+         * we had to retry, we could still be holding
+         * it (because another thread could have
+         * unset the smo bit in the meantime)
+         * We can call unfix because it's safe in event that
+         * the latch isn't really held.
+         */
+	tree_root.unfix();
+
+        w_assert2(leaf.is_fixed());
+        w_assert2(! leaf.is_smo());
+
+        w_assert2(!parent.is_fixed());
+        w_assert2(!tree_root.is_fixed() );
+
+        w_assert2(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+
+        /*
+          * We know we're at the correct leaf now.
+         * Do we have to split the page?
+         * NB: this might cause unnecessary page splits
+         * when the user tries to insert something that's
+         * already there. But since we don't yet know if 
+         * the item is there, we can't do much at this point.
+         */
+
+	{
+            /*
+             * Don't actually DO the insert -- just see
+             * if there's room for the insert.
+             */
+	    slotid_t slot = 0; // for this purpose, it doesn't much
+                      // matter *what* slot we use
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+
+            /*false -> don't DO it, just compute max space need */
+	    DBG(<<"Don't insert in leaf at slot " << slot
+                << " just check for space");
+            rc = leaf.insert(key, el, slot, 0, false);
+            if(rc.is_error()) {
+                DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() 
+                        << " rc= " << rc
+                );
+                if (rc.err_num() == eRECWONTFIT) {
+                    /* 
+                     * Cannot split 1 record!
+                     * We shouldn't have allowed an insertion
+                     * of a record that's too big to fit.
+                     */
+
+		    bool split_with_smo = true;
+
+                    /*********************************************************
+                      FRJ: Ordinarily only one leaf split per tree is
+                      allowed at a time; we hack around this
+                      limitation (probably killing recoverability) by
+                      checking if we can latch the full leaf's parent
+                      *and* the parent's lsn did not change since we
+                      last had the latch *and* that parent is
+                      non-full. If we succeed, we insert directly into
+                      the parent without starting an official SMO.
+
+                      Steps:
+                      - attempt to latch child's current right sibling 
+                         (in case is shares child's parent)
+                      - attempt to latch parent and verify lsn
+                      - check parent for space
+                      - split child, noting right sibling's pid
+                      - insert right sibling into parent and update smo bits
+                     */
+
+                    /* First try to latch the current right sib 
+                     * (soon to be cousin)
+                     */
+		    if(0) {
+			w_assert0(!parent.is_fixed());
+                        lpid_t cousin_pid = leaf.pid();
+                        cousin_pid.page = leaf.next();
+                        btree_p cousin;
+
+                        if(cousin_pid.page) {
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = cousin.conditional_fix(cousin_pid, fix_latch);
+                            W_IFDEBUG1(
+                            if(!rc.is_error())
+                                w_assert1(cousin.prev() == leaf.pid().page);)
+                        } else {
+                            rc = RCOK;
+                        }
+                        
+                        if(!rc.is_error()) {
+                            unsigned int required_space  =
+                                2 *(key.size() + el.size() +
+                                btree_p::overhead_requirement_per_entry);
+
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = parent.conditional_fix(parent_pid, fix_latch);
+                            if(!rc.is_error()) {
+                                /* check if parent has space for the new
+                                   key. To avoid running afoul of shore's
+                                   key compression scheme, we assume that
+                                   the current key-to-be-inserted is as
+                                   large as any that will ever be
+                                   asserted, and that the current key is
+                                   very similar to an existing one
+                                   (basically, fixed-size key+elem and no
+                                   compression is possible). 
+
+                                   Really it all boils down to, "is there
+                                   room for two of the current key/el
+                                   pair?"
+                                */
+				if(parent.lsn() == parent_lsn && 
+                                    parent.usable_space() >= required_space) {
+                                    /*
+                                      phew! all is in order to begin the actual split...
+                                    */
+
+                                    // stolen from _split_leaf
+				    lsn_t anchor;
+                                    xct_t* xd = xct();
+                                    lpid_t rsib_pid;
+                                    bool left_heavy;
+                                    slotid_t slot = 1;
+                                    int addition = key.size() + el.size() + 2;
+                                    check_compensated_op_nesting ccond(xd, __LINE__, __FILE__);
+                                    if(xd) anchor = xd->anchor();
+				    DBG(<<" splitting page " << leaf.pid() 
+					<< " parent.usabel_space()= " << parent.usable_space()
+					<< " required_space = " << required_space
+					<< " addition = " << addition
+					);
+				    rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor, bIgnoreLatches);
+
+                                    // stolen from xct.h
+                                    if(rc.is_error()) {
+                                        if(xd) {
+                                            W_COERCE(xd->rollback(anchor));
+                                            xd->release_anchor(true LOG_COMMENT_USE("btimpl1"));
+                                        }
+                                    }
+                                    else {
+                                        // stolen from _propagate
+                                        slotid_t child_slot = 0;
+                                        bool found_key = false;
+                                        bool total_match = false;
+                                        rc = parent.search(key, el, found_key, total_match, child_slot);
+                                        if(!total_match) child_slot--;
+                                        if(rc.is_error()) {
+                                            if(xd) {
+                                                W_COERCE(xd->rollback(anchor));
+                                                xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl2"));
+                                            }
+                                        }
+                                        else {
+                                            // stolen from _propagate_split
+                                            bool was_split = false;
+                                            rc = _propagate_split(parent, leaf.pid(), child_slot,
+								  was_split, bIgnoreLatches);
+                                            if(rc.is_error()) {
+                                                if(xd) {
+                                                    W_COERCE(xd->rollback(anchor));
+                                                    xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl3"));
+                                                }
+                                            }
+                                            else {
+                                                w_assert1(!was_split);
+                                                split_with_smo = false;
+                                                if(xd) xd->compensate(anchor,false/*not undoable*/
+								      LOG_COMMENT_USE("btree1"));
+
+						tree_root.unfix();
+						goto again;
+                                            }
+                                        }
+                                    }
+                                }
+                                parent.unfix();
+                            } // end not error on conditional fix
+                        }
+                        w_assert1(leaf.is_fixed());
+                        w_assert1(! parent.is_fixed());
+                    }
+                    /*******************************************************/
+
+                    if(split_with_smo) 
+                    {
+                        /*
+                         * Split the page  - get the tree latch and
+                         * hang onto it until we're done with the split.
+                         * If a page changed during the wait for the
+                         * tree latch, we'll start all over, having
+                         * free the tree latch.
+                         */
+			smo_mode = LATCH_EX;
+			smo_p1mode = LATCH_EX;
+			if(bIgnoreLatches) {
+			    smo_mode = LATCH_NL;
+			    smo_p1mode = LATCH_NL;
+			}
+                        w_error_t::err_num_t rce = 
+                            tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, 0, LATCH_NL, bIgnoreLatches);
+
+                        w_assert2(tree_root.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert9(! parent.is_fixed());
+
+                        if(rce) {
+                            if(rce== eRETRY) {
+                                /*
+                                 * One of the pages had changed since
+                                 * we unlatched and awaited the tree latch,
+                                 * so free the tree latch and 
+                                 * re-start the search.
+                                 */
+				tree_root.unfix();
+                                leaf.unfix();
+                                DBGTHRD(<<"-->again TREE LATCH MODE "
+                                    << int(tree_root.latch_mode())
+                                    );
+                                goto again;
+                            }
+                            return RC(rce);
+                        }
+                        w_assert2(!parent.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert2(tree_root.is_fixed());
+                        W_DO( _split_leaf_and_relocate_recs(tree_root.pid(), leaf, key, 
+							    el, split_factor, bIgnoreLatches) );
+                        SSMTEST("btree.insert.3");
+
+                        tree_root.unfix();
+                        DBG(<<"split -->again");
+                        goto again;
+                    }
+                } else {
+                    return RC_AUGMENT(rc);
+                }
+            }
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+        } // check for need to split
+
+        slotid_t                 slot = -1;
+        {
+        /*
+          * We know we're at the correct leaf now, and we
+         * don't have to split.
+         * Get the slot in the leaf, and figure out if
+         * we have to lock the next key value.
+         */
+        btree_p                p2; // possibly needed for 2nd leaf
+        lpid_t                p2_pid = lpid_t::null;
+        lsn_t                p2_lsn;
+        uint                whatcase;
+        bool                 eof=false;
+        slotid_t                 next_slot = 0;
+
+        W_DO( _satisfy(leaf, key, el, found, 
+                    total_match, slot, whatcase));
+
+        DBGTHRD(<<"found = " << found
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid()
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+        w_assert9(!parent.is_fixed());
+
+        lock_duration_t this_duration = t_long;
+        lock_duration_t next_duration = t_instant;
+        lock_mode_t        this_mode = EX;
+        lock_mode_t        next_mode = IX;
+        bool                 lock_next = true;
+
+        bool                look_on_next_page = false;
+        switch(whatcase) {
+
+            case m_not_found_end_of_file:
+                // Will use EOF lock
+                w_assert9( !total_match ); // but found (key) could be true
+                eof = true;
+                break;
+
+            case m_satisfying_key_found_same_page: {
+                /*
+                 * found means we found the key we're seeking, which
+                 *   will ultimately result in an eDUPLICATE, and we won't
+                 *   have to lock the next key.
+                 *
+                 *  !found means the satisfying key is the next key
+                 *   and it's on the this page
+                 */
+		p2 = leaf; // refixes
+                if(!found) {
+                    next_slot = slot;
+                    break;
+                } else {
+                    // Next entry might be on next page
+                    next_slot = slot+1;
+                    if(next_slot < leaf.nrecs()) {
+                        break;
+                    } else if( !leaf.next()) {
+                        eof = true;
+                        break;
+                    }
+                }
+                look_on_next_page = true;
+            } break; 
+
+            case m_not_found_end_of_non_empty_page: {
+                look_on_next_page = true;
+            } break;
+
+            case m_not_found_page_is_empty:
+                /*
+                 * there should be no smos in progress: 
+                 * can't be the case during forward processing.
+                 * but during undo we can get here.
+                 */
+		w_assert9(smlevel_0::in_recovery());
+                w_assert9(leaf.next());
+                look_on_next_page = true;
+                break;
+        }
+        if(look_on_next_page) {
+            /*
+             * the next key is on the NEXT page, (if the next 
+             * page isn't empty- we don't know that because we haven't yet
+             * traversed there).
+             */
+
+            /*
+             * This much is taken from the Fetch/lookup cases
+             * since Mohan just says "in a manner similar to fetch"
+             */
+	    w_assert9(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+            /*
+             * Mohan: unlatch the parent and latch the successor.
+             * If the successor is empty or does not have a
+             * satisfying key, unlatch both pages and request
+             * the tree latch in S mode, then restart the search
+             * from the parent.
+             */
+	    parent.unfix();
+
+            w_assert9(leaf.next());
+            p2_pid = root; // get volume, store part
+            p2_pid.page = leaf.next();
+
+            INC_TSTAT(bt_links);
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(p2_pid, fix_latch) );
+            next_slot = 0; //first rec on next page
+
+            w_assert9(p2.nrecs());  // else we'd have been at
+                                    // case m_not_found_end_of_file
+            w_assert9( !found || !total_match ||
+                    (whatcase == m_satisfying_key_found_same_page));
+        } 
+
+        /*
+         *  Create KVL lock for to-be-inserted key value
+         *  We need to use it in the determination (below)
+         *  of lock/don't lock the next key-value
+         */
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        lockid_t kvl;
+        mk_kvl(cc, kvl, stid, unique, key, el);
+
+        /*
+         * Figure out if we need to lock the next key-value
+         * Ref: Figure 1 in VLDB KVL paper
+         */
+
+        if(unique && found) {
+            /*
+             * Try a conditional, commit-duration (gives RR -- instant
+             * would satisfy CS) lock on the found key value
+             * to make sure the found key is committed, or else
+             * was put there by this xct. 
+             */
+	    this_duration = t_long;
+            this_mode = SH;
+            lock_next = false;  
+
+        } else if ( (!unique) && total_match ) {
+            /*  non-unique index, total match */
+	    this_mode = IX;
+            this_duration = t_long;
+            lock_next = false;
+            /*
+             * we will return eDUPLICATE.  See Mohan KVL 3.3 Insert,
+             * paragraph 2 for explanation why the IX lock on THIS key
+             * is sufficient for CS,RR, and we don't have to go through
+             * the rigamarole of getting the share latch, as in the case
+             * of a unique index.
+             */
+	} else {
+            w_assert9((unique && !found)  ||
+                        (!unique && !total_match));
+            this_mode = IX; // See note way below before we
+                                // grab the THIS lock
+            this_duration = t_long;
+            lock_next = true;
+            next_mode = IX;
+            next_duration = t_instant;
+        }
+
+        /* 
+         * Grab the key-value lock for the next key, if needed.
+         * First try conditionally.  If that fails, unlatch the
+         * leaf page(s) and try unconditionally.
+         */
+	if( (cc == t_cc_none) || (cc == t_cc_modkvl) ) lock_next = false;
+
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        if(lock_next) {
+            lockid_t nxt_kvl;
+
+            if(eof) {
+                mk_kvl_eof(cc, nxt_kvl, stid);
+            } else {
+                w_assert9(p2.is_fixed());
+                btrec_t r(p2, next_slot); 
+                mk_kvl(cc, nxt_kvl, stid, unique, r);
+            }
+            rc = lm->lock(nxt_kvl, next_mode, next_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc= " << rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); 
+                    p2_lsn = p2.lsn(); 
+                    p2.unfix();
+                } else {
+                  w_assert9(!p2_pid.valid());
+                }
+                leaf.unfix();
+                W_DO(lm->lock(nxt_kvl, next_mode, next_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+		    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+                if(p2_pid.page) {
+		    fix_latch = LATCH_SH;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    W_DO(p2.fix(p2_pid, fix_latch));
+                    if(p2.lsn() != p2_lsn) {
+                        /*
+                         * Have to re-compute next value.
+                         * TODO (performance): we should avoid this re-traversal
+                         * but instead just 
+                         * go from leaf -> leaf.next() again.
+                         */
+			leaf.unfix();
+                        p2.unfix();
+                        DBG(<<"-->again");
+                        goto again;
+                    }
+                }
+            }
+        }
+        p2.unfix();
+
+        /* WARNING: If this gets fixed, so we keep the IX lock,
+         * we must change the way locks are logged at prepare time!
+         * (Lock on next value is of instant duration, so it's ok.)
+         */
+        
+	this_mode = EX;
+
+        if(cc > t_cc_none) {
+            /* 
+             * Grab the key-value lock for the found key.
+             * First try conditionally.  If that fails, unlatch the
+             * leaf page(s) and try unconditionally.
+             */
+              rc = lm->lock(kvl, this_mode, this_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc=" <<rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); // might be null
+                    p2_lsn = p2.lsn(); // might be null
+                    p2.unfix();
+                }
+                leaf.unfix();
+                W_DO(lm->lock(kvl, this_mode, this_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+		    parent.unfix();
+                    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+            }
+        }
+        if((found && unique) || total_match) {
+            /* 
+             * Didn't have to wait for a lock, or waited and the
+             * pages didn't change. It's found, is really there, 
+             * and it's an error.
+             */
+	    DBG(<<"DUPLICATE");
+            return RC(eDUPLICATE);
+        }
+
+        } // getting locks
+
+        w_assert9(leaf.is_fixed());
+
+        /* 
+         * Ok - all necessary latches and locks are held.
+         * If we have a sibling and had to get the next key value,
+         *  we already released that page.
+         */
+
+	// Check for leaf-heap page mapping
+	// Three cases;
+	// 1) The record is already in a heap page pointed by this leaf
+	// 2) The record is in a heap page which is not pointed by any leaf
+	// 3) The record's heap page is pointed by another leaf page
+	rid_t rid;
+	el.copy_to(&rid, sizeof(rid_t));
+	file_mrbt_p heap_page;
+	// pin: we can't ignore latches here since this heap page might be pointed by some other leaf page
+	W_DO(heap_page.fix(rid.pid, LATCH_EX));
+	lpid_t owner_leaf;
+	heap_page.get_owner(owner_leaf);
+	if(owner_leaf == leaf.pid()) { // CASE 1 ; do nothing
+	
+	} else if(owner_leaf.page == 0) { // CASE 2 ; set heap_page owner
+	    heap_page.set_owner(leaf.pid());
+	} else { // CASE 3 ; move record
+	    	    
+	    // first try to put it into a page that is already pointed by this leaf
+	    // otherwise create a new heap page and put the record there
+	    
+	    // 0. get the record from the heap page
+	    record_t* rec_to_move;
+	    W_DO( heap_page.get_rec(rid.slot, rec_to_move) );
+	    vec_t hdr_vec;
+	    vec_t data_vec;
+	    char* hdr = (char*) malloc((*rec_to_move).hdr_size());
+	    memcpy(hdr, (*rec_to_move).hdr(), (*rec_to_move).hdr_size());
+	    char* data = (char*) malloc((*rec_to_move).body_size());
+	    memcpy(data, (*rec_to_move).body(), (*rec_to_move).body_size());
+	    rid_t new_rid;
+	    hdr_vec.put(hdr, (*rec_to_move).hdr_size());
+	    data_vec.put(data, (*rec_to_move).body_size());
+	    
+	    // 1. try to find a file page with empty slot and pointed by leaf
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+	    file_mrbt_p current_heap_page;
+	    bool space_found = false;
+	    set<lpid_t> pages; // to not to look at already looked at heap pages
+	    for(int i=0; !space_found && i < leaf.nrecs(); i++) {
+		// get the rec from the leaf_page
+		btrec_t rec_leaf(leaf, i);
+		rid_t current_rid;
+		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		// move it to new page
+		if(pages.find(current_rid.pid) == pages.end()) {
+		    W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
+		    W_DO( file_m::move_mrbt_rec_to_given_page(0,
+							      hdr_vec,
+							      data_vec,
+							      new_rid,
+							      current_heap_page,
+							      space_found,
+							      bIgnoreLatches) );
+		    pages.insert(current_rid.pid);
+		}
+	    }
+	    // 2. none of the heap pages are empty then create a new one
+	    if(!space_found) {
+		lpid_t new_page_id;
+		W_DO( file_m::_alloc_mrbt_page(rid.pid._stid,
+					       lpid_t::eof,
+					       new_page_id,
+					       current_heap_page,
+					       true) );
+		W_DO( current_heap_page.set_owner(leaf.pid()) );
+		// retry the insert
+		W_DO( file_m::move_mrbt_rec_to_given_page(0,
+							  hdr_vec,
+							  data_vec,
+							  new_rid,
+							  current_heap_page,
+							  space_found,
+							  bIgnoreLatches) );
+	    }
+	    // 3. delete the record from its prev heap file
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
+	    // 4. update rid to be inserted
+	    el.set((char*)(&new_rid), sizeof(rid_t));
+	}
+	heap_page.unfix();
+ 	
+        /*
+         *  Do the insert.
+         *  Turn off logging and perform physical insert.
+         */
+	{
+            w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+            xct_log_switch_t toggle(OFF);
+
+            w_assert9(slot >= 0 && slot <= leaf.nrecs());
+
+            DBG(<<"insert in leaf at slot " << slot);
+            rc = leaf.insert(key, el, slot); 
+            if(rc.is_error()) {
+                DBG(<<"rc= " << rc);
+                leaf.discard(); // force the page out.
+                return rc.reset();
+            }
+            // Keep pinned until logging is done.
+        }
+        SSMTEST("btree.insert.4");
+        /*
+         *  Log is on here. Log a logical insert.
+         *  If we get a retry, then retry a few times.
+         */
+	rc = log_btree_insert(leaf, slot, key, el, unique);
+        int count=10;
+        while (rc.is_error() && (rc.err_num() == eRETRY) && --count > 0) {
+            rc = log_btree_insert(leaf, slot, key, el, unique);
+        }
+
+        SSMTEST("btree.insert.5");
+        if (rc.is_error())  {
+            /*
+             *  Failed writing log. Manually undo physical insert.
+             */
+	    xct_log_switch_t toggle(OFF);
+            DBG(<<"log_btree_insert failed" << rc );
+
+            w_rc_t rc2 = 
+                leaf.remove(slot, leaf.is_compressed()); // zkeyed_p::remove
+            if(rc2.is_error()) {
+                DBG(<<"subsequent remove failed" << rc2 );
+                leaf.discard(); // force the page out.
+                return rc2.reset();
+            }
+            // The problem here is that the leaf page changes
+            // might *still* not have been logged.
+            if(rc.err_num() == eRETRY) {
+                leaf.discard(); // force the page out.
+            }
+            return rc.reset();
+        }
+        w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+    }
+    }
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
+    
+    return RCOK;
+}
+
+/******************************************************************
+ * TODO: might be removed!
+ * btree_impl::_insert_p(root, unique, cc, key, el, split_factor)
+ *  Same as the _insert function except if the record whose assoc is
+ * about to be inserted is in a heap page that is pointed by another
+ * sub-btree, then this record has to be moved to one of the heap pages
+ * that the corresponding sub-btree points to.
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_insert_p(
+    const lpid_t&        root,                // I-  root of btree
+    bool                unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    cvec_t&        el,                // I-  which element
+    int                 split_factor,        // I-  tune split in %
+    const bool bIgnoreLatches)
+{
+    FUNC(btree_impl::_insert_p);
+    lpid_t                  search_start_pid = root;
+    lsn_t                  search_start_lsn = lsn_t::null;
+    stid_t                 stid = root.stid();
+
+    INC_TSTAT(bt_insert_cnt);
+
+    DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
+        << " key=" << key );
+
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
+    
+    {
+        tree_latch         tree_root(root);
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+again:
+    {
+        btree_p         leaf;
+        lpid_t          leaf_pid;
+        lsn_t           leaf_lsn;
+        btree_p         parent;
+        lsn_t           parent_lsn;
+        lpid_t          parent_pid;
+        bool            found = false;
+        bool            total_match = false;
+        rc_t            rc;
+
+
+        DBGTHRD(<<"_insert.again:");
+
+        w_assert9( !leaf.is_fixed());
+        w_assert9( !parent.is_fixed());
+
+	if(!bIgnoreLatches) {
+	    if(tree_root.is_fixed()) {
+		check_latches(___s+1,___e+1, ___s+___e+1);
+	    } else {
+		check_latches(___s,___e, ___s+___e);
+	    }
+	}
+
+        /*
+         *  Walk down the tree.  Traverse doesn't
+         *  search the leaf page; it's our responsibility
+         *  to check that we're at the correct leaf.
+         */
+	traverse_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+	
+        W_DO( _traverse(root, search_start_pid,
+            search_start_lsn,
+            key, el, found, 
+            traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
+
+	if(!bIgnoreLatches) {
+	    if(leaf.pid() == root) {
+		check_latches(___s,___e+2, ___s+___e+2);
+	    } else {
+		check_latches(___s+1,___e+1, ___s+___e+2);
+	    }
+	}
+
+        w_assert9( leaf.is_fixed());
+        w_assert9( leaf.is_leaf());
+
+        w_assert9( parent.is_fixed());
+        w_assert9( parent.is_node() || (parent.is_leaf() &&
+                    leaf.pid() == root  ));
+        w_assert9( parent.is_leaf_parent() || parent.is_leaf());
+
+        /*
+         * Deal with SMOs :  traversal checked the nodes, but
+         * not the leaf.  We check the leaf for smo, delete bits.
+         * (Delete only checks for smo bits.)
+         */
+
+        leaf_pid = leaf.pid();
+        parent_pid = parent.pid(); 
+
+        if(leaf.is_smo() || leaf.is_delete()) {
+
+            /* 
+             * SH-latch the tree for manual duration -- paragraph 1
+             * of 3.3 Insert of KVL paper.  It gets unlatched
+             * below, not far.
+             */
+	    w_assert2(parent.is_fixed());
+	    w_assert2(leaf.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
+		w_assert2(leaf.latch_mode() == LATCH_EX);
+	    }
+	    /* conditional=true, try to get tree latch in SH mode,
+             */
+	    smo_mode = LATCH_SH;
+	    smo_p1mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
+	    w_error_t::err_num_t rce = tree_root.get_for_smo(true, smo_mode, 
+							     leaf, smo_p1mode, false, &parent,
+							     LATCH_NL, bIgnoreLatches);
+
+            w_assert9(leaf.is_fixed());
+            w_assert9(tree_root.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert9(leaf.latch_mode() == LATCH_EX);
+		w_assert9(tree_root.latch_mode()>= LATCH_SH);
+            }
+	    w_assert9(! parent.is_fixed());
+
+            if(rce) {
+                if(rce == eRETRY) {
+                    leaf.unfix();
+                    parent.unfix();
+                    /*
+                     * Re-search, holding the tree-root latch.
+                     * That search will culminate in 
+                     * the leaf no longer having the bit set,
+                     * OR it'll still be set but because we
+                     * already held the latch, we'll not
+                     * end up with eRETRY
+                     */
+                  DBGTHRD(<<"-->again TREE LATCH MODE "
+                                << int(tree_root.latch_mode())
+                                );
+                    goto again;
+                }
+                return RC(rce);
+            }
+            w_assert9(leaf.is_fixed());
+
+            /* 
+             * Paragraph 1, 3.3 Insert of KVL paper.
+             * if the tree root latch is granted, the
+             * insert algorithm releases the latches on the root and the
+             * parent, clears the SMO bit on the leaf
+             * and continues with the insert
+             */
+	    tree_root.unfix();
+            parent.unfix();
+
+            /*
+             * SMO is completed
+             */
+          if(leaf.is_smo())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_smo/I"));
+#endif
+                W_DO( leaf.clr_smo(true) );
+            }
+            SSMTEST("btree.insert.2");
+            if(leaf.is_delete())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_delete"));
+#endif
+                W_DO( leaf.clr_delete() );
+            }
+        } else {
+            // release parent right away
+            parent.unfix();
+        }
+        /*
+         * case we grabbed the tree latch and then
+         * we had to retry, we could still be holding
+         * it (because another thread could have
+         * unset the smo bit in the meantime)
+         * We can call unfix because it's safe in event that
+         * the latch isn't really held.
+         */
+	tree_root.unfix();
+
+        w_assert2(leaf.is_fixed());
+        w_assert2(! leaf.is_smo());
+
+        w_assert2(!parent.is_fixed());
+        w_assert2(!tree_root.is_fixed() );
+
+        w_assert2(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+
+        /*
+          * We know we're at the correct leaf now.
+         * Do we have to split the page?
+         * NB: this might cause unnecessary page splits
+         * when the user tries to insert something that's
+         * already there. But since we don't yet know if 
+         * the item is there, we can't do much at this point.
+         */
+
+	{
+            /*
+             * Don't actually DO the insert -- just see
+             * if there's room for the insert.
+             */
+	    slotid_t slot = 0; // for this purpose, it doesn't much
+                      // matter *what* slot we use
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+
+            /*false -> don't DO it, just compute max space need */
+	    DBG(<<"Don't insert in leaf at slot " << slot
+                << " just check for space");
+            rc = leaf.insert(key, el, slot, 0, false);
+            if(rc.is_error()) {
+                DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() 
+                        << " rc= " << rc
+                );
+                if (rc.err_num() == eRECWONTFIT) {
+                    /* 
+                     * Cannot split 1 record!
+                     * We shouldn't have allowed an insertion
+                     * of a record that's too big to fit.
+                     */
+
+		    bool split_with_smo = true;
+
+                    /*********************************************************
+                      FRJ: Ordinarily only one leaf split per tree is
+                      allowed at a time; we hack around this
+                      limitation (probably killing recoverability) by
+                      checking if we can latch the full leaf's parent
+                      *and* the parent's lsn did not change since we
+                      last had the latch *and* that parent is
+                      non-full. If we succeed, we insert directly into
+                      the parent without starting an official SMO.
+
+                      Steps:
+                      - attempt to latch child's current right sibling 
+                         (in case is shares child's parent)
+                      - attempt to latch parent and verify lsn
+                      - check parent for space
+                      - split child, noting right sibling's pid
+                      - insert right sibling into parent and update smo bits
+                     */
+
+                    /* First try to latch the current right sib 
+                     * (soon to be cousin)
+                     */
+		    if(0) {
+			w_assert0(!parent.is_fixed());
+                        lpid_t cousin_pid = leaf.pid();
+                        cousin_pid.page = leaf.next();
+                        btree_p cousin;
+
+                        if(cousin_pid.page) {
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = cousin.conditional_fix(cousin_pid, fix_latch);
+                            W_IFDEBUG1(
+                            if(!rc.is_error())
+                                w_assert1(cousin.prev() == leaf.pid().page);)
+                        } else {
+                            rc = RCOK;
+                        }
+                        
+                        if(!rc.is_error()) {
+                            unsigned int required_space  =
+                                2 *(key.size() + el.size() +
+                                btree_p::overhead_requirement_per_entry);
+
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = parent.conditional_fix(parent_pid, fix_latch);
+                            if(!rc.is_error()) {
+                                /* check if parent has space for the new
+                                   key. To avoid running afoul of shore's
+                                   key compression scheme, we assume that
+                                   the current key-to-be-inserted is as
+                                   large as any that will ever be
+                                   asserted, and that the current key is
+                                   very similar to an existing one
+                                   (basically, fixed-size key+elem and no
+                                   compression is possible). 
+
+                                   Really it all boils down to, "is there
+                                   room for two of the current key/el
+                                   pair?"
+                                */
+				if(parent.lsn() == parent_lsn && 
+                                    parent.usable_space() >= required_space) {
+                                    /*
+                                      phew! all is in order to begin the actual split...
+                                    */
+
+                                    // stolen from _split_leaf
+				    lsn_t anchor;
+                                    xct_t* xd = xct();
+                                    lpid_t rsib_pid;
+                                    bool left_heavy;
+                                    slotid_t slot = 1;
+                                    int addition = key.size() + el.size() + 2;
+                                    check_compensated_op_nesting ccond(xd, __LINE__, __FILE__);
+                                    if(xd) anchor = xd->anchor();
+				    DBG(<<" splitting page " << leaf.pid() 
+					<< " parent.usabel_space()= " << parent.usable_space()
+					<< " required_space = " << required_space
+					<< " addition = " << addition
+					);
+				    rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor, bIgnoreLatches);
+
+                                    // stolen from xct.h
+                                    if(rc.is_error()) {
+                                        if(xd) {
+                                            W_COERCE(xd->rollback(anchor));
+                                            xd->release_anchor(true LOG_COMMENT_USE("btimpl1"));
+                                        }
+                                    }
+                                    else {
+                                        // stolen from _propagate
+                                        slotid_t child_slot = 0;
+                                        bool found_key = false;
+                                        bool total_match = false;
+                                        rc = parent.search(key, el, found_key, total_match, child_slot);
+                                        if(!total_match) child_slot--;
+                                        if(rc.is_error()) {
+                                            if(xd) {
+                                                W_COERCE(xd->rollback(anchor));
+                                                xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl2"));
+                                            }
+                                        }
+                                        else {
+                                            // stolen from _propagate_split
+                                            bool was_split = false;
+                                            rc = _propagate_split(parent, leaf.pid(), child_slot,
+								  was_split, bIgnoreLatches);
+                                            if(rc.is_error()) {
+                                                if(xd) {
+                                                    W_COERCE(xd->rollback(anchor));
+                                                    xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl3"));
+                                                }
+                                            }
+                                            else {
+                                                w_assert1(!was_split);
+                                                split_with_smo = false;
+                                                if(xd) xd->compensate(anchor,false/*not undoable*/
+								      LOG_COMMENT_USE("btree1"));
+
+						tree_root.unfix();
+						goto again;
+                                            }
+                                        }
+                                    }
+                                }
+                                parent.unfix();
+                            } // end not error on conditional fix
+                        }
+                        w_assert1(leaf.is_fixed());
+                        w_assert1(! parent.is_fixed());
+                    }
+                    /*******************************************************/
+
+                    if(split_with_smo) 
+                    {
+                        /*
+                         * Split the page  - get the tree latch and
+                         * hang onto it until we're done with the split.
+                         * If a page changed during the wait for the
+                         * tree latch, we'll start all over, having
+                         * free the tree latch.
+                         */
+			smo_mode = LATCH_EX;
+			smo_p1mode = LATCH_EX;
+			if(bIgnoreLatches) {
+			    smo_mode = LATCH_NL;
+			    smo_p1mode = LATCH_NL;
+			}
+                        w_error_t::err_num_t rce = 
+                            tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, 0, LATCH_NL, bIgnoreLatches);
+
+                        w_assert2(tree_root.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert9(! parent.is_fixed());
+
+                        if(rce) {
+                            if(rce== eRETRY) {
+                                /*
+                                 * One of the pages had changed since
+                                 * we unlatched and awaited the tree latch,
+                                 * so free the tree latch and 
+                                 * re-start the search.
+                                 */
+				tree_root.unfix();
+                                leaf.unfix();
+                                DBGTHRD(<<"-->again TREE LATCH MODE "
+                                    << int(tree_root.latch_mode())
+                                    );
+                                goto again;
+                            }
+                            return RC(rce);
+                        }
+                        w_assert2(!parent.is_fixed());
+                        w_assert2(leaf.is_fixed());
+                        w_assert2(tree_root.is_fixed());
+                        W_DO( _split_leaf(tree_root.pid(), leaf, key, 
+					  el, split_factor, bIgnoreLatches) );
+                        SSMTEST("btree.insert.3");
+
+                        tree_root.unfix();
+                        DBG(<<"split -->again");
+                        goto again;
+                    }
+                } else {
+                    return RC_AUGMENT(rc);
+                }
+            }
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+        } // check for need to split
+
+        slotid_t                 slot = -1;
+        {
+        /*
+          * We know we're at the correct leaf now, and we
+         * don't have to split.
+         * Get the slot in the leaf, and figure out if
+         * we have to lock the next key value.
+         */
+        btree_p                p2; // possibly needed for 2nd leaf
+        lpid_t                p2_pid = lpid_t::null;
+        lsn_t                p2_lsn;
+        uint                whatcase;
+        bool                 eof=false;
+        slotid_t                 next_slot = 0;
+
+        W_DO( _satisfy(leaf, key, el, found, 
+                    total_match, slot, whatcase));
+
+        DBGTHRD(<<"found = " << found
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid()
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+        w_assert9(!parent.is_fixed());
+
+        lock_duration_t this_duration = t_long;
+        lock_duration_t next_duration = t_instant;
+        lock_mode_t        this_mode = EX;
+        lock_mode_t        next_mode = IX;
+        bool                 lock_next = true;
+
+        bool                look_on_next_page = false;
+        switch(whatcase) {
+
+            case m_not_found_end_of_file:
+                // Will use EOF lock
+                w_assert9( !total_match ); // but found (key) could be true
+                eof = true;
+                break;
+
+            case m_satisfying_key_found_same_page: {
+                /*
+                 * found means we found the key we're seeking, which
+                 *   will ultimately result in an eDUPLICATE, and we won't
+                 *   have to lock the next key.
+                 *
+                 *  !found means the satisfying key is the next key
+                 *   and it's on the this page
+                 */
+		p2 = leaf; // refixes
+                if(!found) {
+                    next_slot = slot;
+                    break;
+                } else {
+                    // Next entry might be on next page
+                    next_slot = slot+1;
+                    if(next_slot < leaf.nrecs()) {
+                        break;
+                    } else if( !leaf.next()) {
+                        eof = true;
+                        break;
+                    }
+                }
+                look_on_next_page = true;
+            } break; 
+
+            case m_not_found_end_of_non_empty_page: {
+                look_on_next_page = true;
+            } break;
+
+            case m_not_found_page_is_empty:
+                /*
+                 * there should be no smos in progress: 
+                 * can't be the case during forward processing.
+                 * but during undo we can get here.
+                 */
+		w_assert9(smlevel_0::in_recovery());
+                w_assert9(leaf.next());
+                look_on_next_page = true;
+                break;
+        }
+        if(look_on_next_page) {
+            /*
+             * the next key is on the NEXT page, (if the next 
+             * page isn't empty- we don't know that because we haven't yet
+             * traversed there).
+             */
+
+            /*
+             * This much is taken from the Fetch/lookup cases
+             * since Mohan just says "in a manner similar to fetch"
+             */
+	    w_assert9(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+            /*
+             * Mohan: unlatch the parent and latch the successor.
+             * If the successor is empty or does not have a
+             * satisfying key, unlatch both pages and request
+             * the tree latch in S mode, then restart the search
+             * from the parent.
+             */
+	    parent.unfix();
+
+            w_assert9(leaf.next());
+            p2_pid = root; // get volume, store part
+            p2_pid.page = leaf.next();
+
+            INC_TSTAT(bt_links);
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(p2_pid, fix_latch) );
+            next_slot = 0; //first rec on next page
+
+            w_assert9(p2.nrecs());  // else we'd have been at
+                                    // case m_not_found_end_of_file
+            w_assert9( !found || !total_match ||
+                    (whatcase == m_satisfying_key_found_same_page));
+        } 
+
+        /*
+         *  Create KVL lock for to-be-inserted key value
+         *  We need to use it in the determination (below)
+         *  of lock/don't lock the next key-value
+         */
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        lockid_t kvl;
+        mk_kvl(cc, kvl, stid, unique, key, el);
+
+        /*
+         * Figure out if we need to lock the next key-value
+         * Ref: Figure 1 in VLDB KVL paper
+         */
+
+        if(unique && found) {
+            /*
+             * Try a conditional, commit-duration (gives RR -- instant
+             * would satisfy CS) lock on the found key value
+             * to make sure the found key is committed, or else
+             * was put there by this xct. 
+             */
+	    this_duration = t_long;
+            this_mode = SH;
+            lock_next = false;  
+
+        } else if ( (!unique) && total_match ) {
+            /*  non-unique index, total match */
+	    this_mode = IX;
+            this_duration = t_long;
+            lock_next = false;
+            /*
+             * we will return eDUPLICATE.  See Mohan KVL 3.3 Insert,
+             * paragraph 2 for explanation why the IX lock on THIS key
+             * is sufficient for CS,RR, and we don't have to go through
+             * the rigamarole of getting the share latch, as in the case
+             * of a unique index.
+             */
+	} else {
+            w_assert9((unique && !found)  ||
+                        (!unique && !total_match));
+            this_mode = IX; // See note way below before we
+                                // grab the THIS lock
+            this_duration = t_long;
+            lock_next = true;
+            next_mode = IX;
+            next_duration = t_instant;
+        }
+
+        /* 
+         * Grab the key-value lock for the next key, if needed.
+         * First try conditionally.  If that fails, unlatch the
+         * leaf page(s) and try unconditionally.
+         */
+	if( (cc == t_cc_none) || (cc == t_cc_modkvl) ) lock_next = false;
+
+#if W_DEBUG_LEVEL > 2
+        if(p2_pid.page) w_assert3(p2.is_fixed());
+#endif
+
+        if(lock_next) {
+            lockid_t nxt_kvl;
+
+            if(eof) {
+                mk_kvl_eof(cc, nxt_kvl, stid);
+            } else {
+                w_assert9(p2.is_fixed());
+                btrec_t r(p2, next_slot); 
+                mk_kvl(cc, nxt_kvl, stid, unique, r);
+            }
+            rc = lm->lock(nxt_kvl, next_mode, next_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc= " << rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); 
+                    p2_lsn = p2.lsn(); 
+                    p2.unfix();
+                } else {
+                  w_assert9(!p2_pid.valid());
+                }
+                leaf.unfix();
+                W_DO(lm->lock(nxt_kvl, next_mode, next_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+		    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+                if(p2_pid.page) {
+		    fix_latch = LATCH_SH;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    W_DO(p2.fix(p2_pid, fix_latch));
+                    if(p2.lsn() != p2_lsn) {
+                        /*
+                         * Have to re-compute next value.
+                         * TODO (performance): we should avoid this re-traversal
+                         * but instead just 
+                         * go from leaf -> leaf.next() again.
+                         */
+			leaf.unfix();
+                        p2.unfix();
+                        DBG(<<"-->again");
+                        goto again;
+                    }
+                }
+            }
+        }
+        p2.unfix();
+
+        /* WARNING: If this gets fixed, so we keep the IX lock,
+         * we must change the way locks are logged at prepare time!
+         * (Lock on next value is of instant duration, so it's ok.)
+         */
+        
+	this_mode = EX;
+
+        if(cc > t_cc_none) {
+            /* 
+             * Grab the key-value lock for the found key.
+             * First try conditionally.  If that fails, unlatch the
+             * leaf page(s) and try unconditionally.
+             */
+              rc = lm->lock(kvl, this_mode, this_duration, WAIT_IMMEDIATE);
+            if (rc.is_error())  {
+                DBG(<<"rc=" <<rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                if(p2.is_fixed()) {
+                    p2_pid = p2.pid(); // might be null
+                    p2_lsn = p2.lsn(); // might be null
+                    p2.unfix();
+                }
+                leaf.unfix();
+                W_DO(lm->lock(kvl, this_mode, this_duration));
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
+                if(leaf.lsn() != leaf_lsn) {
+                    /*
+                     * if the page changed, the found key
+                     * might not be in the tree anymore.
+                     */
+		    parent.unfix();
+                    leaf.unfix();
+                    DBG(<<"-->again");
+                    goto again;
+                }
+            }
+        }
+        if((found && unique) || total_match) {
+            /* 
+             * Didn't have to wait for a lock, or waited and the
+             * pages didn't change. It's found, is really there, 
+             * and it's an error.
+             */
+	    DBG(<<"DUPLICATE");
+            return RC(eDUPLICATE);
+        }
+
+        } // getting locks
+
+        w_assert9(leaf.is_fixed());
+
+        /* 
+         * Ok - all necessary latches and locks are held.
+         * If we have a sibling and had to get the next key value,
+         *  we already released that page.
+         */
+
+	// Check for leaf-heap page mapping
+	// Three cases;
+	// 1) The record is already in a heap page pointed by this sub-tree
+	// 2) The record is in a heap page which is not pointed by any sub-tree
+	// 3) The record's heap page is pointed by another sub-tree
+	rid_t rid;
+	el.copy_to(&rid, sizeof(rid_t));
+	file_mrbt_p heap_page;
+	// pin: we can't ignore latches here since this heap page might be pointed by some other leaf page
+	W_DO(heap_page.fix(rid.pid, LATCH_EX));
+	lpid_t owner_root;
+	heap_page.get_owner(owner_root);
+	if(owner_root == root) { // CASE 1 ; do nothing
+	
+	} else if(owner_root.page == 0) { // CASE 2 ; set heap_page owner
+	    heap_page.set_owner(root);
+	} else { // CASE 3 ; move record
+	    	    
+	    // first try to put it into a page that is already pointed by this leaf
+	    // otherwise create a new heap page and put the record there
+	    
+	    // 0. get the record from the heap page
+	    record_t* rec_to_move;
+	    W_DO( heap_page.get_rec(rid.slot, rec_to_move) );
+	    vec_t hdr_vec;
+	    vec_t data_vec;
+	    char* hdr = (char*) malloc((*rec_to_move).hdr_size());
+	    memcpy(hdr, (*rec_to_move).hdr(), (*rec_to_move).hdr_size());
+	    char* data = (char*) malloc((*rec_to_move).body_size());
+	    memcpy(data, (*rec_to_move).body(), (*rec_to_move).body_size());
+	    rid_t new_rid;
+	    hdr_vec.put(hdr, (*rec_to_move).hdr_size());
+	    data_vec.put(data, (*rec_to_move).body_size());
+	    
+	    // 1. try to find a file page with empty slot and pointed by this sub-tree
+	    fix_latch = LATCH_EX;
+	    latch_mode_t leaf_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+		leaf_latch = LATCH_NL;
+	    }
+	    file_mrbt_p current_heap_page;
+	    bool space_found = false;
+	    set<lpid_t> pages; // to not to look at already looked at heap pages
+	    // 1.1 start with the leaf page that the insert will take place
+	    for(int i=0; !space_found && i < leaf.nrecs(); i++) {
+		// get the rec from the leaf_page
+		btrec_t rec_leaf(leaf, i);
+		rid_t current_rid;
+		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		// move it to new page
+		if(pages.find(current_rid.pid) == pages.end()) {
+		    W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
+		    W_DO( file_m::move_mrbt_rec_to_given_page(0,
+							      hdr_vec,
+							      data_vec,
+							      new_rid,
+							      current_heap_page,
+							      space_found,
+							      bIgnoreLatches) );
+		    pages.insert(current_rid.pid);
+		}
+	    }
+	    // 1.2 if no space found then traverse the leaf pages that comes after this leaf page
+	    if(!space_found && leaf.next() != 0) {
+		btree_p next_leaf;
+		lpid_t pid_next_leaf(root._stid, leaf.next());
+		W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
+		int i = 0;
+		while(!space_found) {
+		    if(i >= next_leaf.nrecs()) {
+			pid_next_leaf.page = next_leaf.next();
+			next_leaf.unfix();
+			if(pid_next_leaf.page != 0) {
+			    i = 0;
+			    W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
+			} else {
+			    break;
+			}
+		    }
+		    // get the rec from the leaf_page
+		    btrec_t rec_leaf(leaf, i);
+		    rid_t current_rid;
+		    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		    if(pages.find(current_rid.pid) == pages.end()) {
+			// move it to new page
+			W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
+			W_DO( file_m::move_mrbt_rec_to_given_page(0,
+								  hdr_vec,
+								  data_vec,
+								  new_rid,
+								  current_heap_page,
+								  space_found,
+								  bIgnoreLatches) );		
+			pages.insert(current_rid.pid);
+		    }
+		    i++;
+		}
+	    }
+	    // 1.3 if still no space found then traverse the leaf pages that comes before this leaf page
+	    if(!space_found && leaf.prev() != 0) {
+		btree_p prev_leaf;
+		lpid_t pid_prev_leaf(root._stid, leaf.prev());
+		W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
+		int i = 0;
+		while(!space_found) {
+		    if(i >= prev_leaf.nrecs()) {
+			pid_prev_leaf.page = prev_leaf.next();
+			prev_leaf.unfix();
+			if(pid_prev_leaf.page != 0) {
+			    i = 0;
+			    W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
+			} else {
+			    break;
+			}
+		    }
+		    // get the rec from the leaf_page
+		    btrec_t rec_leaf(leaf, i);
+		    rid_t current_rid;
+		    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		    if(pages.find(current_rid.pid) == pages.end()) {
+			// move it to new page
+			W_DO( current_heap_page.fix(current_rid.pid, fix_latch ));
+			W_DO( file_m::move_mrbt_rec_to_given_page(0,
+								  hdr_vec,
+								  data_vec,
+								  new_rid,
+								  current_heap_page,
+								  space_found,
+								  bIgnoreLatches) );
+			pages.insert(current_rid.pid);
+		    }
+		    i++;
+		}
+	    }
+	    // 2. none of the heap pages are empty then create a new one
+	    if(!space_found) {
+		lpid_t new_page_id;
+		W_DO( file_m::_alloc_mrbt_page(rid.pid._stid,
+					       lpid_t::eof,
+					       new_page_id,
+					       current_heap_page,
+					       true) );
+		W_DO( current_heap_page.set_owner(leaf.pid()) );
+		// retry the insert
+		W_DO( file_m::move_mrbt_rec_to_given_page(0,
+							  hdr_vec,
+							  data_vec,
+							  new_rid,
+							  current_heap_page,
+							  space_found,
+							  bIgnoreLatches) );
+	    }
+	    // 3. delete the record from its prev heap file
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
+	    // 4. update rid to be inserted
+	    el.set((char*)(&new_rid), sizeof(rid_t));
+	}
+	heap_page.unfix();
+ 	
+        /*
+         *  Do the insert.
+         *  Turn off logging and perform physical insert.
+         */
+	{
+            w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+            xct_log_switch_t toggle(OFF);
+
+            w_assert9(slot >= 0 && slot <= leaf.nrecs());
+
+            DBG(<<"insert in leaf at slot " << slot);
+            rc = leaf.insert(key, el, slot); 
+            if(rc.is_error()) {
+                DBG(<<"rc= " << rc);
+                leaf.discard(); // force the page out.
+                return rc.reset();
+            }
+            // Keep pinned until logging is done.
+        }
+        SSMTEST("btree.insert.4");
+        /*
+         *  Log is on here. Log a logical insert.
+         *  If we get a retry, then retry a few times.
+         */
+	rc = log_btree_insert(leaf, slot, key, el, unique);
+        int count=10;
+        while (rc.is_error() && (rc.err_num() == eRETRY) && --count > 0) {
+            rc = log_btree_insert(leaf, slot, key, el, unique);
+        }
+
+        SSMTEST("btree.insert.5");
+        if (rc.is_error())  {
+            /*
+             *  Failed writing log. Manually undo physical insert.
+             */
+	    xct_log_switch_t toggle(OFF);
+            DBG(<<"log_btree_insert failed" << rc );
+
+            w_rc_t rc2 = 
+                leaf.remove(slot, leaf.is_compressed()); // zkeyed_p::remove
+            if(rc2.is_error()) {
+                DBG(<<"subsequent remove failed" << rc2 );
+                leaf.discard(); // force the page out.
+                return rc2.reset();
+            }
+            // The problem here is that the leaf page changes
+            // might *still* not have been logged.
+            if(rc.err_num() == eRETRY) {
+                leaf.discard(); // force the page out.
+            }
+            return rc.reset();
+        }
+        w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
+    }
+    }
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
+    
+    return RCOK;
+}
+
+// --
+
+/*********************************************************************
+ *
+ *  btree_impl::_alloc_page(root, level, near, ret_page, pid0,
+ *                           set_its_smo, compressed)
+ *
+ *  Allocate a page for btree rooted at root. Fix the page allocated
+ *  and return it in ret_page.
+ *
+ *          ============ IMPORTANT ============
+ *  This function should be called in a compensating
+ *  action so that it does not get undone if the xct
+ *  aborts. The page allocated would become part of
+ *  the btree as soon as other pages started pointing
+ *  to it. So, page allocation as well as other
+ *  operations to linkup the page should be a single
+ *  top-level action.
+ *
+ *********************************************************************/
+rc_t
+btree_impl::_alloc_page(
+    const lpid_t& root, 
+    int2_t level,
+    const lpid_t& near_p,
+    btree_p& ret_page,
+    shpid_t pid0, // = 0
+    bool set_its_smo, // = false
+    bool compressed,  // = false
+    store_flag_t stf,  // = st_regular,
+    const bool bIgnoreLatches // = false
+    )
+{
+    FUNC(btree_impl::_alloc_page);
+
+    latch_mode_t mode = LATCH_EX;
+    if(bIgnoreLatches) {
+	mode = LATCH_NL;
+    }
+	
+    lpid_t pid;
+    w_assert9(near_p != lpid_t::null);
+
+    // temporary btrees are not supported: use st_regular
+    // only way to exploit st_tmp here is through bulk-loading
+    DBG(<<"stid " << root.stid());
+    W_DO(smlevel_0::io->alloc_a_page(
+        root.stid(), 
+        near_p,         // hint
+        pid,         // output
+        true,         //  may_realloc 
+        NL,        //  ignored
+        true        // search file
+        )) ;
+    W_DO( ret_page.fix(pid, mode, ret_page.t_virgin, stf) );
+
+    btree_p::flag_t f = compressed? btree_p::t_compressed : btree_p::t_none;
+
+    if(set_its_smo) {
+        f = (btree_p::flag_t)
+                (((unsigned int) f) | ((unsigned int) btree_p::t_smo));
+    }
+    W_DO( ret_page.set_hdr(root.page, level, pid0, (uint2_t)f) );
+
+
+    DBGTHRD(<<"allocated btree page " << pid << " at level " << level);
+    return RCOK;
+}
+
+/******************************************************************
+ *
+ * btree_impl::_insert(root, unique, cc, key, el, split_factor)
+ *  The essence of Mohan's insert function.  cc should take
+ *  t_cc_none, t_cc_im, t_cc_kvl, t_cc_modkvl
+ *
+ ******************************************************************/
+
+rc_t
+btree_impl::_insert(
+    const lpid_t&        root,                // I-  root of btree
+    bool                unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    const cvec_t&        el,                // I-  which element
+    int                 split_factor,        // I-  tune split in %
+    const bool bIgnoreLatches)
+{
+    FUNC(btree_impl::_insert);
+    lpid_t                  search_start_pid = root;
+    lsn_t                  search_start_lsn = lsn_t::null;
+    stid_t                 stid = root.stid();
+
+    INC_TSTAT(bt_insert_cnt);
+
+    DBGTHRD(<<"_insert: unique = " << unique << " cc=" << int(cc)
+        << " key=" << key );
+
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
+    
+    {
+        tree_latch         tree_root(root);
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+again:
+    {
+        btree_p         leaf;
+        lpid_t          leaf_pid;
+        lsn_t           leaf_lsn;
+        btree_p         parent;
+        lsn_t           parent_lsn;
+        lpid_t          parent_pid;
+        bool            found = false;
+        bool            total_match = false;
+        rc_t            rc;
+
+
+        DBGTHRD(<<"_insert.again:");
+
+        w_assert9( !leaf.is_fixed());
+        w_assert9( !parent.is_fixed());
+
+	if(!bIgnoreLatches) {
+	    if(tree_root.is_fixed()) {
+		check_latches(___s+1,___e+1, ___s+___e+1);
+	    } else {
+		check_latches(___s,___e, ___s+___e);
+	    }
+	}
+
+        /*
+         *  Walk down the tree.  Traverse doesn't
+         *  search the leaf page; it's our responsibility
+         *  to check that we're at the correct leaf.
+         */
+	traverse_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+	
+        W_DO( _traverse(root, search_start_pid,
+            search_start_lsn,
+            key, el, found, 
+            traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
+
+	if(!bIgnoreLatches) {
+	    if(leaf.pid() == root) {
+		check_latches(___s,___e+2, ___s+___e+2);
+	    } else {
+		check_latches(___s+1,___e+1, ___s+___e+2);
+	    }
+	}
+
+        w_assert9( leaf.is_fixed());
+        w_assert9( leaf.is_leaf());
+
+        w_assert9( parent.is_fixed());
+        w_assert9( parent.is_node() || (parent.is_leaf() &&
+                    leaf.pid() == root  ));
+        w_assert9( parent.is_leaf_parent() || parent.is_leaf());
+
+        /*
+         * Deal with SMOs :  traversal checked the nodes, but
+         * not the leaf.  We check the leaf for smo, delete bits.
+         * (Delete only checks for smo bits.)
+         */
+
+        leaf_pid = leaf.pid();
+        parent_pid = parent.pid(); 
+
+        if(leaf.is_smo() || leaf.is_delete()) {
+
+            /* 
+             * SH-latch the tree for manual duration -- paragraph 1
+             * of 3.3 Insert of KVL paper.  It gets unlatched
+             * below, not far.
+             */
+            w_assert2(parent.is_fixed());
+	    w_assert2(leaf.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert2(parent.latch_mode()>=LATCH_SH); // could be EX
+		w_assert2(leaf.latch_mode() == LATCH_EX);
+	    }
+	    /* conditional=true, try to get tree latch in SH mode,
+             */
+	    smo_mode = LATCH_SH;
+	    smo_p1mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
+	    w_error_t::err_num_t rce = tree_root.get_for_smo(true, smo_mode, 
+							     leaf, smo_p1mode, false, &parent,
+							     LATCH_NL, bIgnoreLatches);
+
+            w_assert9(leaf.is_fixed());
+            w_assert9(tree_root.is_fixed());
+	    if(!bIgnoreLatches) {
+		w_assert9(leaf.latch_mode() == LATCH_EX);
+		w_assert9(tree_root.latch_mode()>= LATCH_SH);
+            }
+	    w_assert9(! parent.is_fixed());
+
+            if(rce) {
+                if(rce == eRETRY) {
+                    leaf.unfix();
+                    parent.unfix();
+                    /*
+                     * Re-search, holding the tree-root latch.
+                     * That search will culminate in 
+                     * the leaf no longer having the bit set,
+                     * OR it'll still be set but because we
+                     * already held the latch, we'll not
+                     * end up with eRETRY
+                     */
+                    DBGTHRD(<<"-->again TREE LATCH MODE "
+                                << int(tree_root.latch_mode())
+                                );
+                    goto again;
+                }
+                return RC(rce);
+            }
+            w_assert9(leaf.is_fixed());
+
+            /* 
+             * Paragraph 1, 3.3 Insert of KVL paper.
+             * if the tree root latch is granted, the
+             * insert algorithm releases the latches on the root and the
+             * parent, clears the SMO bit on the leaf
+             * and continues with the insert
+             */
+            tree_root.unfix();
+            parent.unfix();
+
+            /*
+             * SMO is completed
+             */
+            if(leaf.is_smo())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_smo/I"));
+#endif
+                W_DO( leaf.clr_smo(true) );
+            }
+            SSMTEST("btree.insert.2");
+            if(leaf.is_delete())     {
+#if BTREE_LOG_COMMENT_ON
+                W_DO(log_comment("clr_delete"));
+#endif
+                W_DO( leaf.clr_delete() );
+            }
+        } else {
+            // release parent right away
+            parent.unfix();
+        }
+        /*
+         * case we grabbed the tree latch and then
+         * we had to retry, we could still be holding
+         * it (because another thread could have
+         * unset the smo bit in the meantime)
+         * We can call unfix because it's safe in event that
+         * the latch isn't really held.
+         */
+        tree_root.unfix();
+
+        w_assert2(leaf.is_fixed());
+        w_assert2(! leaf.is_smo());
+
+        w_assert2(!parent.is_fixed());
+        w_assert2(!tree_root.is_fixed() );
+
+        w_assert2(leaf.nrecs() || leaf.pid() == root || smlevel_0::in_recovery());
+
+        /*
+          * We know we're at the correct leaf now.
+         * Do we have to split the page?
+         * NB: this might cause unnecessary page splits
+         * when the user tries to insert something that's
+         * already there. But since we don't yet know if 
+         * the item is there, we can't do much at this point.
+         */
+
+        {
+            /*
+             * Don't actually DO the insert -- just see
+             * if there's room for the insert.
+             */
+            slotid_t slot = 0; // for this purpose, it doesn't much
+                      // matter *what* slot we use
+            DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() );
+
+            /*false -> don't DO it, just compute max space need */
+            DBG(<<"Don't insert in leaf at slot " << slot
+                << " just check for space");
+            rc = leaf.insert(key, el, slot, 0, false);
+            if(rc.is_error()) {
+                DBG(<<" page " << leaf.pid() << " nrecs()= " << leaf.nrecs() 
+                        << " rc= " << rc
+                );
+                if (rc.err_num() == eRECWONTFIT) {
+                    /* 
+                     * Cannot split 1 record!
+                     * We shouldn't have allowed an insertion
+                     * of a record that's too big to fit.
+                     */
+
+                    bool split_with_smo = true;
+
+                    /*********************************************************
+                      FRJ: Ordinarily only one leaf split per tree is
+                      allowed at a time; we hack around this
+                      limitation (probably killing recoverability) by
+                      checking if we can latch the full leaf's parent
+                      *and* the parent's lsn did not change since we
+                      last had the latch *and* that parent is
+                      non-full. If we succeed, we insert directly into
+                      the parent without starting an official SMO.
+
+                      Steps:
+                      - attempt to latch child's current right sibling 
+                         (in case is shares child's parent)
+                      - attempt to latch parent and verify lsn
+                      - check parent for space
+                      - split child, noting right sibling's pid
+                      - insert right sibling into parent and update smo bits
+                     */
+
+                    /* First try to latch the current right sib 
+                     * (soon to be cousin)
+                     */
+		    if(0) {
+			w_assert0(!parent.is_fixed());
+                        lpid_t cousin_pid = leaf.pid();
+                        cousin_pid.page = leaf.next();
+                        btree_p cousin;
+
+                        if(cousin_pid.page) {
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = cousin.conditional_fix(cousin_pid, fix_latch);
+                            W_IFDEBUG1(
+                            if(!rc.is_error())
+                                w_assert1(cousin.prev() == leaf.pid().page);)
+                        } else {
+                            rc = RCOK;
+                        }
+                        
+                        if(!rc.is_error()) {
+                            unsigned int required_space  =
+                                2 *(key.size() + el.size() +
+                                btree_p::overhead_requirement_per_entry);
+
+			    fix_latch = LATCH_EX;
+			    if(bIgnoreLatches) {
+				fix_latch = LATCH_NL;
+			    }
+                            rc = parent.conditional_fix(parent_pid, fix_latch);
+                            if(!rc.is_error()) {
+                                /* check if parent has space for the new
+                                   key. To avoid running afoul of shore's
+                                   key compression scheme, we assume that
+                                   the current key-to-be-inserted is as
+                                   large as any that will ever be
+                                   asserted, and that the current key is
+                                   very similar to an existing one
+                                   (basically, fixed-size key+elem and no
+                                   compression is possible). 
+
+                                   Really it all boils down to, "is there
+                                   room for two of the current key/el
+                                   pair?"
+                                */
+                                if(parent.lsn() == parent_lsn && 
+                                    parent.usable_space() >= required_space) {
+                                    /*
+                                      phew! all is in order to begin the actual split...
+                                    */
+
+                                    // stolen from _split_leaf
+                                    lsn_t anchor;
+                                    xct_t* xd = xct();
+                                    lpid_t rsib_pid;
+                                    bool left_heavy;
+                                    slotid_t slot = 1;
+                                    int addition = key.size() + el.size() + 2;
+                                    check_compensated_op_nesting ccond(xd, __LINE__, __FILE__);
+                                    if(xd) anchor = xd->anchor();
+                DBG(<<" splitting page " << leaf.pid() 
+                        << " parent.usabel_space()= " << parent.usable_space()
+                        << " required_space = " << required_space
+                        << " addition = " << addition
+                   );
+		rc = __split_page(leaf, rsib_pid, left_heavy, slot, addition, split_factor, bIgnoreLatches);
+
+                                    // stolen from xct.h
+                                    if(rc.is_error()) {
+                                        if(xd) {
+                                            W_COERCE(xd->rollback(anchor));
+                                            xd->release_anchor(true LOG_COMMENT_USE("btimpl1"));
+                                        }
+                                    }
+                                    else {
+                                        // stolen from _propagate
+                                        slotid_t child_slot = 0;
+                                        bool found_key = false;
+                                        bool total_match = false;
+                                        rc = parent.search(key, el, found_key, total_match, child_slot);
+                                        if(!total_match) child_slot--;
+                                        if(rc.is_error()) {
+                                            if(xd) {
+                                                W_COERCE(xd->rollback(anchor));
+                                                xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl2"));
+                                            }
+                                        }
+                                        else {
+                                            // stolen from _propagate_split
+                                            bool was_split = false;
+                                            rc = _propagate_split(parent, leaf.pid(), child_slot,
+								  was_split, bIgnoreLatches);
+                                            if(rc.is_error()) {
+                                                if(xd) {
+                                                    W_COERCE(xd->rollback(anchor));
+                                                    xd->release_anchor(true 
+                                                        LOG_COMMENT_USE("btimpl3"));
+                                                }
+                                            }
+                                            else {
+                                                w_assert1(!was_split);
+                                                split_with_smo = false;
+                                                if(xd) xd->compensate(anchor,false/*not undoable*/
+                                                        LOG_COMMENT_USE("btree1"));
+
+						tree_root.unfix();
+						goto again;
+                                            }
+                                        }
+                                    }
+                                }
+                                parent.unfix();
+                            } // end not error on conditional fix
+                        }
+                        w_assert1(leaf.is_fixed());
+                        w_assert1(! parent.is_fixed());
+                    }
+                    /*******************************************************/
+
+                    if(split_with_smo) 
+                    {
+                        /*
+                         * Split the page  - get the tree latch and
+                         * hang onto it until we're done with the split.
+                         * If a page changed during the wait for the
+                         * tree latch, we'll start all over, having
+                         * free the tree latch.
+                         */
+			smo_mode = LATCH_EX;
+			smo_p1mode = LATCH_EX;
+			if(bIgnoreLatches) {
+			    smo_mode = LATCH_NL;
+			    smo_p1mode = LATCH_NL;
+			}
+                        w_error_t::err_num_t rce = 
+                            tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, 0, LATCH_NL, bIgnoreLatches);
 
                         w_assert2(tree_root.is_fixed());
                         w_assert2(leaf.is_fixed());
@@ -926,7 +4655,7 @@ again:
                         w_assert2(leaf.is_fixed());
                         w_assert2(tree_root.is_fixed());
                         W_DO( _split_leaf(tree_root.pid(), leaf, key, 
-                                    el, split_factor) );
+					  el, split_factor, bIgnoreLatches) );
                         SSMTEST("btree.insert.3");
 
                         tree_root.unfix();
@@ -1048,7 +4777,11 @@ again:
             p2_pid.page = leaf.next();
 
             INC_TSTAT(bt_links);
-            W_DO( p2.fix(p2_pid, LATCH_SH) );
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(p2_pid, fix_latch) );
             next_slot = 0; //first rec on next page
 
             w_assert9(p2.nrecs());  // else we'd have been at
@@ -1143,7 +4876,12 @@ again:
                 }
                 leaf.unfix();
                 W_DO(lm->lock(nxt_kvl, next_mode, next_duration));
-                W_DO(leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     /*
                      * if the page changed, the found key
@@ -1154,7 +4892,11 @@ again:
                     goto again;
                 }
                 if(p2_pid.page) {
-                    W_DO(p2.fix(p2_pid, LATCH_SH) );
+		    fix_latch = LATCH_SH;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    W_DO(p2.fix(p2_pid, fix_latch));
                     if(p2.lsn() != p2_lsn) {
                         /*
                          * Have to re-compute next value.
@@ -1197,7 +4939,12 @@ again:
                 }
                 leaf.unfix();
                 W_DO(lm->lock(kvl, this_mode, this_duration));
-                W_DO(leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO(leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     /*
                      * if the page changed, the found key
@@ -1284,9 +5031,11 @@ again:
         }
         w_assert9(!smlevel_1::log || me()->xct()->is_log_on());
     }
-    }        
-    check_latches(___s,___e, ___s+___e);
-
+    }
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
+    
     return RCOK;
 }
 
@@ -1302,8 +5051,8 @@ btree_impl::_remove(
     bool                unique, // true if btree is unique
     concurrency_t        cc,        // concurrency control
     const cvec_t&        key,        // which key
-    const cvec_t&        el         // which el
-)
+    const cvec_t&        el,         // which el
+    const bool bIgnoreLatches)        
 {
     FUNC(btree_impl::_remove);
     lpid_t                  search_start_pid = root;
@@ -1320,11 +5069,22 @@ btree_impl::_remove(
         cout << "BEFORE _remove" <<endl;
         btree_m::print(root);
     }
-#endif 
-    get_latches(___s,___e);
+#endif
 
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
+    
     {
     tree_latch         tree_root(root);
+
+    // latch modes
+    latch_mode_t traverse_latch;
+    latch_mode_t smo_mode;
+    latch_mode_t smo_p1mode;
+    latch_mode_t smo_p2mode;
+    latch_mode_t fix_latch;
+
 again:
     {
     btree_p         leaf;
@@ -1343,12 +5103,14 @@ again:
     w_assert9( ! leaf.is_fixed());
     w_assert9( ! parent.is_fixed());
 
-    if(tree_root.is_fixed()) {
-        check_latches(___s+1,___e+1, ___s+___e+1);
-    } else {
-        check_latches(___s,___e, ___s+___e);
+    if(!bIgnoreLatches) {
+	if(tree_root.is_fixed()) {
+	    check_latches(___s+1,___e+1, ___s+___e+1);
+	} else {
+	    check_latches(___s,___e, ___s+___e);
+	}
     }
-
+    
     DBGTHRD(<<"_remove.do:");
 
     /*
@@ -1357,19 +5119,24 @@ again:
      *  to check that we're at the correct leaf.
      */
 
+    traverse_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	traverse_latch = LATCH_NL;
+    }
     W_DO( _traverse(root, search_start_pid,
         search_start_lsn,
         key, el, found, 
-        LATCH_EX, leaf, parent,
-        leaf_lsn, parent_lsn) );
+        traverse_latch, leaf, parent,
+		    leaf_lsn, parent_lsn, bIgnoreLatches) );
 
-
-    if(leaf.pid() == root) {
-        check_latches(___s,___e+2, ___s+___e+2);
-    } else {
-        check_latches(___s+1,___e+1, ___s+___e+2);
+    if(!bIgnoreLatches) {
+	if(leaf.pid() == root) {
+	    check_latches(___s,___e+2, ___s+___e+2);
+	} else {
+	    check_latches(___s+1,___e+1, ___s+___e+2);
+	}
     }
-
+    
     w_assert9(leaf.is_fixed());
     w_assert9(leaf.is_leaf());
 
@@ -1410,8 +5177,14 @@ again:
 
     if(leaf.is_smo()) {
         w_error_t::err_num_t rce;
-        rce = tree_root.get_for_smo(true, LATCH_SH,
-                    leaf, LATCH_EX, false, &parent, LATCH_NL);
+	smo_mode = LATCH_SH;
+	smo_p1mode = LATCH_EX;
+	if(bIgnoreLatches) {
+	    smo_mode = LATCH_NL;
+	    smo_p1mode = LATCH_NL;
+	}
+        rce = tree_root.get_for_smo(true, smo_mode,
+                    leaf, smo_p1mode, false, &parent, LATCH_NL, bIgnoreLatches);
         tree_root.unfix(); // Instant latch
 
         w_assert2(!tree_root.is_fixed() );
@@ -1555,7 +5328,11 @@ again:
                         INC_TSTAT(bt_links);
                         DBG(<<"");
 
-                        W_DO( sib.fix(sib_pid, LATCH_SH) );
+			fix_latch = LATCH_SH;
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+                        W_DO( sib.fix(sib_pid, fix_latch) );
                         sib_lsn = sib.lsn();
                         if(sib.nrecs() > 0) {
                             next_on_next_page =true;
@@ -1584,10 +5361,15 @@ again:
                              * wait for POSC
                              */
                             DBG(<<"");
-
+			    smo_mode = LATCH_SH;
+			    smo_p1mode = LATCH_EX;
+			    if(bIgnoreLatches) {
+				smo_mode = LATCH_NL;
+				smo_p1mode = LATCH_NL;
+			    }
                             w_error_t::err_num_t rce;
-                            rce = tree_root.get_for_smo(true, LATCH_SH,
-                                leaf, LATCH_EX, false, &sib, LATCH_NL);
+                            rce = tree_root.get_for_smo(true, smo_mode,
+                                leaf, smo_p1mode, false, &sib, LATCH_NL, bIgnoreLatches);
                             tree_root.unfix(); // Instant latch
 
                             w_assert2(!tree_root.is_fixed() );
@@ -1638,14 +5420,23 @@ again:
                 leaf.unfix();
                 sib.unfix();
                 W_DO( lm->lock(nxt_kvl, next_mode, next_duration) );
-                W_DO( leaf.fix(leaf_pid, LATCH_EX) );
+
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO( leaf.fix(leaf_pid, fix_latch) );
                 if(leaf.lsn() != leaf_lsn) {
                     leaf.unfix();
                     DBG(<<"-->again");
                     goto again;
                 }
                 if(sib_pid.page)  {
-                    W_DO( sib.fix(sib_pid, LATCH_SH) );
+		    fix_latch = LATCH_SH;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    W_DO( sib.fix(sib_pid, fix_latch) );
                     if(sib.lsn() != sib_lsn) {
                         leaf.unfix();
                         sib.unfix();
@@ -1688,7 +5479,12 @@ again:
             leaf.unfix();
             sib.unfix();
             W_DO( lm->lock(kvl, this_mode, this_duration) );
-            W_DO( leaf.fix(leaf_pid, LATCH_EX) );
+
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( leaf.fix(leaf_pid, fix_latch) );
             if(leaf.lsn() != leaf_lsn) {
                 leaf.unfix();
                 DBG(<<"-->again");
@@ -1751,9 +5547,14 @@ again:
 
             SSMTEST("btree.remove.2");
 
+	    smo_p1mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		tree_latch_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+	    }
             w_error_t::err_num_t rce = 
                 tree_root.get_for_smo(true, tree_latch_mode,
-                    leaf, LATCH_EX, sib.is_fixed(), &sib, sib.latch_mode());
+                    leaf, smo_p1mode, sib.is_fixed(), &sib, sib.latch_mode(), bIgnoreLatches);
 
             w_assert2(tree_root.is_fixed());
             w_assert2(leaf.is_fixed());
@@ -1862,10 +5663,18 @@ again:
              *  to hold this until we're done with the SMO
              *  (page deletion).
              */
+	    smo_mode = LATCH_EX;
+	    smo_p1mode = LATCH_EX;
+	    smo_p2mode = LATCH_EX;
+	    if(bIgnoreLatches) {
+		smo_mode = LATCH_NL;
+		smo_p1mode = LATCH_NL;
+		smo_p2mode = LATCH_NL;
+	    }
             w_error_t::err_num_t rce;
-            rce = tree_root.get_for_smo(true, LATCH_EX,
-                    leaf, LATCH_EX,
-                    true, &sib, LATCH_EX);
+            rce = tree_root.get_for_smo(true, smo_mode,
+                    leaf, smo_p1mode,
+                    true, &sib, smo_p2mode, bIgnoreLatches);
             // if sib wasn't latched before calling for the latch,
             // it won't be latched now.
             DBGTHRD(<<" rc= " << rc);
@@ -1896,9 +5705,13 @@ again:
                  * latches because we already have the tree latch
                  * and we only travel right from the leaf -- never left.
                  */
+		fix_latch = LATCH_EX;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
                 if(!sib.is_fixed()) {
-                    W_DO(sib.fix(sib_pid, LATCH_EX));
-                } else if (sib.latch_mode() != LATCH_EX) {
+                    W_DO(sib.fix(sib_pid, fix_latch));
+                } else if (sib.latch_mode() != fix_latch) {
 #if COMMENT
                     // Took out because the buffer cleaner might
                     // have this page latched, but the buffer 
@@ -1908,14 +5721,14 @@ again:
                     W_DO(sib.upgrade_latch_if_not_block(would_block));
                     w_assert9(!would_block);
 #else
-                    sib.upgrade_latch(LATCH_EX);
+                    sib.upgrade_latch(fix_latch);
 #endif /* COMMENT */
                 }
             }
             w_assert9(leaf.is_fixed());
             DBGTHRD(<<" calling unlink&propogate ");
             W_DO(leaf.unlink_and_propagate(key, el, sib, parent_pid, 
-                tree_root.pid()));
+					   tree_root.pid(), bIgnoreLatches));
             SSMTEST("btree.remove.10");
 
 #if BTREE_LOG_COMMENT_ON
@@ -1925,8 +5738,10 @@ again:
     } // deletion of the key
     }
     }
-    check_latches(___s,___e, ___s+___e);
-
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
+    
     return RCOK;
 }
 
@@ -1950,11 +5765,15 @@ btree_impl::_lookup(
     bool&               found,  // O-  true if key is found
     bt_cursor_t*        cursor, // I/o - put result here OR
     void*               el,        // I/o-  buffer to put el if !cursor
-    smsize_t&           elen        // IO- size of el if !cursor
-    )        
+    smsize_t&           elen,        // IO- size of el if !cursor
+    const bool bIgnoreLatches)                
 {
     FUNC(btree_impl::_lookup);
-    get_latches(___s,___e); 
+    
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+    }
+    
     rc_t        rc;
 
     INC_TSTAT(bt_find_cnt);
@@ -1965,8 +5784,17 @@ btree_impl::_lookup(
         lpid_t       search_start_pid = root;
         lsn_t        search_start_lsn = lsn_t::null;
 
-        check_latches(___s,___e, ___s+___e); 
-     again:
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+
+	if(!bIgnoreLatches) {
+	    check_latches(___s,___e, ___s+___e); 
+	}
+	
+    again:
         DBGTHRD(<<"_lookup.again");
 
 
@@ -1990,15 +5818,21 @@ btree_impl::_lookup(
          *  search the leaf page; it's our responsibility
          *  to check that we're at the correct leaf.
          */
+	traverse_latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
         W_DO( _traverse(root, 
                 search_start_pid, 
                 search_start_lsn,
                 key, elem, found, 
-                LATCH_SH, leaf, parent,
-                leaf_lsn, parent_lsn) );
+                traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
 
-        check_latches(___s+2,___e, ___s+___e+2); 
-
+	if(!bIgnoreLatches) {
+	    check_latches(___s+2,___e, ___s+___e+2); 
+	}
+	
         w_assert9(leaf.is_fixed());
         w_assert9(leaf.is_leaf());
         
@@ -2081,7 +5915,11 @@ btree_impl::_lookup(
             pid.page = leaf.next();
 
             INC_TSTAT(bt_links);
-            W_DO( p2.fix(pid, LATCH_SH) );
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(pid, fix_latch) );
             /* 
              * does successor have a satisfying key?
              */
@@ -2110,10 +5948,16 @@ btree_impl::_lookup(
             } else {
                 /* no satisfying key; page could be empty */
 
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
                 w_error_t::err_num_t rce;
                 // unconditional
-                rce = tree_root.get_for_smo(false, LATCH_SH,
-                        leaf, LATCH_SH, false, &p2, LATCH_NL);
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &p2, LATCH_NL, bIgnoreLatches);
                 //eRETRY means we need to restart the search
                 //but we're going to restart it ANYWAY.
                 //TODO look this case up in the paper and document it here
@@ -2156,10 +6000,16 @@ btree_impl::_lookup(
             w_assert1(leaf.is_smo() || root == leaf.pid());
 
             if(leaf.is_smo()) {
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
                 // unconditional
                 w_error_t::err_num_t rce;
-                rce = tree_root.get_for_smo(false, LATCH_SH,
-                        leaf, LATCH_SH, false, &parent, LATCH_NL);
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &parent, LATCH_NL, bIgnoreLatches);
                 tree_root.unfix();
                 if(rce && (rce != eRETRY)) {
                     return RC(rce);
@@ -2251,7 +6101,11 @@ btree_impl::_lookup(
                  *  meaning there's no chance of the whole index being
                  *  destroyed in the meantime.
                  */
-                W_DO( child->fix(pid, LATCH_SH) );
+		fix_latch = LATCH_SH;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO( child->fix(pid, fix_latch) );
                 if (lsn == child->lsn() && child == &leaf)  {
                     /* do nothing */;
                 } else {
@@ -2290,8 +6144,9 @@ btree_impl::_lookup(
         }
         // Destructors did or will unfix all pages.
     }
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
     return RCOK;
 }
 
@@ -2326,14 +6181,17 @@ btree_impl::_skip_one_slot(
     slotid_t&                 slot, // I/O
     bool&                eof,
     bool&                found,
-    bool                backward 
-)
+    bool                backward, 
+    const bool bIgnoreLatches)        
 {
     FUNC(btree_impl::_skip_one_slot);
     w_assert9( p1.is_fixed());
     w_assert9(! p2.is_fixed());
     w_assert9(child == &p1);
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     w_assert9(slot <= p1.nrecs());
     if(backward) {
         --slot;
@@ -2359,7 +6217,11 @@ btree_impl::_skip_one_slot(
         }
         p1.unfix();
         DBGTHRD(<<"fixing " << pid);
-        W_DO(p2.fix(pid, LATCH_SH));
+	fix_latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+        W_DO(p2.fix(pid, fix_latch));
         if(p2.nrecs() == 0) {
             w_assert9(p2.is_smo()); 
             found = false;
@@ -2383,12 +6245,16 @@ btree_impl::_skip_one_slot(
  *
  *********************************************************************/
 rc_t
-btree_impl::_shrink_tree(btree_p& rp)
+btree_impl::_shrink_tree(btree_p& rp, const bool bIgnoreLatches)        			 
 {
     FUNC(btree_impl::_shrink_tree);
     INC_TSTAT(bt_shrinks);
 
-    w_assert3( rp.latch_mode() == LATCH_EX);
+    // latch modes
+    latch_mode_t fix_latch;
+    if(!bIgnoreLatches) {
+	w_assert3( rp.latch_mode() == LATCH_EX);
+    }
     w_assert1( rp.nrecs() == 0);
     w_assert1( !rp.prev() && !rp.next() );
 
@@ -2399,7 +6265,11 @@ btree_impl::_shrink_tree(btree_p& rp)
          *  and free child page.
          */
         btree_p cp;
-        W_DO( cp.fix(pid, LATCH_EX) );
+	fix_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+        W_DO( cp.fix(pid, fix_latch) );
 
         DBG(<<"shrink " << rp.pid()  
                 << " from level " << rp.level()
@@ -2421,7 +6291,9 @@ btree_impl::_shrink_tree(btree_p& rp)
         }
         SSMTEST("btree.shrink.2");
 
-        w_assert3( cp.latch_mode() == LATCH_EX);
+	if(!bIgnoreLatches) {
+	    w_assert3( cp.latch_mode() == LATCH_EX);
+	}
         W_DO( io->free_page(pid, false/*checkstore*/) );
 
     } else {
@@ -2453,16 +6325,23 @@ btree_impl::_shrink_tree(btree_p& rp)
  *
  *********************************************************************/
 rc_t
-btree_impl::_grow_tree(btree_p& rp)
+btree_impl::_grow_tree(btree_p& rp, const bool bIgnoreLatches)        
 {
     FUNC(btree_impl::_grow_tree);
     INC_TSTAT(bt_grows);
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     /*
      *  Sanity check
      */
-    rp.upgrade_latch(LATCH_EX);
-    w_assert9(rp.latch_mode() == LATCH_EX);
+    fix_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    rp.upgrade_latch(fix_latch);
+    w_assert9(rp.latch_mode() == fix_latch);
     w_assert1(rp.next());
     w_assert9(rp.is_smo());
 
@@ -2475,7 +6354,11 @@ btree_impl::_grow_tree(btree_p& rp)
 
     // "following" a link here means fixing the page
     INC_TSTAT(bt_links);
-    W_DO( np.fix(nxtpid, LATCH_EX) );
+    fix_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    W_DO( np.fix(nxtpid, fix_latch) );
     w_assert1(!np.next());
 
 
@@ -2486,7 +6369,8 @@ btree_impl::_grow_tree(btree_p& rp)
      */
     btree_p cp;
     W_DO( _alloc_page(rp.pid(), rp.level(),
-                      np.pid(), cp, rp.pid0(), true, rp.is_compressed()) );
+                      np.pid(), cp, rp.pid0(), true, rp.is_compressed(),
+                      st_regular, bIgnoreLatches) );
     
     W_DO( cp.link_up(rp.prev(), rp.next()) );
     W_DO( np.link_up(cp.pid().page, np.next()) );
@@ -2540,11 +6424,18 @@ btree_impl::_propagate(
     const lpid_t&        _child_pid, // I-  pid of leaf page removed
                                     //  or of the page that was split
     int                  child_level, // I - level of child_pid
-    bool                 isdelete// I-  true if delete being propagated
-)
+    bool                 isdelete, // I-  true if delete being propagated
+    const bool bIgnoreLatches)        
 {
+    // latch modes
+    latch_mode_t fix_latch;
+	
     btree_p root;
-    root.fix(root_pid, LATCH_SH);
+    fix_latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    root.fix(root_pid, fix_latch);
     w_assert9(root.is_fixed());
     // FRJ: not yet... if we're a 1-level btree (below) then this will be true
     //    w_assert9(root.latch_mode()==LATCH_EX);
@@ -2572,8 +6463,10 @@ btree_impl::_propagate(
             DBG(<<"trying to shrink away the root");
             /* We don't shrink away the root */
             w_assert9(root.is_fixed());
-            w_assert9(root.latch_mode()==LATCH_EX);
-            w_assert9(0);
+	    if(!bIgnoreLatches) {
+		w_assert9(root.latch_mode()==LATCH_EX);
+	    }
+	    w_assert9(0);
             return RCOK;
         } else {
             // Root is the leaf, and we have to grow the tree first.
@@ -2583,7 +6476,7 @@ btree_impl::_propagate(
             DBG(<<"LEAF == ROOT");
             w_assert9(root.next());
 
-            W_DO(_grow_tree(root));
+            W_DO(_grow_tree(root, bIgnoreLatches));
             w_assert9(root.level() > 1);
             w_assert9(root.nrecs() == 0);
             w_assert9(!root.next());
@@ -2597,7 +6490,7 @@ btree_impl::_propagate(
             // slot in which child_pid sits is slot -1
 
             btree_p parent = root; // refix to keep latched twice
-            W_DO(_propagate_split(parent, child_pid, -1, was_split));
+            W_DO(_propagate_split(parent, child_pid, -1, was_split, bIgnoreLatches));
             w_assert9(!was_split);
             w_assert9(!parent.is_fixed());
             return RCOK;
@@ -2644,7 +6537,11 @@ btree_impl::_propagate(
             bool         found_key = false;
 
             DBG(<<"INSPECTING " << top << " pid " << pid[top] );
-            W_DO( p[top].fix(pid[top], LATCH_SH) );
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p[top].fix(pid[top], fix_latch) );
 
 #if W_DEBUG_LEVEL > 3
             if(print_propagate) {
@@ -2709,7 +6606,11 @@ btree_impl::_propagate(
              * changed..
              */
             w_assert9(p[top].is_fixed());
-            if(p[top].latch_mode() != LATCH_EX) {
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            if(p[top].latch_mode() != fix_latch) {
                 // should not block because we've got the tree latched
 #if W_DEBUG_LEVEL > 3
                 bool would_block = false;
@@ -2719,7 +6620,7 @@ btree_impl::_propagate(
                     DBG(<<"BF-CLEANER? clash" );
                 }
 #endif 
-                p[top].upgrade_latch(LATCH_EX);
+                p[top].upgrade_latch(fix_latch);
             }
 
             if(isdelete) {
@@ -2760,7 +6661,7 @@ btree_impl::_propagate(
                         << key << "," << child_pid
                         << " INTO page " << p[top].pid());
 
-                W_DO(_propagate_split(p[top], child_pid, slot[top], was_split));
+                W_DO(_propagate_split(p[top], child_pid, slot[top], was_split, bIgnoreLatches));
                 // p[top] is unfixed
 
                 if( !was_split) {
@@ -2774,13 +6675,17 @@ btree_impl::_propagate(
                 // tree
                 w_assert9(root_pid == pid[top]);
                 if(isdelete) {
-                    W_DO(_shrink_tree(p[top]));
+                    W_DO(_shrink_tree(p[top], bIgnoreLatches));
                     // we're done?
                     break;
                 } else {
-                    p[top].fix(root_pid, LATCH_EX);
+		    fix_latch = LATCH_EX;
+		    if(bIgnoreLatches) {
+			fix_latch = LATCH_NL;
+		    }
+                    p[top].fix(root_pid, fix_latch);
                     btree_p &root = p[top];
-                    W_DO(_grow_tree(root));
+                    W_DO(_grow_tree(root, bIgnoreLatches));
                     w_assert9(root.nrecs() == 0);
                     w_assert9(root.pid0());
                     w_assert9(root.next()==0);
@@ -2790,7 +6695,11 @@ btree_impl::_propagate(
 #if W_DEBUG_LEVEL > 3
                     {
                         btree_p tmp;
-                        W_DO(tmp.fix(child_pid, LATCH_SH));
+			fix_latch = LATCH_SH;
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+                        W_DO(tmp.fix(child_pid, fix_latch));
                         w_assert2(tmp.next() != 0);
                     }
 #endif 
@@ -2807,7 +6716,11 @@ btree_impl::_propagate(
             if(pid[top] != root_pid) w_assert3(!p[top].is_fixed());
 #endif
 
-            W_DO(p[top].fix(pid[top], LATCH_EX));
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO(p[top].fix(pid[top], fix_latch));
         }
 
     }
@@ -2826,20 +6739,27 @@ btree_impl::_propagate_split(
     slotid_t                  slot,        // I - slot where the split page sits
                                 //  which is 1 less than slot where the new entry goes
                                 // slot -1 means pid0
-    bool&                    was_split// O - true if parent was split by this
-)
+    bool&                    was_split, // O - true if parent was split by this
+    const bool bIgnoreLatches)
 {
 
 #if BTREE_LOG_COMMENT_ON
     W_DO(log_comment("start propagate_split"));
 #endif 
 
+    // latch modes
+    latch_mode_t fix_latch;
+	
     lpid_t pid = _pid;
     /*
      *  Fix first child so that we can get the pid of the new page
      */
     btree_p c1;
-    W_DO( c1.fix(pid, LATCH_SH) );
+    fix_latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    W_DO( c1.fix(pid, fix_latch) );
 #if W_DEBUG_LEVEL > 3
     if(print_split) { 
         DBG(<<"LEAF being split :");
@@ -2856,7 +6776,11 @@ btree_impl::_propagate_split(
     INC_TSTAT(bt_links);
 
     // GAK: EX because we have to do an update below
-    W_DO( c2.fix(pid, LATCH_EX) ); 
+    fix_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    W_DO( c2.fix(pid, fix_latch) ); 
 #if W_DEBUG_LEVEL > 3
     if(print_split) { 
         DBG(<<"NEW right sibling :");
@@ -2944,7 +6868,7 @@ btree_impl::_propagate_split(
 
 // TODO (performance) use btree's own split_factor
         W_DO( __split_page(parent, rsib_page, left_heavy,
-                          slot, addition, 50) );
+			   slot, addition, 50, bIgnoreLatches) );
 
         SSMTEST("btree.propagate.s.7");
 
@@ -2954,7 +6878,11 @@ btree_impl::_propagate_split(
             w_assert9(parent.is_fixed());
             target = parent;
         } else {
-            W_DO(target.fix(rsib_page, LATCH_EX));
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO(target.fix(rsib_page, fix_latch));
             w_assert9(rsib.is_fixed());
         }
         SSMTEST("btree.propagate.s.8");
@@ -2993,7 +6921,11 @@ btree_impl::_propagate_split(
      * clear the smo in the first leaf, since
      * parent now has its smo set.
      */
-    W_DO( c1.fix(_pid, LATCH_EX) );
+    fix_latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	fix_latch = LATCH_NL;
+    }
+    W_DO( c1.fix(_pid, fix_latch) );
     W_DO(c1.clr_smo());
     parent.unfix();
 
@@ -3032,11 +6964,13 @@ btree_impl::_split_leaf(
     btree_p&              leaf,         // I - page to be split
     const cvec_t&         key,        // I-  which key causes split
     const cvec_t&         el,        // I-  which element causes split
-    int                   split_factor
-)
+    int                   split_factor,
+    const bool bIgnoreLatches)        
 {
     w_assert9(leaf.is_fixed());
-    w_assert9(leaf.latch_mode() == LATCH_EX);
+    if(!bIgnoreLatches) {
+	w_assert9(leaf.latch_mode() == LATCH_EX);
+    }
     lsn_t         anchor;         // serves as savepoint too
     xct_t*         xd = xct();
 
@@ -3058,11 +6992,11 @@ btree_impl::_split_leaf(
         w_assert9(leaf.nrecs()>0);
 
         X_DO( __split_page(leaf, rsib_pid,  left_heavy,
-                slot, addition, split_factor), anchor );
+			   slot, addition, split_factor, bIgnoreLatches), anchor );
         leaf.unfix();
     }
 
-    X_DO(_propagate(root_pid, key, el, leaf_pid, level, false /*not delete*/), anchor);
+    X_DO(_propagate(root_pid, key, el, leaf_pid, level, false /*not delete*/, bIgnoreLatches), anchor);
 
 #if BTREE_LOG_COMMENT_ON
     W_DO(log_comment("end leaf split"));
@@ -3088,25 +7022,30 @@ btree_impl::__split_page(
     bool&        left_heavy,        // O-  true if insert should go to left
     slotid_t&        slot,                // IO- slot of insertion after split
     int                addition,        // I-  # bytes intended to insert
-    int                split_factor)        // I-  % of left page that should remain
+    int                split_factor,        // I-  % of left page that should remain
+    const bool bIgnoreLatches)        
 {
     FUNC(btree_impl::__split_page);
 
     INC_TSTAT(bt_splits);
 
     DBGTHRD( << "split page " << page.pid() << " addition " << addition);
-    
+
+    // latch modes
+    latch_mode_t fix_latch;
+	
     /*
      *  Allocate new sibling
      */
     btree_p sibling;
     lpid_t root = page.root();
     W_DO( _alloc_page(root, page.level(), page.pid(), sibling, 0, true,
-        page.is_compressed()) );
+                      page.is_compressed(), st_regular, bIgnoreLatches) );
 
     w_assert9(sibling.is_fixed());
-    w_assert9(sibling.latch_mode() == LATCH_EX);
-
+    if(!bIgnoreLatches) {
+	w_assert9(sibling.latch_mode() == LATCH_EX);
+    }
     SSMTEST("btree.propagate.s.2");
     /*
      *  Page has a modified tree structure.
@@ -3136,7 +7075,7 @@ btree_impl::__split_page(
      *  Distribute content to sibling
      */
     W_DO( page.distribute(sibling, left_heavy,
-                          slot, addition, split_factor) );
+                          slot, addition, split_factor, bIgnoreLatches) );
     /* Sibling has no pid0 at this point */
 
     DBGTHRD(<< " after split  new sibling " << sibling.pid()
@@ -3152,7 +7091,11 @@ btree_impl::__split_page(
 
         // "following" a link here means fixing the page
         INC_TSTAT(bt_links);
-        W_DO( cousin.fix(old_next, LATCH_EX) );
+	fix_latch = LATCH_EX;
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+        W_DO( cousin.fix(old_next, fix_latch) );
         W_DO( cousin.link_up(sibling_page.page, cousin.next()));
     }
 
@@ -3210,15 +7153,17 @@ btree_impl::_traverse(
     btree_p&             leaf,        // O-  leaf satisfying search
     btree_p&             parent,        // O-  parent of leaf satisfying search
     lsn_t&               leaf_lsn,        // O-  lsn of leaf 
-    lsn_t&               parent_lsn        // O-  lsn of parent 
-    ) 
+    lsn_t&               parent_lsn,        // O-  lsn of parent 
+    const bool bIgnoreLatches)         
 {
     FUNC(btree_impl::_traverse);
     lsn_t        start_lsn = _start_lsn;
     lpid_t       start     = _start;
     rc_t         rc;
 
-    get_latches(___s,___e); 
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e);
+    }
 
     if(start == __root) {
         INC_TSTAT(bt_traverse_cnt);
@@ -3230,10 +7175,17 @@ btree_impl::_traverse(
                                // NOTE: this used to be the root page
     slotid_t                   slot = -1;
 
+    // latch modes
+    latch_mode_t smo_mode;
+    latch_mode_t smo_p1mode;
+    latch_mode_t smo_p2mode;
+    latch_mode_t fix_latch;
+    
 pagain:
 
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
 #if W_DEBUG_LEVEL > 3
     DBGTHRD(<<"");
     if(print_ptraverse) {
@@ -3268,7 +7220,11 @@ pagain:
          *  to the input/output argument "leaf".
          */
 
-        W_DO( p[c].fix(pid[c], LATCH_SH) );
+	fix_latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    fix_latch = LATCH_NL;
+	}
+        W_DO( p[c].fix(pid[c], fix_latch) );
         w_assert1(p[c].is_fixed());
         lsns[c] = p[c].lsn(); 
 
@@ -3405,14 +7361,24 @@ no_change:
                     DBG(<<"old mode" << int(old_mode));
 #endif 
 
+		    smo_mode = LATCH_SH;
+		    smo_p1mode = LATCH_SH;
+		    smo_p2mode = LATCH_SH;
+		    if(bIgnoreLatches) {
+			smo_mode = LATCH_NL;
+			smo_p1mode = LATCH_NL;
+			smo_p2mode = LATCH_NL;
+		    }
                     w_error_t::err_num_t rce;
-                    rce = tree_root.get_for_smo(false, LATCH_SH,
-                                p[c], LATCH_SH, true, &p[1-c], LATCH_SH);
+                    rce = tree_root.get_for_smo(false, smo_mode,
+						p[c], smo_p1mode, true, &p[1-c], smo_p2mode, bIgnoreLatches);
 
                     w_assert2(tree_root.is_fixed());
-                    w_assert2(tree_root.latch_mode() >= LATCH_SH);
+		    if(!bIgnoreLatches) {
+			w_assert2(tree_root.latch_mode() >= LATCH_SH);
+		    }
 #if W_DEBUG_LEVEL > 2
-                    if(was_latched) {
+                    if(was_latched && !bIgnoreLatches) {
                         w_assert3(tree_root.latch_mode() >= old_mode);
                     }
 #endif 
@@ -3424,7 +7390,11 @@ no_change:
                          * latch it again. Just clear the smo bit.  We might
                          * not have *this* page fixed in EX mode though.
                          */
-                        if(p[c].latch_mode() < LATCH_EX) {
+			fix_latch = LATCH_EX;
+			if(bIgnoreLatches) {
+			    fix_latch = LATCH_NL;
+			}
+                        if(p[c].latch_mode() < fix_latch) {
                             // We should be able to do this because
                             // we have the tree latch.  We're not
                             // turning a read-ohly query into read-write
@@ -3432,7 +7402,7 @@ no_change:
                             // or delete.
                             w_assert2(tree_root.is_fixed());
                             w_assert2(tree_root.pinned_by_me());
-                            p[c].upgrade_latch(LATCH_EX);
+                            p[c].upgrade_latch(fix_latch);
                         }
                         INC_TSTAT(bt_clr_smo_traverse);
 #if BTREE_LOG_COMMENT_ON
@@ -3506,7 +7476,11 @@ no_change:
              */
             pid[1-c].page = ((slot < 0) ? p[c].pid0() : p[c].child(slot));
 
-            latch_mode_t node_mode = p[c].is_leaf_parent()? mode : LATCH_SH;
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            latch_mode_t node_mode = p[c].is_leaf_parent()? mode : fix_latch;
 
             /*
              * 1-c is child, c is parent; 
@@ -3571,7 +7545,9 @@ no_change:
                     DBG(<<"--> again; cannot upgrade ");
                     goto pagain;
                 }
-                w_assert9(leaf.latch_mode() == mode );
+		if(!bIgnoreLatches) {
+		    w_assert9(leaf.latch_mode() == mode );
+		}
             }
 
             // Doubly-fix the page:
@@ -3587,7 +7563,9 @@ no_change:
      */
     w_assert2(leaf.is_fixed());
     w_assert2(leaf.is_leaf());
-    w_assert2(leaf.latch_mode() == mode );
+    if(!bIgnoreLatches) {
+	w_assert2(leaf.latch_mode() == mode );
+    }
 
 #if W_DEBUG_LEVEL > 1
     if(smlevel_1::log && smlevel_0::logging_enabled) {
@@ -3607,12 +7585,14 @@ no_change:
     }
 #endif
 
-    if(leaf.pid() == __root) {
-        // sh, ex: 2,0 or 0,2, or 1,1
-        check_latches(___s+2,___e+2, ___s+___e+2);
-    } else {
-        // sh,ex: 2,0 or 1,1
-        check_latches(___s+2,___e+1, ___s+___e+2);
+    if(!bIgnoreLatches) {
+	if(leaf.pid() == __root) {
+	    // sh, ex: 2,0 or 0,2, or 1,1
+	    check_latches(___s+2,___e+2, ___s+___e+2);
+	} else {
+	    // sh,ex: 2,0 or 1,1
+	    check_latches(___s+2,___e+1, ___s+___e+2);
+	}
     }
 
     /* 

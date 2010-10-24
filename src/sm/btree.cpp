@@ -104,9 +104,9 @@ btree_m::max_entry_size() {
 rc_t
 btree_m::create(
     const stid_t&           stid,                
-    lpid_t&                 root,
-    bool                    compressed
-    )                // O-  root of new btree
+    lpid_t&                 root,                 // O-  root of new btree
+    bool                    compressed,
+    const bool              bIgnoreLatches)
 {
     FUNC(btree_m::create);
     DBGTHRD(<<"stid " << stid);
@@ -117,9 +117,12 @@ btree_m::create(
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    get_latches(___s,___e); 
-    check_latches(___s,___e, ___s+___e); 
-
+    latch_mode_t latch = LATCH_NL;
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e);
+	latch = LATCH_EX;
+    } 
     lsn_t anchor;
     xct_t* xd = xct();
 
@@ -139,10 +142,11 @@ btree_m::create(
     SSMTEST("btree.create.1");
 
     {
-    DBGTHRD(<<"formatting the page for store " << stid);
+	DBGTHRD(<<"formatting the page for store " << stid);
+    
         btree_p page;
         /* Format/init the page: */
-        X_DO( page.fix(root, LATCH_EX, page.t_virgin), anchor );
+        X_DO( page.fix(root, latch, page.t_virgin), anchor );
 
         btree_p::flag_t f = compressed? btree_p::t_compressed: btree_p::t_none;
         X_DO( page.set_hdr(root.page, 1, 0, f), anchor );
@@ -162,8 +166,10 @@ btree_m::create(
     }
 
     bool empty=false;
-    W_DO(is_empty(root,empty)); 
-    check_latches(___s,___e, ___s+___e); 
+    W_DO(is_empty(root,empty));
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
     if(!empty) {
          DBGTHRD(<<"eNDXNOTEMPTY");
          return RC(eNDXNOTEMPTY);
@@ -182,11 +188,13 @@ btree_m::create(
 rc_t
 btree_m::is_empty(
     const lpid_t&        root,        // I-  root of btree
-    bool&                 ret)        // O-  true if btree is empty
+    bool&                 ret,        // O-  true if btree is empty
+    const bool           bIgnoreLatches)
 {
-    get_latches(___s,___e); 
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e); 
+    }
     key_type_s kc(key_type_s::b, 0, 4);
     cursor_t cursor(true);
     W_DO( fetch_init(cursor, root, 1, &kc, false, t_cc_none,
@@ -194,13 +202,17 @@ btree_m::is_empty(
                      cvec_t::neg_inf, // elem of bound1
                      ge,                // cond1
                      le,              // cond2
-                     cvec_t::pos_inf // bound2
-                     ));
-    check_latches(___s,___e, ___s+___e); 
-
-    W_DO( fetch(cursor) );
-    check_latches(___s,___e, ___s+___e); 
-
+                     cvec_t::pos_inf, // bound2
+                     SH,
+		     bIgnoreLatches));
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
+    
+    W_DO( fetch(cursor, bIgnoreLatches) );
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
     ret = (cursor.key() == 0);
     return RCOK;
 }
@@ -269,6 +281,436 @@ btree_m::insert(
     }
     return  rc;
 }
+
+// -- mrbt
+
+/*********************************************************************
+ *
+ *  btree_m::mr_insert(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as normal btree insert except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    const cvec_t&        el,                // I-  which element
+    int                  split_factor,        // I-  tune split in %
+    const bool           bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el.size() > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el.size());
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_insert(root, unique, cc, key, el, split_factor, bIgnoreLatches);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ * 
+ *  btree_m::mr_insert_l(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as mr_insert except we might need to relocate records to enforce
+ *  a heap page to be pointed by only one leaf page.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert_l(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    rc_t (*fill_el)(vec_t&, const lpid_t&), // I- callback function to determine the element
+    size_t el_size,                         // I - size of the element
+    int                  split_factor,        // I-  tune split in %
+    const bool           bIgnoreLatches,
+    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el_size > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el_size);
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, 
+				bIgnoreLatches, relocate_callback);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_insert_p(root, unique, cc, key, el, split_factor)
+ *
+ *  Same as mr_insert except we might need to relocate records to enforce
+ *  a heap page to be pointed by only one sub-tree.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_insert_p(
+    const lpid_t&        root,                // I-  root of btree
+    bool                 unique,                // I-  true if tree is unique
+    concurrency_t        cc,                // I-  concurrency control 
+    const cvec_t&        key,                // I-  which key
+    rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    size_t el_size,                          // I - size of the element
+    int                  split_factor,        // I-  tune split in %
+    const bool           bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "mrbtree insert " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    if(key.size() + el_size > btree_p::max_entry_size) {
+        DBGTHRD(<<"RECWONTFIT: key.size=" << key.size() 
+                << " el.size=" << el_size);
+        return RC(eRECWONTFIT);
+    }
+    rc_t rc;
+
+    DBGTHRD(<<"");
+    // int retries = 0; // for debugging
+ retry:
+    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, bIgnoreLatches);
+    if(rc.is_error()) {
+        if(rc.err_num() == eRETRY) {
+            // retries++; // for debugging
+            // fprintf(stderr, "-*-*-*- Retrying (%d) a btree insert!\n",
+            //       retries);
+            goto retry;
+        }
+        DBGTHRD(<<"rc=" << rc);
+    }
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_remove(root, unique, cc, key, el)
+ *
+ *  Same as normal btree remove except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_remove(
+    const lpid_t&        root,        // root of btree
+    bool                unique, // true if btree is unique
+    concurrency_t        cc,        // concurrency control
+    const cvec_t&        key,        // which key
+    const cvec_t&        el,        // which el
+    const bool           bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree remove " << root;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+        DBGTHRD(<<"");
+ retry:
+	rc_t rc =  btree_impl::_remove(root, unique, cc, key, el, bIgnoreLatches);
+    if(rc.is_error() && rc.err_num() == eRETRY) {
+        //fprintf(stderr, "-*-*-*- Retrying a btree insert!\n");
+        goto retry;
+    }
+
+    DBGTHRD(<<"rc=" << rc);
+    return rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_remove_key(root, unique, cc, key, num_removed)
+ *
+ *  Same as normal btree remove_key except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_remove_key(
+    const lpid_t&        root,        // root of btree
+    int                        nkc,
+    const key_type_s*        kc,
+    bool                unique, // true if btree is unique
+    concurrency_t        cc,        // concurrency control
+    const cvec_t&        key,        // which key
+    int&                num_removed,
+    const bool          bIgnoreLatches
+)
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    num_removed = 0;
+
+    /*
+     *  We do this the dumb way ... optimization needed if this
+     *  proves to be a bottleneck.
+     */
+    while (1)  {
+        /*
+         *  scan for key
+         */
+        cursor_t cursor(true);
+        W_DO( fetch_init(cursor, root, nkc, kc, 
+			 unique, cc, key, cvec_t::neg_inf,
+			 ge, 
+			 le, key, SH, bIgnoreLatches));
+        W_DO( fetch(cursor, bIgnoreLatches) );
+        if (!cursor.key()) {
+            /*
+             *  no more occurence of key ... done! 
+             */
+            break;
+        }
+        /*
+         *  call btree_m::_remove() 
+         */
+        const cvec_t cursor_vec_tmp(cursor.elem(), cursor.elen());
+        W_DO( mr_remove(root, unique, cc, key, cursor_vec_tmp, bIgnoreLatches));
+        ++num_removed;
+
+        if (unique) break;
+    }
+    if (num_removed == 0)  {
+        fprintf(stderr, "could not find  key\n" );
+        return RC(eNOTFOUND);
+    }
+
+    return RCOK;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::mr_lookup(...)
+ *
+ *  Same as normal btree lookup except there is no scrambling of the 
+ *  key value since it's already done.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_lookup(
+    const lpid_t&         root,        // I-  root of btree
+    bool                  unique, // I-  true if btree is unique
+    concurrency_t         cc,        // I-  concurrency control
+    const cvec_t&         key,        // I-  key we want to find
+    void*                 el,        // I-  buffer to put el found
+    smsize_t&             elen,        // IO- size of el
+    bool&                 found,        // O-  true if key is found
+    const bool            bIgnoreLatches)
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    DBGTHRD(<<"");
+    cvec_t null;
+    W_DO( btree_impl::_lookup(root, unique, cc, key, null, found, 0, el, elen, bIgnoreLatches));
+    return RCOK;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::split_tree(root_old, root_new, key, leaf_old, leaf-new)
+ *
+ *  Split the tree starting from the given key.
+ *
+ *********************************************************************/
+rc_t
+btree_m::split_tree(
+    const lpid_t&        root_old,          // I-  root of btree
+    const lpid_t&        root_new,           // I- root of the new btree
+    const cvec_t&        key,              // I-  which key
+    lpid_t&              leaf_old,        // O - leaf whose contents are shifted to another leaf
+    lpid_t&              leaf_new, // O - the new leaf
+    const bool           bIgnoreLatches)                
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree split " << root_old;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    rc_t rc;
+
+    DBGTHRD(<<"");    
+    rc = btree_impl::_split_tree(root_old, root_new, key, leaf_old, leaf_new, bIgnoreLatches);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::relocate_recs_l(leaf_old, leaf_new)
+ *
+ *  For the second MRBT design to relocate records after a tree split.
+ *
+ *********************************************************************/
+rc_t
+btree_m::relocate_recs_l(
+        lpid_t&                   leaf_old,
+        const lpid_t&                   leaf_new,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "relocate records: leaf_old= " << leaf_old << " leaf_new=" << leaf_new;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    rc_t rc;
+
+    DBGTHRD(<<"");    
+    rc = btree_impl::_relocate_recs_l(leaf_old, leaf_new, false, bIgnoreLatches, relocate_callback);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::relocate_recs_p(root_old, root_new)
+ *  For the third MRBT design to relocate records after a tree split.
+ *
+ *********************************************************************/
+rc_t
+btree_m::relocate_recs_p(
+        const lpid_t&                   root_old,
+        const lpid_t&                   root_new,
+	const bool bIgnoreLatches,
+	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "relocate records: root_old=" << root_old << " root_new=" << root_new;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+
+    rc_t rc;
+
+    DBGTHRD(<<"");    
+    rc = btree_impl::_relocate_recs_p(root_old, root_new, bIgnoreLatches, relocate_callback);
+    
+    return  rc;
+}
+
+/*********************************************************************
+ *
+ *  btree_m::merge_trees()
+ *
+ *  Merge two trees 
+ *
+ *********************************************************************/
+rc_t
+btree_m::merge_trees(
+    lpid_t&             root,         // O- the root after merge
+    const lpid_t&       root1,        // I- roots of the btrees to be merged
+    const lpid_t&       root2,           
+    cvec_t&             startKey2,    // I- starting boundary key for the second sub-tree (root2)
+    const bool          update_owner,
+    const bool          bIgnoreLatches)
+{
+#if BTREE_LOG_COMMENT_ON
+    {
+        w_ostrstream s;
+        s << "btree merge roots " << root1 << " and " << root2;
+        W_DO(log_comment(s.c_str()));
+    }
+#endif
+    
+    rc_t rc;
+    rc = btree_impl::_merge_trees(root, root1, root2, startKey2, update_owner, bIgnoreLatches);
+    
+    return  rc;
+}
+
+// --
 
 /*********************************************************************
  *
@@ -501,7 +943,8 @@ btree_m::fetch_init(
     cmp_t                cond1,        // I-  condition on lower bound
     cmp_t                cond2,        // I-  condition on upper bound
     const cvec_t&        bound2,        // I-  upper bound
-    lock_mode_t                mode)        // I-  mode to lock index keys in
+    lock_mode_t                mode,        // I-  mode to lock index keys in
+    const bool          bIgnoreLatches)
 {
     if(
         (cc != t_cc_none) && (cc != t_cc_file) &&
@@ -509,9 +952,10 @@ btree_m::fetch_init(
         (cc != t_cc_im) 
         ) return badcc();
     w_assert1(kc && nkc > 0);
-    get_latches(___s,___e); 
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e); 
+    }
     INC_TSTAT(bt_scan_cnt);
 
     /*
@@ -559,12 +1003,13 @@ btree_m::fetch_init(
     DBGTHRD(<<"Scan is backward? " << cursor.is_backward());
 
     W_DO (btree_impl::_lookup( cursor.root(), cursor.unique(), cursor.cc(),
-            *key, elem, found, &cursor, cursor.elem(), elen));
+			       *key, elem, found, &cursor, cursor.elem(), elen, bIgnoreLatches));
 
     DBGTHRD(<<"found=" << found);
 
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
     return RCOK;
 }
 
@@ -578,15 +1023,18 @@ btree_m::fetch_init(
  *********************************************************************/
 rc_t
 btree_m::fetch_reinit(
-    cursor_t&                 cursor // IO- cursor to be filled in
+    cursor_t&                 cursor, // IO- cursor to be filled in
+    const bool                bIgnoreLatches
 ) 
 {
     smsize_t    elen = cursor.elen();
     bool        found = false;
 
-    get_latches(___s,___e); 
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e); 
+    }
+    
     // reinitialize the cursor
     // so that the _fetch_init
     // will do a make_rec() to evaluate the correctness of the
@@ -609,9 +1057,11 @@ btree_m::fetch_reinit(
         cursor_vec_tmp,
         found,
         &cursor, 
-        cursor.elem(), elen
-        );
-    check_latches(___s,___e, ___s+___e); 
+        cursor.elem(), elen,
+        bIgnoreLatches);
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
     return rc;
 }
 
@@ -625,16 +1075,21 @@ btree_m::fetch_reinit(
  *
  *********************************************************************/
 rc_t
-btree_m::fetch(cursor_t& cursor)
+btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
 {
     FUNC(btree_m::fetch);
     bool __eof = false;
     bool __found = false;
 
-    get_latches(___s,___e); 
-    check_latches(___s,___e, ___s+___e); 
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+	check_latches(___s,___e, ___s+___e);
+    }
     DBGTHRD(<<"first_time=" << cursor.first_time
         << " keep_going=" << cursor.keep_going);
+
+    latch_mode_t mode;
+    
     if (cursor.first_time)  {
         /*
          *  Fetch_init() already placed cursor on
@@ -657,8 +1112,9 @@ btree_m::fetch(cursor_t& cursor)
 
         w_assert3(cursor.keep_going);
     }
-    check_latches(___s,___e, ___s+___e); 
-
+    if(!bIgnoreLatches) {
+       check_latches(___s,___e, ___s+___e); 
+    }
     /*
      *  We now need to move cursor one slot to the right
      */
@@ -671,19 +1127,25 @@ btree_m::fetch(cursor_t& cursor)
     {
         btree_p p1, p2;
         w_assert3(!p2.is_fixed());
-        check_latches(___s,___e, ___s+___e); 
-
+	if(!bIgnoreLatches) {
+	    check_latches(___s,___e, ___s+___e); 
+	}
+	
         while (cursor.is_valid()) {
             /*
              *  Fix the cursor page. If page has changed (lsn
              *  mismatch) then call fetch_init to re-traverse.
              */
-            W_DO( p1.fix(cursor.pid(), LATCH_SH) );
+	    mode = LATCH_SH;
+	    if(bIgnoreLatches) {
+		mode = LATCH_NL;
+	    }
+            W_DO( p1.fix(cursor.pid(), mode) );
             if (cursor.lsn() == p1.lsn())  {
                 break;
             }
             p1.unfix();
-            W_DO(fetch_reinit(cursor)); // re-traverses the tree
+            W_DO(fetch_reinit(cursor, bIgnoreLatches)); // re-traverses the tree
             cursor.first_time = false;
             // there exists a possibility for starvation here.
             goto again;
@@ -703,7 +1165,7 @@ btree_m::fetch(cursor_t& cursor)
             w_assert3(p1.is_fixed());
             w_assert3(!p2.is_fixed());
             W_DO(btree_impl::_skip_one_slot(p1, p2, child, 
-                slot, __eof, __found, cursor.is_backward()));
+					    slot, __eof, __found, cursor.is_backward(), bIgnoreLatches));
 
             w_assert3(child->is_fixed());
             w_assert3(child->is_leaf());
@@ -719,17 +1181,20 @@ btree_m::fetch(cursor_t& cursor)
 
                 // unconditional
                 tree_latch tree_root(child->root());
-
+		mode = LATCH_SH;
+		if(bIgnoreLatches) {
+		    mode = LATCH_NL;
+		}
                 w_error_t::err_num_t rce =
-                   tree_root.get_for_smo(false, LATCH_SH,
-                            *child, LATCH_SH, false, 
-                                child==&p1? &p2 : &p1, LATCH_NL);
+                   tree_root.get_for_smo(false, mode,
+                            *child, mode, false, 
+                                child==&p1? &p2 : &p1, LATCH_NL, bIgnoreLatches);
                 if(rce) return RC(rce);
 
                 p1.unfix();
                 p2.unfix();
                 tree_root.unfix();
-                W_DO(fetch_reinit(cursor)); // re-traverses the tree
+                W_DO(fetch_reinit(cursor, bIgnoreLatches)); // re-traverses the tree
                 cursor.first_time = false;
                 DBGTHRD(<<"-->again TREE LATCH MODE "
                             << int(tree_root.latch_mode())
@@ -796,7 +1261,11 @@ btree_m::fetch(cursor_t& cursor)
                     p1.unfix();
                     p2.unfix();
                     W_DO( lm->lock(kvl, SH, t_long) );
-                    W_DO( child->fix(pid, LATCH_SH) );
+		    mode = LATCH_SH;
+		    if(bIgnoreLatches) {
+			mode = LATCH_NL;
+		    }
+                    W_DO( child->fix(pid, mode) );
                     if (lsn == child->lsn() && child == &p1)  {
                         ;
                     } else {
@@ -810,7 +1279,9 @@ btree_m::fetch(cursor_t& cursor)
         } // if cursor.is_valid()
     }
     DBGTHRD(<<"returning, is_valid=" << cursor.is_valid());
-    check_latches(___s,___e, ___s+___e); 
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e);
+    }
     return RCOK;
 }
 

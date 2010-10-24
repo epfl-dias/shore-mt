@@ -207,8 +207,9 @@ private:
 
     // c-array stuff
     insert_info_array* _slot_array;
-    insert_info* volatile* _slots;
     long _active_slots;
+    insert_info* volatile* _slots;
+
     
     // Data members:
     partition_index_t   _curr_index; // index of partition

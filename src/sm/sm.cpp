@@ -115,6 +115,9 @@ ss_m::LOG_WARN_CALLBACK_FUNC
                      smlevel_0::log_warn_callback = 0;
 ss_m::LOG_ARCHIVED_CALLBACK_FUNC 
                      smlevel_0::log_archived_callback = 0;
+// -- mrbt
+//ss_m::RELOCATE_RECORD_CALLBACK_FUNC smlevel_0::relocate_record_callback = 0;
+// --
 
 // these are set when the logsize option is set
 smlevel_0::fileoff_t        smlevel_0::max_logsz = 0;
@@ -222,6 +225,10 @@ chkpt_m* smlevel_1::chkpt = 0;
 btree_m* smlevel_2::bt = 0;
 file_m* smlevel_2::fi = 0;
 rtree_m* smlevel_2::rt = 0;
+// -- mrbt
+ranges_m* smlevel_2::ra = 0;
+// --
+
 
 dir_m* smlevel_3::dir = 0;
 
@@ -256,7 +263,9 @@ option_t* ss_m::_cc_alg_option = NULL;
 option_t* ss_m::_log_warn_percent = NULL;
 option_t* ss_m::_num_page_writers = NULL;
 option_t* ss_m::_logging = NULL;
-
+// -- mrbt
+ss_m::el_filler* ss_m::_ef = NULL;
+// --
 
 /*
  * class sm_quark_t code
@@ -873,6 +882,13 @@ ss_m::_construct_once(
         W_FATAL(eOUTOFMEMORY);
     }
 
+    // -- mrbt
+    ra = new ranges_m;
+    if (! ra) {
+        W_FATAL(eOUTOFMEMORY);
+    }
+    // --
+
     DBG(<<"Level 3");
     /*
      *  Level 3
@@ -1126,6 +1142,9 @@ ss_m::_destruct_once()
     /*
      *  Level 2
      */
+    // -- mrbt
+    delete ra; ra = 0; // partitions manager
+    // --
     delete rt; rt = 0; // rtree manager
     delete fi; fi = 0; // file manager : log is still running
     delete bt; bt = 0; // btree manager
@@ -1766,6 +1785,7 @@ ss_m::config_info(sm_config_info_t& info)
 
         std::cerr << " sizeof rectag_t " << sizeof(rectag_t) << std::endl;
         std::cerr << " file_p::data_sz " << file_p::data_sz << std::endl;
+	std::cerr << " file_mrbt_p::data_sz " << file_mrbt_p::data_sz << std::endl;
         std::cerr << " sizeof file_p_hdr_t " << sizeof(file_p_hdr_t) << std::endl;
     }
 #endif
@@ -2893,7 +2913,19 @@ ss_m::_get_du_statistics( const stid_t& stpgid, sm_du_stats_t& du, bool audit)
             DBG(<<"t_btree");
         case t_uni_btree:
             DBG(<<"t_uni_btree");
-            {
+	case t_mrbtree:
+	    DBG(<<"t_mrbtree");
+	case t_uni_mrbtree:
+	    DBG(<<"t_uni_mrbtree");
+	case t_mrbtree_l:
+	    DBG(<<"t_mrbtree_l");
+	case t_uni_mrbtree_l:
+	    DBG(<<"t_uni_mrbtree_l");
+	case t_mrbtree_p:
+	    DBG(<<"t_mrbtree_p");
+	case t_uni_mrbtree_p:
+	    DBG(<<"t_uni_mrbtree_p");
+	{
                 btree_stats_t btree_stats;
                 W_DO( bt->get_du_statistics(sd->root(), btree_stats, audit));
                 if (audit) {
@@ -3318,6 +3350,9 @@ ss_m::gather_xct_stats(sm_stats_info_t& _stats, bool reset)
 
                 "t_lgdata_p",
                 "t_lgindex_p",
+		"t_ranges_p",
+
+		"t_file_mrbt_p",
                 "t_any_p",
                 "none"
                 };
