@@ -414,9 +414,15 @@ w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& newRoot)
 
 w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
 {
-    char* keyS = (char*) malloc(key.size());
-    key.copy_to(keyS);
-    return (_addPartition(keyS, newRoot));
+    w_rc_t r = RCOK;
+    if(key.count() == 1) {
+	r = _addPartition((char*)key._pair[0].ptr, newRoot);
+    } else {
+	char* keyS = (char*) malloc(key.size());
+	key.copy_to(keyS);
+	r = _addPartition(keyS, newRoot);
+    }
+    return (r);
 }
 
 
@@ -485,10 +491,14 @@ w_rc_t key_ranges_map::deletePartitionByKey(const Key& key,
 					    Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
-    char* keyS = (char*) malloc(key.size());
-    key.copy_to(keyS);
-    r = _deletePartitionByKey(keyS, root1, root2, startKey1, startKey2);
-    free (keyS);
+    if(key.count() == 1) {
+	r = _deletePartitionByKey((char*)key._pair[0].ptr, root1, root2, startKey1, startKey2);
+    } else {
+	char* keyS = (char*) malloc(key.size());
+	key.copy_to(keyS);
+	r = _deletePartitionByKey(keyS, root1, root2, startKey1, startKey2);
+	free (keyS);
+    }
     return (r);
 }
 
@@ -532,12 +542,16 @@ w_rc_t key_ranges_map::deletePartition(lpid_t& root1, lpid_t& root2,
 
 w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
 {
-    char* keyS = (char*) malloc(key.size());
-    key.copy_to(keyS);
-
     _rwlock.acquire_read();
-    keysIter iter = _keyRangesMap.lower_bound(keyS);
-    free (keyS);
+    keysIter iter;
+    if(key.count() == 1) {
+	iter = _keyRangesMap.lower_bound((char*)key._pair[0].ptr);
+    } else {
+	char* keyS = (char*) malloc(key.size());
+	key.copy_to(keyS);
+	iter = _keyRangesMap.lower_bound(keyS);
+	free (keyS);
+    }
     if(iter == _keyRangesMap.end()) {
 	// the key is not in the map, returns error.
 	return (RC(mrb_PARTITION_NOT_FOUND));
@@ -573,14 +587,31 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
 	// return error if the bounds are not given correctly
 	return (RC(mrb_KEY_BOUNDARIES_NOT_ORDERED));
     }  
-    char* key1S = (char*) malloc(key1.size());
-    key1.copy_to(key1S);
-    char* key2S = (char*) malloc(key2.size());
-    key2.copy_to(key2S);
 
+    keysIter iter1;
+    keysIter iter2;
+    char* key2S;
+    
     _rwlock.acquire_read();
-    keysIter iter1 = _keyRangesMap.lower_bound(key1S);
-    keysIter iter2 = _keyRangesMap.lower_bound(key2S);
+
+    // get start key
+    if(key1.count() == 1) {
+	iter1 = _keyRangesMap.lower_bound((char*)key1._pair[0].ptr);
+    } else {
+	char* key1S = (char*) malloc(key1.size());
+	key1.copy_to(key1S);
+	iter1 = _keyRangesMap.lower_bound(key1S);
+    }
+
+    // get end key
+    if(key2.count() == 1) {
+	iter2 = _keyRangesMap.lower_bound((char*)key2._pair[0].ptr);
+    } else {
+	key2S = (char*) malloc(key2.size());
+	key1.copy_to(key2S);
+	iter2 = _keyRangesMap.lower_bound(key2S);
+    }
+
     if (iter1 == _keyRangesMap.end() || iter2 == _keyRangesMap.end()) {
 	// at least one of the keys is not in the map, returns error.
 	return (RC(mrb_PARTITION_NOT_FOUND));
@@ -590,7 +621,9 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
 	iter1--;
     }
     // check for !key2Included
-    if(key2Included || umemcmp(iter1->first,key2S,key2.size())!=0) {
+    if(key2Included ||
+       (key2.count() == 1 && umemcmp(iter1->first,key2._pair[0].ptr,key2.size())!=0) ||
+       umemcmp(iter1->first,key2S,key2.size())!=0) {
 	pidVec.push_back(iter1->second);
     }
     _rwlock.release_read();
@@ -777,14 +810,21 @@ w_rc_t key_ranges_map::getBoundariesVec(vector< pair<char*,char*> >& keyBoundari
 
 w_rc_t key_ranges_map::updateRoot(const Key& key, const lpid_t& root)
 {
-    char* keyS = (char*) malloc(key.size());
-    key.copy_to(keyS);
-
     _rwlock.acquire_read();
-    if(_keyRangesMap.find(keyS) != _keyRangesMap.end()) {
-	_keyRangesMap[keyS] = root;
+    if(key.count() == 1) {
+	if(_keyRangesMap.find((char*)key._pair[0].ptr) != _keyRangesMap.end()) {
+	    _keyRangesMap[(char*)key._pair[0].ptr] = root;
+	} else {
+	    return (RC(mrb_PARTITION_NOT_FOUND));
+	}
     } else {
-	return (RC(mrb_PARTITION_NOT_FOUND));
+	char* keyS = (char*) malloc(key.size());
+	key.copy_to(keyS);
+	if(_keyRangesMap.find(keyS) != _keyRangesMap.end()) {
+	    _keyRangesMap[keyS] = root;
+	} else {
+	    return (RC(mrb_PARTITION_NOT_FOUND));
+	}
     }
     _rwlock.release_read();
     return (RCOK);

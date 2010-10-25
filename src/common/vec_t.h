@@ -96,6 +96,9 @@ struct VEC_t {
  */
 class cvec_t : protected VEC_t {
     friend class vec_t; // so vec_t can look at VEC_t
+    // -- mrbt
+    friend class key_ranges_map; // to reach pair
+    // --
 protected:
     static        CADDR_T  zero_location; // see zvec_t, which is supposed
                                     // to be for the server-side only
