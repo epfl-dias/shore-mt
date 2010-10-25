@@ -170,7 +170,7 @@ private:
 
 inline NORET
 bt_cursor_t::bt_cursor_t(bool include_nulls)
-    : first_time(false), keep_going(true), _slot(-1), 
+    : is_mrbt(false), first_time(false), keep_going(true), _slot(-1), 
       _space(0), _splen(0), _klen(0), _elen(0), 
       _bound1_buf(0), _bound2_buf(0), _backward(false), _eof(false),
       _include_nulls(include_nulls)

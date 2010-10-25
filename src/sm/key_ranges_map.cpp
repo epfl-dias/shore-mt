@@ -92,7 +92,9 @@ key_ranges_map::~key_ranges_map()
     DBG(<<"Destroying the ranges map: ");
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, ++i) {
         DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << lpid_t << ")");
-        free (iter->first);
+	if(_keyCounts.find(iter->first) == _keyCounts.end()) {
+	    free (iter->first);
+	}
     }
 
     // Delete the boundary keys
@@ -417,6 +419,7 @@ w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
     w_rc_t r = RCOK;
     if(key.count() == 1) {
 	r = _addPartition((char*)key._pair[0].ptr, newRoot);
+	_keyCounts.insert((char*)key._pair[0].ptr);
     } else {
 	char* keyS = (char*) malloc(key.size());
 	key.copy_to(keyS);
@@ -493,6 +496,9 @@ w_rc_t key_ranges_map::deletePartitionByKey(const Key& key,
     w_rc_t r = RCOK;
     if(key.count() == 1) {
 	r = _deletePartitionByKey((char*)key._pair[0].ptr, root1, root2, startKey1, startKey2);
+	//if(!r.is_error()) {
+	//    _keyCounts.erase(_keyCounts.find((char*)key._pair[0].ptr));
+	//}
     } else {
 	char* keyS = (char*) malloc(key.size());
 	key.copy_to(keyS);

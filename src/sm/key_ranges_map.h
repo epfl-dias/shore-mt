@@ -46,6 +46,7 @@
 #include <map>
 #include <vector>
 #include <utility>
+#include <set>
 #include <math.h>
 #include <umemcmp.h>
 
@@ -113,6 +114,13 @@ private:
     char* _minKey;
     char* _maxKey;
 
+    // for the hack to reduce number of mallocs (if something is put
+    // to the map without any space allocation, then in destructor it
+    // shouldn't be destroyed, this set is to keep track of this)
+    set<char*> _keyCounts;
+    
+    
+    
 protected:
 
     // for thread safety multiple readers/single writer lock
