@@ -51,6 +51,7 @@ libsthread_a_SOURCES      = \
 	sthread_core_pthread.cpp \
 	sthread_stats.cpp \
 	srwlock.cpp \
+	no-inline.cpp \
 	io.cpp \
 	sdisk_unix.cpp \
 	sdisk.cpp \

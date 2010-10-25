@@ -1356,53 +1356,12 @@ void occ_rwlock::release_read()
     }
 }
 
-void occ_rwlock::acquire_read()
-{
-    int count = atomic_add_32_nv(&_active_count, READER);
-    while(count & WRITER) {
-        // block
-        count = atomic_add_32_nv(&_active_count, -READER);
-        {
-            CRITICAL_SECTION(cs, _read_write_mutex);
-            
-            // nasty race: we could have fooled a writer into sleeping...
-            if(count == WRITER)
-                DO_PTHREAD(pthread_cond_signal(&_write_cond));
-            
-            while(*&_active_count & WRITER) {
-                DO_PTHREAD(pthread_cond_wait(&_read_cond, &_read_write_mutex));
-            }
-        }
-        count = atomic_add_32_nv(&_active_count, READER);
-    }
-    membar_enter();
-}
-
 void occ_rwlock::release_write()
 {
     w_assert9(_active_count & WRITER);
     CRITICAL_SECTION(cs, _read_write_mutex);
     atomic_add_32(&_active_count, -WRITER);
     DO_PTHREAD(pthread_cond_broadcast(&_read_cond));
-}
-
-void occ_rwlock::acquire_write()
-{
-    // only one writer allowed in at a time...
-    CRITICAL_SECTION(cs, _read_write_mutex);    
-    while(*&_active_count & WRITER) {
-        DO_PTHREAD(pthread_cond_wait(&_read_cond, &_read_write_mutex));
-    }
-    
-    // any lurking writers are waiting on the cond var
-    int count = atomic_add_32_nv(&_active_count, WRITER);
-    w_assert1(count & WRITER);
-
-    // drain readers
-    while(count != WRITER) {
-        DO_PTHREAD(pthread_cond_wait(&_write_cond, &_read_write_mutex));
-        count = *&_active_count;
-    }
 }
 
 /**\cond skip */

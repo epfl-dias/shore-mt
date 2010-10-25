@@ -194,15 +194,15 @@ protected:
 // --
 
     static rc_t                        _alloc_page(
-	const bool                       bIgnoreLatches,
-        const lpid_t&                     root,
-        int2_t                             level,
-        const lpid_t&                     near,
-        btree_p&                     ret_page,
-        shpid_t                     pid0 = 0,
-        bool                            set_its_smo=false,
-        bool                            compress=false,
-        store_flag_t                     stf = st_regular);
+        const lpid_t&                    root,
+        int2_t                           level,
+        const lpid_t&                    near,
+        btree_p&                         ret_page,
+        shpid_t                          pid0 = 0,
+        bool                             set_its_smo=false,
+        bool                             compress=false,
+        store_flag_t                     stf = st_regular,
+	const bool                       bIgnoreLatches = false);
 
     static rc_t                        _insert(
         const lpid_t&                     root,

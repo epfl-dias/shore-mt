@@ -1714,11 +1714,12 @@ btsink_t::_add_page(const int i, shpid_t pid0)
          *  Allocate a new page.  I/O layer turns logging on when
          *  necessary
          */
-        X_DO( btree_impl::_alloc_page(_bIgnoreLatches, _root, 
-                i+1, (_page[i].is_fixed() ? _page[i].pid() : _root), 
-                _page[i], pid0,
-                false, _is_compressed,
-		bulk_loaded_store_type), anchor );
+        X_DO( btree_impl::_alloc_page(_root, 
+                                      i+1, (_page[i].is_fixed() ? _page[i].pid() : _root), 
+                                      _page[i], pid0,
+                                      false, _is_compressed,
+                                      bulk_loaded_store_type, 
+                                      _bIgnoreLatches), anchor);
 
     
         /*

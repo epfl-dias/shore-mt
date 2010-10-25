@@ -79,9 +79,7 @@ struct lock_cache_elem_t : public w_base_t {
     }
 
     void clear() {
-        mode = NL;
-        req = NULL;
-        lock_id.zero();
+        mode = NL; // NL == invalid
     }
 
     void dump() const {

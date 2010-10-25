@@ -178,6 +178,21 @@ lock_m::get_parent(const lockid_t& c, lockid_t& p)
     return p.lspace() != lockid_t::t_bad;
 }
 
+bool lock_m::sli_query(lockid_t const &n)
+{
+    xct_t *        xd = xct();
+    bool rval = false;
+    if (n.lspace() <= lockid_t::t_page && xd 
+	&& xd->lock_cache_enabled())  {
+	xct_lock_info_t* const theLockInfo = xd->lock_info();
+	W_COERCE(theLockInfo->lock_info_mutex.acquire());
+
+	lock_cache_elem_t* e = _core->search_cache(theLockInfo, n, true);
+	rval = (e && e->req->_sli_status == sli_active);
+	W_VOID(theLockInfo->lock_info_mutex.release());
+    }
+    return rval;
+}
 
 rc_t lock_m::query(
     const lockid_t&     n,
@@ -370,6 +385,21 @@ lock_m::close_quark(bool release_locks)
     W_DO(lm->_core->close_quark(xct(), release_locks));
     return RCOK;
 }
+
+void lock_m::disable_sli(xct_lock_info_t* theLockInfo) {
+    /* release any inherited locks. note that the list has newest
+       locks at the front so a forward iterator preserves the
+       hierarchical locking protocol.
+    */
+    W_COERCE(theLockInfo->lock_info_mutex.acquire());
+    request_list_i it(theLockInfo->sli_list);
+    while(lock_request_t* req=it.next()) 
+	_core->sli_abandon_request(req);
+
+    W_COERCE(theLockInfo->lock_info_mutex.release());
+    theLockInfo->_sli_enabled = false;
+}
+
 
 rc_t
 lock_m::_lock(

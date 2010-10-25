@@ -3342,6 +3342,7 @@ vol_t::check_store_page(const lpid_t &pid, page_p::tag_t tag)
         case page_p::t_rtree_p:
         case page_p::t_file_p:
         case page_p::t_file_mrbt_p:
+        case page_p::t_ranges_p:
             if (t != tag) error++;
             break;
 
@@ -3626,11 +3627,18 @@ vol_t::_last_extent(snum_t snum, extnum_t &ext,
         INC_TSTAT(vol_last_extent_search);
     }
     
+    extnum_t start = ext;
     extnum_t next;
-    while( (next=linkp->next) ) {
+    long i;
+    for(i=0; (next=linkp->next); i++ ) {
         // from our starting point, search to the end of the store
         W_DO(ei.get((ext=next), linkp));
     }
+
+    ADD_TSTAT(vol_last_extent_search_cost, i);
+    if (ext != start) 
+        page_cache_update(snum, ext);
+
     return RCOK;
 }
 

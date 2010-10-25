@@ -158,6 +158,20 @@ struct tls_blob {
    compiler may notice, otherwise you're on your own.
 */
 
+
+/* Ensures that everything passed to it appears as a single macro argument.
+
+   Handy for passing macro arguments which contain commas that cannot
+   be protected by parenthesis (like template class names)
+
+   For example:
+
+   #define blah(x) x
+   blah(a,b) <<< error: two args
+   blah(PROTECT(a,b)) <<< a,b
+ */
+#define PROTECT(...) __VA_ARGS__
+    
 /**\def TLS_STRUCT(Type,Name,InitFn)
  *\brief Helper macro for DECLARE_TLS. Do not use directly.
  *
@@ -222,7 +236,7 @@ struct Name {                                            \
  */ 
 #define DECLARE_TLS(Type, Name) \
     static \
-    TLS_STRUCT(Type, Name##_tls_wrapper, Name##_tls_wrapper) Name
+    TLS_STRUCT(PROTECT(Type), Name##_tls_wrapper, Name##_tls_wrapper) Name
 
 
 /**\def DECLARE_TLS_SCHWARZ(Name)
@@ -255,7 +269,7 @@ struct Name {                                            \
  * Define the TLS struct that DECLARE_TLS_SCHWARZ expects to initialize.
  */
 #define DEFINE_TLS_SCHWARZ(Type, Name)                    \
-    static TLS_STRUCT(Type, Name##_tls_wrapper, static void init_wrapper) Name; \
+    static TLS_STRUCT(PROTECT(Type), Name##_tls_wrapper, static void init_wrapper) Name; \
     Name##_tls_wrapper_schwarz::Name##_tls_wrapper_schwarz() {        \
         Name##_tls_wrapper::init_wrapper();                \
     }

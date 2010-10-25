@@ -790,7 +790,6 @@ page_p::_format(const lpid_t& pid, tag_t tag,
     return RCOK;
 }
 
-
 /*********************************************************************
  *
  *  page_p::_fix(bool,

@@ -177,13 +177,15 @@ private:
 public:
     typedef smlevel_0::store_t store_t;
 
-    NORET sdesc_t() : _partitions_filled(false), _histoid(0), _last_pid(0) {};
+    NORET sdesc_t() : _partitions_filled(false), _histoid(0), _last_pid(0), _inherited(false) {};
+
     NORET ~sdesc_t() { invalidate(); }
 
     void                init(const stid_t& stid, const sinfo_s& s)
                             {   _stid = stid;
                                 _sinfo = s; 
                                 _histoid = 0;
+				_inherited = false;
                             }
 
     inline
@@ -226,6 +228,11 @@ public:
                         }
     void                invalidate_sdesc() { invalidate(); }
 
+    void		set_inherited(bool flag) { _inherited = flag; }
+    bool		is_inherited() const { return _inherited; }
+
+    friend ostream &operator<<(ostream &os, sdesc_t const &sd);
+    
     // -- mrbt
     inline stid_t stid() { return _stid; }
     inline bool has_partitions() { return _partitions_filled; } 
@@ -252,6 +259,7 @@ private:
     histoid_t*             _histoid;
     shpid_t                _last_pid; // absolute, not approx
     stid_t                 _stid;   // identifies stores 
+    bool		   _inherited;
 };
 
 /**\brief Cache of store descriptors used by an smthread/transaction.
@@ -279,9 +287,12 @@ public:
     sdesc_t*    lookup(const stid_t& stid);
     void        remove(const stid_t& stid);
     void        remove_all(); // clear all entries from cache
+    void	inherit_all(); // mark entries as inherited
     sdesc_t*    add(const stid_t& stid, const sinfo_s& sinfo);
 
     void  copy( const sdesc_cache_t &other);  
+    friend ostream &operator<<(ostream &os, sdesc_cache_t const &sdc);
+    
 
 private:
     void        _serialize() const;

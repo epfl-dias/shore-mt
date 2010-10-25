@@ -144,6 +144,12 @@ public:
     
     void        FreeLockHeadToPool(lock_head_t* theLockHead);
 
+    enum sli_parent_cmd { RECLAIM_NO_PARENT, RECLAIM_CHECK_PARENT, RECLAIM_RECLAIM_PARENT };
+    lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd);
+    bool sli_invalidate_request(lock_request_t* &req);
+    void sli_abandon_request(lock_request_t* &req);
+    void sli_purge_inactive_locks(xct_lock_info_t* theLockInfo);
+
 
     /* search the lock cache. if reclaim=true, attempt to reclaim the
        node (possibly failing to do so); otherwise ignore inactive
@@ -163,9 +169,11 @@ public:
     
 private:
     uint4_t        _table_hash(uint4_t) const; // mod it to fit table size
-    w_rc_t::errcode_t _check_deadlock(
-                    xct_t* xd, bool first_time, lock_request_t *myreq);
+    w_rc_t::errcode_t _check_deadlock(xct_t* xd, bool first_time,
+				      lock_request_t *myreq,
+				      bool* invalidated_sli_nodes);
     void    _update_cache(xct_lock_info_t *theLockInfo, const lockid_t& name, lmode_t m);
+    bool	_maybe_inherit(lock_request_t* request, bool is_ancestor=false);
     
     // internal version that does the actual release
     rc_t    _release_lock(lock_request_t* request, bool force);

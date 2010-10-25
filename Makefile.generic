@@ -228,7 +228,7 @@ SYMBOLSFLAGS = -g -xs
 NOSYMBOLSFLAGS = -g0 
 NOOPTFLAGS = -O0 $(NO_INLINE_FLAGS)
 MIDOPTFLAGS = -O2 $(YES_INLINE_FLAGS)
-FULLOPTFLAGS = -xO4 -xinline=%auto,no%__1cKtatas_lockEspin6M_v_,no%__1cImcs_lockPspin_on_waiting6Mpon0AFqnode__v_,no%__1cImcs_lockMspin_on_next6Mpon0AFqnode__3_,no%__1cLhybrid_lockF_spin6Fpon0AFqnode__l_,no%__1cHmcs_logSspin_while_waiting6Mpn0AFqnode__v_,no%__1cKmcs_rwlockO_spin_on_writer6M_v_,no%__1cKmcs_rwlockP_spin_on_readers6M_v_,no%lock_mutex_acquire,no%returning_eINTRANS,no%__1cKtpmcs_lockMspin_on_next6Mpon0AFqnode__v_,no%__1cKtpmcs_lockPspin_on_waiting6Mpon0AFqnode__v_
+FULLOPTFLAGS = -xO4
 
 else
 #----------------- GCC  -----------------------------------

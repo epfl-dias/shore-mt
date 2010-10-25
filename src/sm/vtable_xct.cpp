@@ -45,6 +45,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_escalation.h"
 #include "lock_x.h"
 #include "xct_dependent.h"
+#include "chkpt_serial.h"
 
 #include <vtable.h>
 #include <sm_vtable_enum.h>
@@ -67,31 +68,27 @@ static vtable_names_init_t names_init(xct_last, xct_vtable_attr_names);
 int
 xct_t::collect( vtable_t& v, bool names_too)
 {
-    int n=0;
-    W_COERCE(acquire_xlist_mutex());
-    {
-        w_list_i<xct_t, queue_based_lock_t> i(_xlist);
-        while (i.next())  { n++; }
-    }
+    chkpt_serial_m::chkpt_acquire();
+    int n=num_active_xcts();
 
     if(names_too) n++;
     // n: number of rows
     // xct_last: number of attributes
     // names_init.max_size(): maximum attribute length
     if(v.init(n, xct_last, names_init.max_size())) {
-        release_xlist_mutex();
+	chkpt_serial_m::chkpt_release();
         return -1;
     }
     vtable_func<xct_t> f(v);
     if(names_too) f.insert_names();
 
     {
-        w_list_i<xct_t, queue_based_lock_t> i(_xlist);
-        while (i.next())  { 
-            f( *i.curr());
+	xct_i i;
+	while (xct_t* xd = i.next())  { 
+	    f(*xd);
         }
     }
-    release_xlist_mutex();
+    chkpt_serial_m::chkpt_release();
     return 0; //no error
 }
 

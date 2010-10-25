@@ -90,13 +90,25 @@ public:
 
     uint4_t get_hi() const { return (uint4_t) (_data >> 32); }
     uint4_t get_lo() const { return (uint4_t) _data; }
+    uint8_t get_value() const { return _data; }
 
     tid_t& operator=(const tid_t& t)    {
         _data = t._data;
         return *this;
     }
 
-    bool invalid() const { return _data == 0; }
+    bool invalid() volatile const { return _data == 0; }
+
+    tid_t next() const {
+	tid_t rval;
+	rval._data = _data+1;
+	return rval;
+    }
+    tid_t prev() const {
+	tid_t rval;
+	rval._data = _data-1;
+	return rval;
+    }
 
     datum_t atomic_incr() {
         return atomic_inc_nv(_data);

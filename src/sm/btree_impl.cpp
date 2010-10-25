@@ -220,6 +220,11 @@ tree_latch::~tree_latch()
     unfix();
 }
 
+
+#if SM_PLP_TRACING
+static __thread timeval my_time;
+#endif
+
 void                  
 tree_latch::unfix() 
 {
@@ -229,6 +234,17 @@ tree_latch::unfix()
     // _page.unfix(), but that didn't try to unfix the page unless it
     // was thought to be fixed.  Now we need to check before unlatching.
     if(_fixed) {
+
+#if SM_PLP_TRACING
+        if (smlevel_0::_ptrace_level>=smlevel_0::PLP_TRACE_PAGE) {
+            gettimeofday(&my_time, NULL);
+            CRITICAL_SECTION(plpcs,smlevel_0::_ptrace_lock);
+            smlevel_0::_ptrace_out << _pid << " " << pthread_self() << " " << _latch.mode() << " "
+                                   << my_time.tv_sec << "." << my_time.tv_usec << endl;
+            plpcs.exit();
+        }
+#endif
+
         _latch.latch_release();
         _fixed = false;
         /// RACY w_assert2(_latch.mode() == LATCH_NL );
@@ -546,8 +562,9 @@ btree_impl::_split_tree(
     btree_p new_tree_page;
     pid0 = rec.child();
     if( pid != root_old ) {
-	W_DO( _alloc_page(bIgnoreLatches, root_new, page.level(), root_new, new_tree_page,
-			  rec.child(), false, page.is_compressed()) );
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  rec.child(), false, page.is_compressed(),
+                          st_regular, bIgnoreLatches) );
 	if(ret_slot < page.nrecs()) {
 	    W_DO( page.shift(ret_slot, new_tree_page) );
 	}
@@ -582,8 +599,9 @@ btree_impl::_split_tree(
 	W_DO( page.fix(pid, latch) );
 	btrec_t rec(page, ret_slot);
 	btree_p new_tree_page;
-	W_DO( _alloc_page(bIgnoreLatches, root_new, page.level(), root_new, new_tree_page,
-			  pid0, false, page.is_compressed()));
+	W_DO( _alloc_page(root_new, page.level(), root_new, new_tree_page,
+			  pid0, false, page.is_compressed(),
+                          st_regular, bIgnoreLatches));
 	if(ret_slot < page.nrecs()) {
 	    W_DO( page.shift(ret_slot, new_tree_page) );
 	}
@@ -4161,7 +4179,6 @@ again:
  *********************************************************************/
 rc_t
 btree_impl::_alloc_page(
-    const bool bIgnoreLatches,
     const lpid_t& root, 
     int2_t level,
     const lpid_t& near_p,
@@ -4169,7 +4186,9 @@ btree_impl::_alloc_page(
     shpid_t pid0, // = 0
     bool set_its_smo, // = false
     bool compressed,  // = false
-    store_flag_t stf)  // = st_regular,        
+    store_flag_t stf,  // = st_regular,
+    const bool bIgnoreLatches // = false
+    )
 {
     FUNC(btree_impl::_alloc_page);
 
@@ -6349,8 +6368,9 @@ btree_impl::_grow_tree(btree_p& rp, const bool bIgnoreLatches)
      *  of root).   If the first page is compressed, they all are.
      */
     btree_p cp;
-    W_DO( _alloc_page(bIgnoreLatches, rp.pid(), rp.level(),
-                      np.pid(), cp, rp.pid0(), true, rp.is_compressed()) );
+    W_DO( _alloc_page(rp.pid(), rp.level(),
+                      np.pid(), cp, rp.pid0(), true, rp.is_compressed(),
+                      st_regular, bIgnoreLatches) );
     
     W_DO( cp.link_up(rp.prev(), rp.next()) );
     W_DO( np.link_up(cp.pid().page, np.next()) );
@@ -6986,6 +7006,7 @@ btree_impl::_split_leaf(
         xd->compensate(anchor,false/*not undoable*/ LOG_COMMENT_USE("btree.prop.1"));
     }
 
+    INC_TSTAT(bt_leaf_splits);
     return RCOK;
 }
 
@@ -7018,8 +7039,8 @@ btree_impl::__split_page(
      */
     btree_p sibling;
     lpid_t root = page.root();
-    W_DO( _alloc_page(bIgnoreLatches, root, page.level(), page.pid(), sibling, 0, true,
-        page.is_compressed()) );
+    W_DO( _alloc_page(root, page.level(), page.pid(), sibling, 0, true,
+                      page.is_compressed(), st_regular, bIgnoreLatches) );
 
     w_assert9(sibling.is_fixed());
     if(!bIgnoreLatches) {

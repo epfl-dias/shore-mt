@@ -182,7 +182,7 @@ struct check_compensated_op_nesting {
 
 /**\cond skip */
 
-/**\brief Encapsulates a few types uses in the API */
+/**\brief Encapsulates a few types used in the API */
 class smlevel_0 : public w_base_t {
 public:
     enum { eNOERROR = 0, eFAILURE = -1 };
@@ -559,6 +559,18 @@ public:
             t_store_freeing_exts, 
             t_unknown_deleting};
 /**\endcond  skip */
+
+#if SM_PLP_TRACING
+    static uint     _ptrace_level;
+    static mcs_lock _ptrace_lock;
+    static ofstream _ptrace_out;
+    enum plp_tracing_level_t { 
+        PLP_TRACE_NONE  = 0x0, 
+        PLP_TRACE_PAGE  = 0x01,
+        PLP_TRACE_CS    = 0x02
+    };
+#endif
+
 };
 
 /**\cond  skip */

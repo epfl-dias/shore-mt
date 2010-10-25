@@ -405,7 +405,6 @@ restart_m::analysis_pass(
             DBG(<<"analysis: inserting tx " << r.tid() << " active ");
             xd = xct_t::new_xct(r.tid(), xct_t::xct_active, lsn, r.prev());
             w_assert1(xd);
-            xct_t::update_youngest_tid(r.tid());
         }
 
         /*
@@ -471,7 +470,6 @@ restart_m::analysis_pass(
                  *         If the xct is not in xct tab, insert it.
                  */
                 const chkpt_xct_tab_t* dp = (chkpt_xct_tab_t*) r.data();
-                xct_t::update_youngest_tid(dp->youngest);
                 for (uint i = 0; i < dp->count; i++)  {
                     xct_t* xd = xct_t::look_up(dp->xrec[i].tid);
                     if (!xd) {
@@ -730,24 +728,23 @@ restart_m::analysis_pass(
     /*
      * delete xcts which are freeing space
      */
-    bool done = false;
-    while (!done)  {
-        {  // start scope so iter gets reinitialized
-            xct_i        iter(false); // don't lock list
-            xct_t*       xd;
 
-            done = true;
-            while ((xd = iter.next()))  {
+    {
+        {  // start scope so iter gets reinitialized
+            xct_i        iter;
+            xct_t*       next;
+
+	    for(xct_t* xd=iter.next(); xd; xd=next) {
                 if (xd->state() == xct_freeing_space)  {
                     DBG( << xd->tid() << " was found freeing space after analysis, deleting" );
-                    done = false;
                     found_xct_freeing_space = true;
                     me()->attach_xct(xd);
+		    next = iter.erase_and_next();
                     W_COERCE( xd->dispose() );
                     delete xd;
-                    break;
                 }  else  {
                     DBG( << xd->tid() << " was not freeing space after analysis" );
+		    next = iter.next();
                 }
             }
         }

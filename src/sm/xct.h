@@ -68,7 +68,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 // are nasty.
 #define  X_LOG_COMMENT_ON 1
 #define  ADD_LOG_COMMENT_SIG ,const char *debugmsg
-#define  ADD_LOG_COMMENT_USE ,debugmsg
+#define  ADD_LOaG_COMMENT_USE ,debugmsg
 #define  LOG_COMMENT_USE(x)  ,x
 
 #else
@@ -78,6 +78,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define  ADD_LOG_COMMENT_USE
 #define  LOG_COMMENT_USE(x) 
 #endif
+
+#include "block_alloc.h"
 
 class xct_dependent_t;
 
@@ -113,6 +115,8 @@ class xct_prepare_fi_log; // forward
 class xct_prepare_lk_log; // forward
 class sm_quark_t; // forward
 class smthread_t; // forward
+class xct_list;
+class xct_link;
 
 class logrec_t; // forward
 class page_p; // forward
@@ -151,6 +155,7 @@ class xct_t : public smlevel_1 {
     friend class block_alloc<xct_t>;
 #endif
     friend class xct_i;
+    friend struct xct_list;
     friend class smthread_t;
     friend class restart_m;
     friend class lock_m;
@@ -161,6 +166,8 @@ class xct_t : public smlevel_1 {
     friend class xct_prepare_fi_log; 
     friend class xct_prepare_lk_log; 
     friend class sm_quark_t; 
+    friend class xct_lock_info_t;
+    friend class object_cache_initializing_factory<xct_t>;
 
 protected:
     enum commit_t { t_normal = 0, t_lazy = 1, t_chain = 2 };
@@ -185,14 +192,18 @@ public:
     static
     void                        destroy_xct(xct_t* xd);
 
-private:
+    static void			set_elr_enabled(bool enable);
+
     struct xct_core;            // forward  
-    NORET                        xct_t(
+private:
+    NORET                       xct_t();
+    void			init(
         xct_core*                     core,
         sm_stats_info_t*             stats,  // allocated by caller
         const lsn_t&                 last_lsn,
         const lsn_t&                 undo_nxt);
     NORET                       ~xct_t();
+    void			reset();
 
 public:
 
@@ -283,9 +294,6 @@ public:
     static xct_t*               look_up(const tid_t& tid);
     static tid_t                oldest_tid();        // with min tid value
     static tid_t                youngest_tid();        // with max tid value
-/**\cond skip */
-    static void                 update_youngest_tid(const tid_t &);
-/**\endcond skip */
 
     // used by sm.cpp:
     static w_base_t::uint4_t    num_active_xcts();
@@ -380,8 +388,11 @@ protected:
     // doesn't know about the structures
     // and we have changed these to be a per-thread structures.
     static lockid_t*            new_lock_hierarchy();
+    static void			delete_lock_hierarchy(lockid_t* l);
     static sdesc_cache_t*       new_sdesc_cache_t();
+    static void			delete_sdesc_cache_t(sdesc_cache_t* sdc);
     static xct_log_t*           new_xct_log_t();
+    static void			delete_xct_log_t(xct_log_t* l);
     void                        steal(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);
     void                        stash(lockid_t*&, sdesc_cache_t*&, xct_log_t*&);
 
@@ -431,15 +442,6 @@ protected:
     xct_lock_info_t*             lock_info() const;
 
 public:
-    // XXX this is only for chkpt::take().  This problem needs to
-    // be fixed correctly.  DO NOT USE THIS.  Really want a
-    // friend that is just a friend on some methods, not the entire class.
-    static w_rc_t                acquire_xlist_mutex();
-    static void                  release_xlist_mutex();
-    static void                  assert_xlist_mutex_not_mine();
-    static void                  assert_xlist_mutex_is_mine();
-    static bool                  xlist_mutex_is_mine();
-
     /* "poisons" the transaction so cannot block on locks (or remain
        blocked if already so), instead aborting the offending lock
        request with eDEADLOCK. We use eDEADLOCK instead of
@@ -460,25 +462,17 @@ public:
 // DATA
 /////////////////////////////////////////////////////////////////
 protected:
-    // list of all transactions instances
-    w_link_t                      _xlink;
-    static w_descend_list_t<xct_t, queue_based_lock_t, tid_t> _xlist;
-    void                         put_in_order();
+    xct_link*			 _xlink;
+    void 			 join_xlist();
+    enum xct_end_type { xct_end_nolog, xct_end_commit, xct_end_abort };
+    rc_t			 _xct_ended(xct_end_type type);
+    
 private:
-    static queue_based_lock_t    _xlist_mutex;
-
     sm_stats_info_t*             __stats; // allocated by user
     lockid_t*                    __saved_lockid_t;
     sdesc_cache_t*                __saved_sdesc_cache_t;
     xct_log_t*                   __saved_xct_log_t;
-
-    static tid_t                 _nxt_tid;// only safe for pre-emptive 
-										// threads on 64-bit platforms
-    static tid_t                 _oldest_tid;
-    
-    // NB: must replicate because _xlist keys off it...
-    // NB: can't be const because we might chain...
-    tid_t                        _tid;
+    bool 			 __saved_sdesc_owner;
 
 public:
     void                         acquire_1thread_xct_mutex() const; // serialize
@@ -538,7 +532,7 @@ private:
     w_rc_t                     _sync_logbuf(bool block=true);
     void                       _teardown(bool is_chaining);
 
-private:
+public:
     /* A nearly-POD struct whose only job is to enable a N:1
        relationship between the log streams of a transaction (xct_t)
        and its core functionality such as locking and 2PC (xct_core).
@@ -552,11 +546,12 @@ private:
      */
     struct xct_core
     {
-        xct_core(tid_t const &t, state_t s, timeout_in_ms timeout);
+        void init(tid_t const &t, state_t s, timeout_in_ms timeout);
+	void reset();
+	xct_core();
         ~xct_core();
 
         //-- from xct.h ----------------------------------------------------
-        tid_t                  _tid;
         timeout_in_ms          _timeout; // default timeout value for lock reqs
         bool                   _warn_on;
         xct_lock_info_t*       _lock_info;
@@ -672,9 +667,7 @@ private:
      xct_core*                   _core;
 
 public:
-    tid_t                       tid() const { 
-		                            w_assert1(_tid == _core->_tid);
-		                            return _tid; }
+    tid_t                       tid() const;
 };
 
 /**\cond skip */
@@ -774,99 +767,6 @@ bool xct_t::is_log_on() const {
     return (me()->xct_log()->xct_log_is_off() == false);
 }
 
-/* XXXX This is somewhat hacky becuase I am working on cleaning
-   up the xct_i xct iterator to provide various levels of consistency.
-   Until then, the "locking option" provides enough variance so
-   code need not be duplicated or have deep call graphs. */
-
-/**\brief Iterator over transaction list.
- *
- * This is exposed for the purpose of coping with out-of-log-space 
- * conditions. See \ref LOGSPACE.
- */
-class xct_i  {
-public:
-    // NB: still not safe, since this does not
-    // lock down the list for the entire iteration.
-    
-    // FRJ: Making it safe -- all non-debug users lock it down
-    // manually right now anyway; the rest *should* to avoid bugs.
-
-    /// True if this thread holds the transaction list mutex.
-    bool locked_by_me() const {
-        if(xct_t::xlist_mutex_is_mine()) {
-            W_IFDEBUG1(if(_may_check) w_assert1(_locked);)
-            return true;
-        }
-        return false;
-    }
-
-    /// Release transaction list mutex if this thread holds it.
-    void never_mind() {
-        // Be careful here: must leave in the
-        // state it was when we constructed this.
-        if(_locked && locked_by_me()) {
-            *(const_cast<bool *>(&_locked)) = false; // grot
-            xct_t::release_xlist_mutex();
-        }
-    }
-    /// Get transaction at cursor.
-    xct_t* curr() const { return unsafe_iterator.curr(); }
-    /// Advance cursor.
-    xct_t* next() { return unsafe_iterator.next(); }
-
-    /**\cond skip */
-    // Note that this is called to INIT the attribute "locked"
-    static bool init_locked(bool lockit) 
-    {
-        if(lockit) {
-            W_COERCE(xct_t::acquire_xlist_mutex());
-        }
-        return lockit;
-    }
-    /**\endcond skip */
-
-    /**\brief Constructor.
-    *
-    * @param[in] locked_accesses Set to true if you want this
-    * iterator to be safe, false if you don't care or if you already
-    * hold the transaction-list mutex.
-    */
-    NORET xct_i(bool locked_accesses)
-        : _locked(init_locked(locked_accesses)),
-        _may_check(locked_accesses),
-        unsafe_iterator(xct_t::_xlist)
-    {
-        w_assert1(_locked == locked_accesses);
-        _check(_locked);
-    }
-
-    /// Desctructor. Calls never_mind() if necessary.
-    NORET ~xct_i() { 
-        if(locked_by_me()) {
-          _check(true);
-          never_mind(); 
-          _check(false);
-        }
-    }
-
-private:
-    void _check(bool b) const  {
-          if(!_may_check) return;
-          if(b) xct_t::assert_xlist_mutex_is_mine(); 
-          else  xct_t::assert_xlist_mutex_not_mine(); 
-    }
-    // FRJ: make sure init_locked runs before we actually create the iterator
-    const bool            _locked;
-    const bool            _may_check;
-    w_list_i<xct_t,queue_based_lock_t> unsafe_iterator;
-
-    // disabled
-    xct_i(const xct_i&);
-    xct_i& operator=(const xct_i&);
-};
-    
-
 /**\cond skip */
 // For use in sm functions that don't allow
 // active xct when entered.  These are functions that
@@ -899,6 +799,33 @@ private:
     xct_t*        _xct;
 };
 /**\endcond skip */
+
+
+/* Iterators provide a thread-safe but non-static view of the
+   transaction list. Transactions are free to begin and end while an
+   iterator is active, and garbage collection will be coordinated to
+   avoid invalid pointer accesses.
+ */
+struct xct_i {
+    struct maybe_lock {
+	bool _already_locked;
+	maybe_lock(bool already_locked);
+	~maybe_lock();
+    };
+    maybe_lock _lock;
+    xct_link* _end_xd;
+    xct_link* _cur_xd;
+    xct_i(bool already_locked=false);
+    ~xct_i();
+    xct_t* next();
+    xct_t* erase_and_next();
+private:
+    // disabled
+    xct_i(const xct_i&);
+    xct_i& operator=(const xct_i&);
+
+};
+
 
 inline
 xct_t::state_t

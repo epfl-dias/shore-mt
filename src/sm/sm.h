@@ -1465,6 +1465,10 @@ public:
      */
     static rc_t            thread_collect(vtable_t&v, bool names_too=true);
 
+    /**\brief Write all existing log entries to disk
+     */
+    static rc_t		   flushlog();
+    
     /**\brief Take a checkpoint.
      * \ingroup SSMAPIDEBUG
      * \note For debugging only!
@@ -3370,7 +3374,6 @@ public:
      *
      *****************************************************************/
 
-#if SLI_HOOKS
     /* enable/disable SLI globally for all threads created after this
        point. Does *NOT* disable SLI for existing threads.
      */
@@ -3379,7 +3382,14 @@ public:
 
     static rc_t			set_log_features(char const* features);
     static char const* 		get_log_features();
+
+#if SM_PLP_TRACING
+    /* Set tracing level. For example, the application may choose to track
+     * the page-level accesses or the critical sections 
+     */
+    static void     set_plp_tracing(const uint tracing_level);
 #endif
+
 
     /**\brief Acquire a lock.
      * \ingroup SSMLOCK
