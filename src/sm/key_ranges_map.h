@@ -178,6 +178,7 @@ public:
     //        by the lpid_t of the root of the corresponding sub-tree. In the 
     //        DORA version each partition can also be identified by a partition-id 
     w_rc_t getPartitionByKey(const Key& key, lpid_t& pid);
+    w_rc_t getPartitionByKey(char* keyS, lpid_t& pid);
     
     // Returns the list of partitions that cover: 
     // [key1, key2], (key1, key2], [key1, key2), or (key1, key2) ranges

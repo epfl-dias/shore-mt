@@ -580,6 +580,32 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
 
 /****************************************************************** 
  *
+ * @fn:    getPartitionByKey()
+ *
+ * @brief: Returns the root page id, "pid", of the partition which a
+ *         particular "keyS" belongs to
+ *
+ * @param: char* keyS    - Input
+ * @param: lpid_t pid    - Output
+ *
+ ******************************************************************/
+
+w_rc_t key_ranges_map::getPartitionByKey(char* keyS, lpid_t& pid)
+{
+    _rwlock.acquire_read();
+    keysIter iter = _keyRangesMap.lower_bound(keyS);
+    if(iter == _keyRangesMap.end()) {
+	// the key is not in the map, returns error.
+	return (RC(mrb_PARTITION_NOT_FOUND));
+    }
+    pid = iter->second;
+    _rwlock.release_read();
+    return (RCOK);    
+}
+
+
+/****************************************************************** 
+ *
  * @fn:    getPartitions()
  *
  * @param: cvec_t key1    - The start key for the partitions list (Input)
