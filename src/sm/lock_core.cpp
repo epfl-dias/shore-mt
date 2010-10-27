@@ -340,8 +340,10 @@ xct_lock_info_t::reset()
 	put_cache(name, req->mode(), req, ignore_me);
     }
     membar_exit(); // can't let the status change precede the lock name read above!
-    for(it.reset(sli_list); lock_request_t* req = it.next(); ++stats.inherited)
+    long inherited = 0;
+    for(it.reset(sli_list); lock_request_t* req = it.next(); ++inherited)
 	req->_sli_status = sli_inactive;
+    ADD_TSTAT(sli_inherited, inherited);
 
     // tid set by init()
 
@@ -419,14 +421,6 @@ xct_lock_info_t::~xct_lock_info_t()
 	smlevel_0::lm->_core->sli_purge_inactive_locks(this);
     MUTEX_RELEASE(lock_info_mutex);
 
-    if(0 && stats.xct_count) {
-    fprintf(stderr, "SLI      xct:%d      r:%d a:%d u:%.1f      E:%d I:%d U:%d w:%.1f l:%.1f      p:%.2f i:%.2f e:%.2f n:%.2f W:%.2f\n",
-	    *stats.xct_count,
-	    stats.requested/stats.xct_count, stats.acquired/stats.xct_count, 1.0*stats.upgraded/stats.xct_count,
-	    stats.eligible/stats.xct_count, stats.inherited/stats.xct_count, stats.used/stats.xct_count, 1.0*stats.too_weak/stats.xct_count, 1.0*stats.found_late/stats.xct_count,
-	    1.0*stats.purged/stats.xct_count, 1.0*stats.invalidated/stats.xct_count, 1.0*stats.evicted/stats.xct_count, 1.0*stats.no_parent/stats.xct_count, 1.0*stats.waited_on);
-    }
-    
 #if W_DEBUG_LEVEL > 2
     for (int i = 0; i < t_num_durations; i++)  {
         if (! my_req_list[i].is_empty() ) {
@@ -1253,7 +1247,7 @@ lock_core_m::acquire_lock(
 		must_wake_waiters = true;
 	    else if(req->_sli_status == sli_active
 		    && req->mode() == supr[mode][req->mode()])
-		the_xlinfo->stats.found_late++;
+		INC_TSTAT(sli_found_late);
 	}
 
 #ifdef W_TRACE
@@ -1362,6 +1356,7 @@ lock_core_m::acquire_lock(
             // it is a new request
             prev_mode = NL;
 
+	    INC_TSTAT(sli_requested);
 	    if (!compat[mode][lock->granted_mode]) {
 		// make sure SLI isn't the problem
 		if(lock->granted_mode <= SH) {
@@ -1685,10 +1680,10 @@ lock_core_m::acquire_lock(
 
     
   success:
-    the_xlinfo->stats.acquired += acquired;
-    the_xlinfo->stats.upgraded += upgraded;
+    ADD_TSTAT(sli_acquired, acquired);
+    ADD_TSTAT(sli_upgrades, upgraded);
     if(upgraded && req->_sli_status == sli_active)
-	the_xlinfo->stats.too_weak++;
+	INC_TSTAT(sli_too_weak);
     
     DBGTHRD(<< " success: check lock again " << lock <<"=" << *lock);
     w_assert9(req->status() == lock_m::t_granted);
@@ -1807,7 +1802,7 @@ void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo) {
     request_list_i it(theLockInfo->sli_list);
     while(lock_request_t* req=it.next()) {
 	if(!req->keep_me) {
-	    theLockInfo->stats.purged++;
+	    INC_TSTAT(sli_purged);
 	    sli_abandon_request(req);
 	}
     }
@@ -1832,7 +1827,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 	    if(lock->waiting && pcmd != RECLAIM_NO_PARENT) {
 		// sorry. can't have it
 		failed = true;
-		theLockInfo->stats.waited_on++;
+		INC_TSTAT(sli_waited_on);
 	    }
 	    else if(pcmd != RECLAIM_NO_PARENT) {
 		lockid_t pname;
@@ -1870,12 +1865,12 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 				failed = true;
 			    }
 			    else {
-				theLockInfo->stats.used++;
+				INC_TSTAT(sli_used);
 			    }
 			}
 		    }
 		}
-		theLockInfo->stats.no_parent += failed;
+		ADD_TSTAT(sli_no_parent, failed);
 	    }
 	    
 	    // was the lock legit? move it to the trx lock list
@@ -1983,7 +1978,7 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
     }
 
     // avoid races - update our stats not theirs
-    xct()->lock_info()->stats.invalidated++; 
+    INC_TSTAT(sli_invalidated);
     
     // no matter what it's not safe to use any more
     req = 0;
@@ -2025,7 +2020,7 @@ void lock_core_m::put_in_cache(xct_lock_info_t* the_xlinfo,
     ) {
         // cache overflowed... 
 	if(victim.req && !victim.req->is_reclaimed()) {
-	    the_xlinfo->stats.evicted++;
+	    INC_TSTAT(sli_evicted);
 	    sli_abandon_request(victim.req);
 	}
     }
@@ -2067,13 +2062,15 @@ lock_core_m::_maybe_inherit(lock_request_t* request, bool is_ancestor) {
 	lock_mode_t m = request->mode();
 	if((m == IS || m == IX || m == SH)) {
 	    //#warning DEBUG: SLI inherits all eligible locks right now (not just hot ones)
-	    request->get_lock_info()->stats.eligible++;
+	    INC_TSTAT(sli_eligible);
 	    bool should_inherit = request->_sli_status == sli_not_inherited
 		&& lock->head_mutex.is_contended();
 	    // sdesc cache inheritance needs SLI to work and is
 	    // important even if there's no contention (e.g. 1thr)
 	    should_inherit |= (lock->name.lspace() <= lockid_t::t_store);
 	    if(0 || is_ancestor || should_inherit || request->_sli_status == sli_active) {
+		if(request->_sli_status == sli_inactive)
+		    INC_TSTAT(sli_kept);
 		// clear some fields out
 		request->_num_children = 0;
 		request->_ref_count = 0;
