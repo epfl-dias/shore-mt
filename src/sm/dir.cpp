@@ -625,16 +625,17 @@ dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode,
     return RCOK;
 }
 
+// only single-thread access now...
 inline void
 sdesc_cache_t::_serialize() const
 {
-    if(xct()) xct()->acquire_1thread_xct_mutex();
+    //    if(xct()) xct()->acquire_1thread_xct_mutex();
 }
 
 inline void
 sdesc_cache_t::_endserial() const
 {
-    if(xct()) xct()-> release_1thread_xct_mutex();
+    //    if(xct()) xct()-> release_1thread_xct_mutex();
 }
 
 inline void

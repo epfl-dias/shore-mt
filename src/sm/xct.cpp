@@ -3258,15 +3258,6 @@ xct_t::rollback(const lsn_t &save_pt)
 
     _undo_nxt = nxt;
 
-    /*
-     *  The sdesc cache must be cleared, because rollback may
-     *  have caused conversions from multi-page stores to single
-     *  page stores.
-     */
-    if(sdesc_cache()) {
-        sdesc_cache()->remove_all();
-    }
-
 done:
 
     DBGX( << "leaving rollback: compensated op " << _in_compensated_op);
