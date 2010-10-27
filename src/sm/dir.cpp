@@ -742,10 +742,13 @@ sdesc_cache_t::remove(const stid_t& stid)
 		// --
                 DBG(<<"");
                 _sdescsBuckets[i][j].invalidate();
-                if (i < _minFreeBucket && j < _minFreeBucketIndex)  {
-                    _minFreeBucket = i;
-                    _minFreeBucketIndex = j;
-                }
+		if (i < _minFreeBucket) {
+		    _minFreeBucket = i;
+		    _minFreeBucketIndex = j;
+		}
+		else if(i == _minFreeBucket && j < _minFreeBucketIndex) {
+		    _minFreeBucketIndex = j;
+		}
                 _endserial();
                 return;
             }
@@ -843,6 +846,7 @@ sdesc_t* sdesc_cache_t::add(const stid_t& stid, const sinfo_s& sinfo)
             }
             bucketIndex++;
         }
+	bucketIndex = 0;
         bucket++;
     }
 
