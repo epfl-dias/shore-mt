@@ -801,7 +801,7 @@ btree_m::mr_bulk_load(
 
     rc_t rc;
     btsink_t sink;
-    int partition = 0;
+    //int partition = 0;
 
     // go thru the src file page by page
     int i = 0;                // toggle

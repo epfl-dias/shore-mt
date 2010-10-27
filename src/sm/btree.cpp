@@ -1187,7 +1187,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
     DBGTHRD(<<"first_time=" << cursor.first_time
         << " keep_going=" << cursor.keep_going);
 
-    latch_mode_t mode;
+    latch_mode_t mode = LATCH_SH;
     
     if (cursor.first_time)  {
         /*

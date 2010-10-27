@@ -262,7 +262,7 @@ xct_t* xct_i::next() {
      */
  retry:
     xct_link* n;
-    while( !(n=_cur_xd->vthis()->_next) );
+    while( !(n=_cur_xd->vthis()->_next) ) ;
     _cur_xd = n;
     if(NODE_LEFT == _cur_xd->vthis()->_node_state) {
 	if(_cur_xd == _end_xd)
@@ -289,7 +289,7 @@ xct_t* xct_i::erase_and_next() {
 
 
 
-static void pretty_print(ostream &out, xct_list const*rec) {
+static void pretty_print(ostream &out, xct_list const* /* rec */) {
     xct_link* cur = &_xlist._anchor;
     out << "[anchor: " << cur->_tid << "]  ";
     while( (cur=cur->_next) ) {
@@ -303,7 +303,7 @@ static void pretty_print(ostream &out, xct_list const*rec) {
     }
 }
 #include <sstream>
-static char const* db_pretty_print(xct_list const* rec, int i=0, char const* s=0) {
+static char const* db_pretty_print(xct_list const* rec, int /* i=0 */, char const* /* s=0 */) {
     static stringstream out;
     static string str;
     out.str("");
@@ -470,7 +470,7 @@ void xct_list::remove(xct_link* xd) {
 	    }
 	    else {
 		// wait for new arrival to introduce itself
-		while( !(next=xd->vthis()->_next) );
+		while( !(next=xd->vthis()->_next) ) ;
 
 		// link the newly formed list into the anchor
 		_anchor._next = next; 

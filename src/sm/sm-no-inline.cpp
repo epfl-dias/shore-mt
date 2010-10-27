@@ -31,12 +31,12 @@
 #include "log_core.h"
 
 void log_core::_spin_on_epoch(long old_end) {
-    while(*&_cur_epoch.vthis()->end + *&_cur_epoch.vthis()->base != old_end);
+    while(*&_cur_epoch.vthis()->end + *&_cur_epoch.vthis()->base != old_end) ;
 }    
 
 long log_core::_spin_on_count(long volatile* count, long bound) {
     long old_count;
-    while( (old_count=*count) >= bound);
+    while( (old_count=*count) >= bound) ;
     membar_enter();
     return old_count;
 }

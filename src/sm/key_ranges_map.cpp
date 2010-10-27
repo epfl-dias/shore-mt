@@ -596,7 +596,7 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
 
     keysIter iter1;
     keysIter iter2;
-    char* key2S;
+    char* key2S = NULL;
     
     _rwlock.acquire_read();
 

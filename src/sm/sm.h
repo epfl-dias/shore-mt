@@ -2688,6 +2688,7 @@ public:
 				      const vec_t& maxKey,
 				      uint numParts);
 
+
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
      * This is for initially creating some partitions, when there are no assocs created
      * in index yet.
