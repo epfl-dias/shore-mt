@@ -1555,8 +1555,7 @@ btree_m::mr_bulk_load_l(
     concurrency_t        cc_unused,        // I-  concurrency control
     btree_stats_t&       _stats)                // O-  index stats
 {
-
-    // TODO: how to implement ??
+    assert (0);      // TODO: how to implement ??
     return RCOK;
 }
 // --

@@ -109,10 +109,13 @@ private:
     typedef cvec_t Key;
 
     // range_init_key -> root of the corresponding subtree
-    map<char*, lpid_t, cmp_greater > _keyRangesMap;
-    uint _numPartitions;
+    typedef map<char*, lpid_t, cmp_greater >                 KRMap;
+    typedef map<char*, lpid_t, cmp_greater >::iterator       KRMapIt;
+    typedef map<char*, lpid_t, cmp_greater >::const_iterator KRMapCIt;
+    KRMap _keyRangesMap;
     char* _minKey;
     char* _maxKey;
+    uint  _numPartitions;
 
     // for the hack to reduce number of mallocs (if something is put
     // to the map without any space allocation, then in destructor it
@@ -141,7 +144,6 @@ public:
     //// Construction ////
     // Calls one of the initialization functions
     key_ranges_map();
-    key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts);
     virtual ~key_ranges_map();
 
 
@@ -199,7 +201,10 @@ public:
 
     // Updates the root of the partition starting with key
     w_rc_t updateRoot(const Key& key, const lpid_t& root);
-    
+        
+    // Returns true if they are same
+    bool is_same(const key_ranges_map& krm);
+
     // Setters
     void setNumPartitions(uint numPartitions);
     void setMinKey(const Key& minKey);

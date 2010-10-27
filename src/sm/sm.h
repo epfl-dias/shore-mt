@@ -2674,6 +2674,17 @@ public:
 				      const lpid_t           root = lpid_t::null);
     
 
+
+    /**\brief Returns the range map of a Multi-rooted B+-Tree index.
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid       ID of the index.
+     * @param[out] rangemap  The range map of this index.
+     */
+    static rc_t get_range_map(stid_t stid,
+                              key_ranges_map& rangemap);
+                               
+
     /**\brief Partition the space between the given minKey and maxKey equally depending on the given
      * partition count in a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -3766,6 +3777,9 @@ private:
         const bool             bIgnoreLocks,
 	const lpid_t           root);
     
+    static rc_t _get_range_map(stid_t stid,
+                               key_ranges_map& rangemap);
+
     static rc_t _make_equal_partitions(stid_t stid,
 				       const vec_t& minKey,
 				       const vec_t& maxKey,

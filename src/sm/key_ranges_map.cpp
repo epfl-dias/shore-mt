@@ -55,31 +55,9 @@
  ******************************************************************/
 
 key_ranges_map::key_ranges_map()
+    : _minKey(NULL),_maxKey(NULL),_numPartitions(0)
 {
-    _minKey = NULL;
-    _maxKey = NULL;
-    _numPartitions = 0;
 }
-
-key_ranges_map::key_ranges_map(const Key& minKey, const Key& maxKey, const uint numParts)
-{
-    // IP: call a function that makes sure that no such store exists
-    //     create a store
-    // pin: this is only called due to a request to an existing store so we don't
-    //      have to check for this
-    
-    // Calls the default initialization. 
-    // pin: this shouldn't be how we do this, the map should be initialized by a
-    //      default key value and the request to makeEqualPartitions should be made
-    //      explicitly and for only initialization
-    //      the checks that would control these constraints should be in SM-API call
-    //      make_equal_partitions
-    //      so i actually want to completely remove this constructor. =)
-    // _numPartitions = makeEqualPartitions(minKey,maxKey,numParts);
-
-    fprintf (stdout, "%d partitions created", _numPartitions);
-}
-
 
 key_ranges_map::~key_ranges_map()
 {
@@ -929,6 +907,36 @@ map<char*, lpid_t, cmp_greater> key_ranges_map::getMap() const
 {
     return (_keyRangesMap);
 }
+
+
+/****************************************************************** 
+ *
+ * @fn:    is_same()
+ *
+ * @brief: Returns true if the two maps are the same.
+ *         - They have the same number of partitions
+ *         - Each partition has the same starting point
+ *
+ ******************************************************************/
+
+bool key_ranges_map::is_same(const key_ranges_map& krm)
+{
+    if (_numPartitions!=krm._numPartitions) return (false);
+    if (strcmp(_minKey,krm._minKey)!=0) return (false);
+    if (strcmp(_maxKey,krm._maxKey)!=0) return (false);
+
+    assert (_keyRangesMap.size()==krm.size());
+
+    KRMapIt myIt = _keyRangesMap.begin();
+    KRMapCIt urCIt = krm._keyRangesMap.begin();
+
+    for (; myIt != _keyRangesMap.end(); myIt++,urCIt++) {
+        if ((*myIt).second!=(*urCIt).second) { return (false); }
+        if (strcmp((*myIt).first,(*urCIt).first)!=0) { return (false); }
+    }
+    return (true);
+}
+
 
 #if 0
 int main(void)

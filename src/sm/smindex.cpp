@@ -542,6 +542,17 @@ rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key,
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::get_range_map()                                       *
+ *--------------------------------------------------------------*/
+rc_t ss_m::get_range_map(stid_t stid, key_ranges_map& rangemap)
+{
+    SM_PROLOGUE_RC(ss_m::get_range_map, in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
+    W_DO(_get_range_map(stid, rangemap));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::make_equal_partitions()                               *
  *--------------------------------------------------------------*/
 rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
@@ -1335,6 +1346,25 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
     
+    return RCOK;
+}
+
+rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map& rangemap)
+{
+    FUNC(ss_m::_get_range_map);
+
+    DBG(<<" stid " << stid);
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, EX));
+
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    rangemap = sd->partitions();
+
     return RCOK;
 }
 
