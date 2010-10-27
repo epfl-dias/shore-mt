@@ -1057,17 +1057,13 @@ btree_m::mr_fetch_init(
     /*
      *  Initialize constant parts of the cursor
      */
-    cvec_t* key;
-    cvec_t* bound2_key;
 
     DBGTHRD(<<"");
-    W_DO(_scramble_key(bound2_key, bound2, nkc, kc));
     W_DO(cursor.set_up(root, nkc, kc, unique, cc, 
-                       cond2, *bound2_key, mode));
+                       cond2, bound2, mode));
 
     DBGTHRD(<<"");
-    W_DO(_scramble_key(key, ukey, nkc, kc));
-    W_DO(cursor.set_up_part_2( cond1, *key));
+    W_DO(cursor.set_up_part_2( cond1, ukey));
 
     cursor.set_roots(roots);
 
@@ -1090,7 +1086,7 @@ btree_m::mr_fetch_init(
             return RC(eBADSCAN);
         }
         lockid_t k;
-        btree_impl::mk_kvl(cc, k, root.stid(), true, *key);
+        btree_impl::mk_kvl(cc, k, root.stid(), true, ukey);
         // wait for commit-duration share lock on key
         W_DO (lm->lock(k, mode, t_long));
     }
@@ -1101,7 +1097,7 @@ btree_m::mr_fetch_init(
     DBGTHRD(<<"Scan is backward? " << cursor.is_backward());
 
     W_DO (btree_impl::_lookup( cursor.root(), cursor.unique(), cursor.cc(),
-			       *key, elem, found, &cursor, cursor.elem(), elen, bIgnoreLatches));
+			       ukey, elem, found, &cursor, cursor.elem(), elen, bIgnoreLatches));
 
     DBGTHRD(<<"found=" << found);
 

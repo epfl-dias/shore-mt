@@ -625,7 +625,7 @@ w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
 {
     w_rc_t r = RCOK;
     
-    if(key2 < key1) {
+    if(key2 <= key1) {
 	// return error if the bounds are not given correctly
 	return (RC(mrb_KEY_BOUNDARIES_NOT_ORDERED));
     }  

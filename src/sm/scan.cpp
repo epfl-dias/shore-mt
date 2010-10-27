@@ -314,14 +314,20 @@ scan_index_i::_init(
 
 	    // traverse all the subtrees that covers the region [bound,b2]
 	    vector<lpid_t> roots;
-	    _error_occurred = sd->partitions().getPartitions(bound, inclusive, b2,
+	    cvec_t* bound_key;
+	    cvec_t* b2_key;
+	    _error_occurred = bt->_scramble_key(bound_key, bound, bound.count(), sd->sinfo().kc);
+	    _error_occurred = bt->_scramble_key(b2_key, b2, bound.count(), sd->sinfo().kc);
+
+	    _error_occurred = sd->partitions().getPartitions(*bound_key, inclusive, *b2_key,
 							     c2 == eq || c2 == ge || c2 == le, roots);
+	    
 	    _error_occurred = bt->mr_fetch_init(*_btcursor, roots, 
 						sd->sinfo().nkc, sd->sinfo().kc,
 						ntype == t_uni_btree,
 						key_lock_level,
-						bound, *elem, 
-						cond, c2, b2, mode);
+						*bound_key, *elem, 
+						cond, c2, *b2_key, mode);
             if (_error_occurred.is_error())  {
                 return;
             }
