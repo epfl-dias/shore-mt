@@ -120,7 +120,7 @@ private:
     // for the hack to reduce number of mallocs (if something is put
     // to the map without any space allocation, then in destructor it
     // shouldn't be destroyed, this set is to keep track of this)
-    set<char*> _keyCounts;
+    //set<char*> _keyCounts;
         
 protected:
 
@@ -151,8 +151,8 @@ public:
     // The default initialization creates numParts partitions of equal size
 
     // Makes equal length partitions from scratch
-    uint makeEqualPartitions(/*const Key& minKey, const Key& maxKey, */
-			     const uint size, const uint numParts, vector<lpid_t>& roots);
+    uint makeEqualPartitions(const Key& minKey, const Key& maxKey,
+			     const uint numParts, vector<lpid_t>& roots);
 
 
     ////  Map management ////

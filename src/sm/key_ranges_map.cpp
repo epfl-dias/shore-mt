@@ -70,9 +70,9 @@ key_ranges_map::~key_ranges_map()
     DBG(<<"Destroying the ranges map: ");
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, ++i) {
         DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << lpid_t << ")");
-	if(_keyCounts.find(iter->first) == _keyCounts.end()) {
-	    free (iter->first);
-	}
+	//if(_keyCounts.find(iter->first) == _keyCounts.end()) {
+	free (iter->first);
+	//}
     }
 
     // Delete the boundary keys
@@ -111,6 +111,38 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
     
     _rwlock.acquire_write();
 
+    assert (_minKey!=NULL);
+    assert (_maxKey!=NULL);
+    assert (minKey < maxKey);
+
+    
+    _rwlock.acquire_write();
+
+    int size = sizeof(int);
+    int lower_bound = 0;
+    int upper_bound = 0;
+    minKey.copy_to(&lower_bound, sizeof(int));
+    maxKey.copy_to(&upper_bound, sizeof(int));
+    char** subParts = (char**)malloc(numParts*sizeof(char*));
+ 
+    int space = upper_bound - lower_bound;
+    int diff = space / numParts;
+
+    subParts[0] = (char*) malloc(size);
+    subParts[0] = (char*) (&lower_bound);
+
+    uint partsCreated = 1; // In case it cannot divide to numParts partitions
+
+    int current_key = lower_bound;
+    while(partsCreated < numParts) {
+	current_key = current_key + diff;
+	int startKey = current_key;
+	subParts[partsCreated] = (char*) malloc(size);
+	subParts[partsCreated] = (char*) (&startKey);
+	partsCreated++;
+    }
+
+    /*
     uint lower_bound = *(uint*)_minKey;
     uint upper_bound = *(uint*)_maxKey;
 
@@ -128,7 +160,7 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
 	subParts[partsCreated] = (char*) (&startKey);
 	partsCreated++;
     }
-
+    */
     
         /*
     uint minsz = sizeof(_minKey);
@@ -250,7 +282,7 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
     */
     
     // put the partitions to map
-    //_keyRangesMap.clear();
+    _keyRangesMap.clear();
     for(uint i = 0; i < partsCreated; i++) { 
         _keyRangesMap[subParts[i]] = roots[i];
     }
@@ -259,7 +291,7 @@ uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,
 
     assert (partsCreated != 0); // Should have created at least one partition
 
-    _numPartitions = partsCreated + 1;
+    _numPartitions = partsCreated;
 	
     return (_numPartitions);
     
@@ -395,14 +427,14 @@ w_rc_t key_ranges_map::_addPartition(char* keyS, lpid_t& newRoot)
 w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
 {
     w_rc_t r = RCOK;
-    if(key.count() == 1) {
-	r = _addPartition((char*)key._pair[0].ptr, newRoot);
-	_keyCounts.insert((char*)key._pair[0].ptr);
-    } else {
-	char* keyS = (char*) malloc(key.size());
-	key.copy_to(keyS);
-	r = _addPartition(keyS, newRoot);
-    }
+    //if(key.count() == 1) {
+    //	r = _addPartition((char*)key._pair[0].ptr, newRoot);
+    //_keyCounts.insert((char*)key._pair[0].ptr);
+    //} else {
+    char* keyS = (char*) malloc(key.size());
+    key.copy_to(keyS);
+    r = _addPartition(keyS, newRoot);
+    //}
     return (r);
 }
 
