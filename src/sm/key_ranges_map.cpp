@@ -798,6 +798,8 @@ w_rc_t key_ranges_map::getBoundariesVec(vector< pair<char*,char*> >& keyBoundari
     keysIter iter;
     pair<char*, char*> keyPair;
     keyPair.second = NULL;
+    keyBoundariesVec.clear();
+    keyBoundariesVec.reserve(_keyRangesMap.size());
 
     _rwlock.acquire_read();
     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter) {
