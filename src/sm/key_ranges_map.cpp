@@ -99,7 +99,7 @@ key_ranges_map::~key_ranges_map()
  *
  ******************************************************************/
 
-uint key_ranges_map::makeEqualPartitions(/*const Key& minKey, const Key& maxKey,*/ const uint size,
+uint key_ranges_map::makeEqualPartitions(const Key& minKey, const Key& maxKey,
                                          const uint numParts, vector<lpid_t>& roots)
 {
 #warning PT: makeEqualPartitions works only for ints now! has to be re-written
