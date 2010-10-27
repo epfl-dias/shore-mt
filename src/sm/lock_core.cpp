@@ -336,7 +336,7 @@ xct_lock_info_t::reset()
     lock_cache_elem_t ignore_me;// don't care...
     while(lock_request_t* req = it.next()) {
 	lockid_t const &name = req->get_lock_head()->name;
-	req->keep_me = false; //name.lspace() <= lockid_t::t_store;
+	req->keep_me = name.lspace() <= lockid_t::t_store;
 	put_cache(name, req->mode(), req, ignore_me);
     }
     membar_exit(); // can't let the status change precede the lock name read above!
@@ -418,7 +418,7 @@ xct_lock_info_t::~xct_lock_info_t()
 {
     MUTEX_ACQUIRE(lock_info_mutex);
     if(smlevel_0::lm)
-	smlevel_0::lm->_core->sli_purge_inactive_locks(this);
+	smlevel_0::lm->_core->sli_purge_inactive_locks(this, true);
     MUTEX_RELEASE(lock_info_mutex);
 
 #if W_DEBUG_LEVEL > 2
@@ -1791,7 +1791,7 @@ lock_core_m::acquire_lock(
     }
 }
 
-void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo) {
+void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool force) {
     if(theLockInfo->_sli_purged)
 	return;
 
@@ -1801,7 +1801,7 @@ void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo) {
     // iterator forward to get newest first
     request_list_i it(theLockInfo->sli_list);
     while(lock_request_t* req=it.next()) {
-	if(!req->keep_me) {
+	if(force || !req->keep_me) {
 	    INC_TSTAT(sli_purged);
 	    sli_abandon_request(req);
 	}
