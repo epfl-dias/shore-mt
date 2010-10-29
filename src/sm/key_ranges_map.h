@@ -216,9 +216,9 @@ protected:
 
     // Delete the partition where "key" belongs, by merging it with the 
     // previous partition
-//     virtual w_rc_t _deletePartitionByKey(char* keyS, // Input
-// 					 lpid_t& root1, lpid_t& root2, // Outputs
-// 					 Key& startKey1, Key& startKey2); // Outputs
+     virtual w_rc_t _deletePartitionByKey(const foo& kv, // Input
+ 					 lpid_t& root1, lpid_t& root2, // Outputs
+ 					 Key& startKey1, Key& startKey2); // Outputs
 
 public:
 

@@ -364,89 +364,80 @@ w_rc_t key_ranges_map::addPartition(const cvec_t& key, lpid_t& newRoot)
  *         comes before startKey1.
  ******************************************************************/
 
-w_rc_t key_ranges_map::deletePartitionByKey(const cvec_t& key,
-                                            lpid_t& root1, lpid_t& root2,
-                                            Key& startKey1, Key& startKey2)
+w_rc_t key_ranges_map::_deletePartitionByKey(const foo& kv,
+					     lpid_t& root1, lpid_t& root2,
+					     Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
 
-//     _rwlock.acquire_write();
+    _rwlock.acquire_write();
+    
+    KRMapIt iter = _keyRangesMap.lower_bound(kv);
+    
+    if(iter == _keyRangesMap.end()) {
+ 	// partition not found, return an error
+	_rwlock.release_write();
+ 	return (RC(mrb_PARTITION_NOT_FOUND));
+    }
 
-//     KRMapIt iter = _keyRangesMap.lower_bound(key);
-
-//     if(iter == _keyRangesMap.end()) {
-// 	// partition not found, return an error
-//         _rwlock.release_write();
-// 	return (RC(mrb_PARTITION_NOT_FOUND));
-//     }
-
-//     root2 = iter->second;
-//     ++iter;
-//     if(iter == _keyRangesMap.end()) {
-// 	--iter;
-// 	if(iter == _keyRangesMap.begin()) {
-// 	    // partition is the last partition, cannot be deleted
-//             _rwlock.release_write();
-// 	    return (RC(mrb_LAST_PARTITION));
-// 	}
-// 	root1 = root2;
-// 	startKey1.put(iter->first, sizeof(iter->first));
-//     }
-//     else {
-// 	startKey1.put(iter->first, sizeof(iter->first));
-// 	root1 = iter->second;
-//     }
-//     --iter;
-//     startKey2.put(iter->first, sizeof(iter->first));
-//     root2 = iter->second;
-//     _keyRangesMap.erase(iter);
-//     _numPartitions--;
-
-//     _rwlock.release_write();
+    root2 = iter->second;
+    ++iter;
+    if(iter == _keyRangesMap.end()) {
+ 	--iter;
+ 	if(iter == _keyRangesMap.begin()) {
+ 	    // partition is the last partition, cannot be deleted
+	    _rwlock.release_write();
+ 	    return (RC(mrb_LAST_PARTITION));
+ 	}
+ 	root1 = root2;
+	startKey1.put((*iter).first._m,(*iter).first._len);
+    }
+    else {
+ 	startKey1.put((*iter).first._m,(*iter).first._len);
+ 	root1 = iter->second;
+    }
+    --iter;
+    startKey2.put((*iter).first._m,(*iter).first._len);
+    root2 = iter->second;
+    _keyRangesMap.erase(iter);
+    _numPartitions--;
+    
+    _rwlock.release_write();
     return (r);
 }
 
-// w_rc_t key_ranges_map::deletePartitionByKey(const Key& key,
-// 					    lpid_t& root1, lpid_t& root2,
-// 					    Key& startKey1, Key& startKey2)
-// {
-//     w_rc_t r = RCOK;
-//     if(key.count() == 1) {
-// 	r = _deletePartitionByKey((char*)key._pair[0].ptr, root1, root2, startKey1, startKey2);
-// 	//if(!r.is_error()) {
-// 	//    _keyCounts.erase(_keyCounts.find((char*)key._pair[0].ptr));
-// 	//}
-//     } else {
-// 	char* keyS = (char*) malloc(key.size());
-// 	key.copy_to(keyS);
-// 	r = _deletePartitionByKey(keyS, root1, root2, startKey1, startKey2);
-// 	free (keyS);
-//     }
-//     return (r);
-// }
+w_rc_t key_ranges_map::deletePartitionByKey(const Key& key,
+ 					    lpid_t& root1, lpid_t& root2,
+ 					    Key& startKey1, Key& startKey2)
+{
+    w_rc_t r = RCOK;
+    foo kv((char*)key._base[0].ptr,key._base[0].len,false);
+    r = _deletePartitionByKey(kv, root1, root2, startKey1, startKey2);
+    return (r);
+}
 
 w_rc_t key_ranges_map::deletePartition(lpid_t& root1, lpid_t& root2,
 				       Key& startKey1, Key& startKey2)
 {
     w_rc_t r = RCOK;
-//     bool bFound = false;
+    bool bFound = false;
 
-//     KRMapIt iter;
-//     _rwlock.acquire_read();
-//     for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter) {
-//         if (iter->second == root2) {
-//             bFound = true;
-// 	    break;
-//         }
-//     }
-//     _rwlock.release_read();
+    KRMapIt iter;
+    _rwlock.acquire_read();
+    for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter) {
+	if (iter->second == root2) {
+	    bFound = true;
+ 	    break;
+	}
+    }
+    _rwlock.release_read();
 
-//     if (bFound) {
-//         r = _deletePartitionByKey(iter->first, root1, root2, startKey1, startKey2);
-//     } 
-//     else {
-// 	return (RC(mrb_PARTITION_NOT_FOUND));
-//     }
+    if (bFound) {
+	r = _deletePartitionByKey(iter->first, root1, root2, startKey1, startKey2);
+    } 
+    else {
+ 	return (RC(mrb_PARTITION_NOT_FOUND));
+    }
 
     return (r);
 }
