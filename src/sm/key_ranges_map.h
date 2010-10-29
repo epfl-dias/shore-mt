@@ -104,14 +104,19 @@ inline bool cmp_greater::operator()(char const *a, char const *b) const
 
 class key_ranges_map
 {
-private:
+public:
 
-    typedef cvec_t Key;
-
-    // range_init_key -> root of the corresponding subtree
     typedef map<char*, lpid_t, cmp_greater >                 KRMap;
     typedef map<char*, lpid_t, cmp_greater >::iterator       KRMapIt;
     typedef map<char*, lpid_t, cmp_greater >::const_iterator KRMapCIt;
+
+private:
+
+    typedef cvec_t Key;
+        
+protected:
+
+    // range_init_key -> root of the corresponding subtree
     KRMap _keyRangesMap;
     char* _minKey;
     char* _maxKey;
@@ -121,8 +126,6 @@ private:
     // to the map without any space allocation, then in destructor it
     // shouldn't be destroyed, this set is to keep track of this)
     //set<char*> _keyCounts;
-        
-protected:
 
     // for thread safety multiple readers/single writer lock
     occ_rwlock _rwlock;
@@ -139,20 +142,19 @@ protected:
 
 public:
 
-    typedef map<char*, lpid_t>::iterator keysIter;
-   
     //// Construction ////
     // Calls one of the initialization functions
     key_ranges_map();
+    key_ranges_map(char* minKey, char* maxKey, const uint numParts, const bool physical);
+    key_ranges_map(const key_ranges_map& rhs);
     virtual ~key_ranges_map();
 
 
     ////  Initialization ////
     // The default initialization creates numParts partitions of equal size
 
-    // Makes equal length partitions from scratch
-    uint makeEqualPartitions(const Key& minKey, const Key& maxKey,
-			     const uint numParts, vector<lpid_t>& roots);
+    // Create a partitioning but does not do any physical changes, uses
+    uint nophy_equal_partitions(char* minKey, char* maxKey, const uint numParts);
 
 
     ////  Map management ////

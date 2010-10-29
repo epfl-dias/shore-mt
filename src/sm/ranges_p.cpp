@@ -144,7 +144,7 @@ rc_t ranges_p::fill_page(key_ranges_map& partitions)
     uint4_t i = 1;
  
     // put rest of the partitions' info
-    for(key_ranges_map::keysIter iter = partitions_map.begin();
+    for(key_ranges_map::KRMapIt iter = partitions_map.begin();
 	iter != partitions_map.end();
 	iter++, i++) {
 	cvec_t v;

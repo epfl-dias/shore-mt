@@ -237,6 +237,7 @@ public:
     inline stid_t stid() { return _stid; }
     inline bool has_partitions() { return _partitions_filled; } 
     key_ranges_map& partitions();
+    key_ranges_map* get_partitions_p();
     rc_t fill_partitions_map();
     rc_t store_partitions();
     // --

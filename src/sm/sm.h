@@ -2682,7 +2682,7 @@ public:
      * @param[out] rangemap  The range map of this index.
      */
     static rc_t get_range_map(stid_t stid,
-                              key_ranges_map& rangemap);
+                              key_ranges_map*& rangemap);
                                
 
     /**\brief Partition the space between the given minKey and maxKey equally depending on the given
@@ -3778,7 +3778,7 @@ private:
 	const lpid_t           root);
     
     static rc_t _get_range_map(stid_t stid,
-                               key_ranges_map& rangemap);
+                               key_ranges_map*& rangemap);
 
     static rc_t _make_equal_partitions(stid_t stid,
 				       const vec_t& minKey,

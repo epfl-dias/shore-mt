@@ -925,6 +925,15 @@ key_ranges_map& sdesc_t::partitions()
     return _partitions;
 }
 
+key_ranges_map* sdesc_t::get_partitions_p()
+{
+    if(!_partitions_filled) {
+	fill_partitions_map();
+	_partitions_filled = true;
+    }
+    return (&_partitions);
+}
+
 rc_t sdesc_t::fill_partitions_map() 
 {
     W_DO( ranges_m::fill_ranges_map(root(), _partitions) );

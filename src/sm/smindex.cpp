@@ -544,7 +544,7 @@ rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key,
 /*--------------------------------------------------------------*
  *  ss_m::get_range_map()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::get_range_map(stid_t stid, key_ranges_map& rangemap)
+rc_t ss_m::get_range_map(stid_t stid, key_ranges_map*& rangemap)
 {
     SM_PROLOGUE_RC(ss_m::get_range_map, in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
@@ -1349,7 +1349,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     return RCOK;
 }
 
-rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map& rangemap)
+rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map*& rangemap)
 {
     FUNC(ss_m::_get_range_map);
 
@@ -1363,7 +1363,7 @@ rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map& rangemap)
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    rangemap = sd->partitions();
+    rangemap = sd->get_partitions_p();
 
     return RCOK;
 }
