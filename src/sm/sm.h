@@ -463,6 +463,7 @@ class sort_stream_i;
 // -- mrbt
 class ranges_m;
 class key_ranges_map;
+struct sinfo_s;
 // --
 
 /**\addtogroup SSMSP  
@@ -2681,8 +2682,9 @@ public:
      * @param[in] stid       ID of the index.
      * @param[out] rangemap  The range map of this index.
      */
-    static rc_t get_range_map(stid_t stid,
-                              key_ranges_map*& rangemap);
+    static rc_t get_range_map(stid_t stid, key_ranges_map*& rangemap);
+
+    static rc_t get_store_info(stid_t stid, sinfo_s& sinfo);
                                
 
     /**\brief Partition the space between the given minKey and maxKey equally depending on the given
@@ -3777,8 +3779,10 @@ private:
         const bool             bIgnoreLocks,
 	const lpid_t           root);
     
-    static rc_t _get_range_map(stid_t stid,
-                               key_ranges_map*& rangemap);
+    static rc_t _get_range_map(stid_t stid, key_ranges_map*& rangemap);
+
+    static rc_t _get_store_info(stid_t stid, sinfo_s& sinfo);
+
 
     static rc_t _make_equal_partitions(stid_t stid,
 				       const vec_t& minKey,

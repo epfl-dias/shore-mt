@@ -62,6 +62,7 @@
 
 using namespace std;
 
+struct sinfo_s;
 
 /******************************************************************** 
  *
@@ -70,24 +71,95 @@ using namespace std;
  ********************************************************************/
 
 enum {
-    mrb_PARTITION_NOT_FOUND    = 0x830001,
-    mrb_LAST_PARTITION    = 0x830002,
+    mrb_PARTITION_NOT_FOUND           = 0x830001,
+    mrb_LAST_PARTITION                = 0x830002,
     mrb_KEY_BOUNDARIES_NOT_ORDERED    = 0x830003,
-    mrb_OUT_OF_BOUNDS    = 0x830004
+    mrb_OUT_OF_BOUNDS                 = 0x830004,
+    mrb_PARTITION_EXISTS              = 0x830005,
+    mrb_NOT_PHYSICAL_MRBT             = 0x830006
 };
+
+
+class foo 
+{
+public:
+    char* _m;
+    uint4_t _len;
+    bool _alloc;
+
+    foo();
+    foo(const foo& v);
+    foo(char* m, uint4_t len, bool alloc);
+    ~foo();
+
+    friend inline bool operator<(const foo& v1, const foo& v2);
+    friend inline bool operator>(const foo& v1, const foo& v2);
+    friend inline bool operator==(const foo& v1, const foo& v2);
+    friend inline bool operator!=(const foo& v1, const foo& v2);
+
+    foo& operator=(const foo& v);
+};
+
+
+inline bool operator==(const foo& v1, const foo& v2)
+{    
+    return ((&v1==&v2) || ((v1._len == v2._len) && umemcmp(v1._m,v2._m,v1._len) == 0)); 
+}
+
+inline bool operator!=(const foo& v1, const foo& v2)
+{
+    return ! (v1 == v2);
+}
+
+inline bool operator<(const foo& v1, const foo& v2) 
+{
+    assert (v1._len == v2._len);
+    return (umemcmp(v1._m,v2._m,v1._len)<0);
+}
+
+inline bool operator>(const foo& v1, const foo& v2) 
+{
+    assert (v1._len == v2._len);
+    return (umemcmp(v1._m,v2._m,v1._len)>0);
+}
+
+
+
+struct cmp_greater
+{
+    bool operator()(const foo& a, const foo& b) const;
+};
+
+inline bool cmp_greater::operator()(const foo& a, const foo& b) const
+{
+    return (a>b);
+}
 
 
 
 // For map<char*,lpid_t> to compare char*
-struct cmp_greater
-{
-    bool operator()(char const *a, char const *b) const;
-};
 
-inline bool cmp_greater::operator()(char const *a, char const *b) const
-{
-    return umemcmp(a,b,sizeof(a)) > 0;
-}
+// struct cmp_greater
+// {
+//     bool operator()(char const *a, char const *b) const;
+// };
+
+// inline bool cmp_greater::operator()(char const *a, char const *b) const
+// {
+//     return umemcmp(a,b,sizeof(a)) > 0;
+// }
+
+
+// struct cmp_greater
+// {
+//     bool operator()(const cvec_t& a, const cvec_t& b) const;
+// };
+
+// inline bool cmp_greater::operator()(const cvec_t& a, const cvec_t& b) const
+// {
+//     return (a>b);
+// }
+
 
 /******************************************************************** 
  *
@@ -106,9 +178,17 @@ class key_ranges_map
 {
 public:
 
-    typedef map<char*, lpid_t, cmp_greater >                 KRMap;
-    typedef map<char*, lpid_t, cmp_greater >::iterator       KRMapIt;
-    typedef map<char*, lpid_t, cmp_greater >::const_iterator KRMapCIt;
+//     typedef map<char*, lpid_t, cmp_greater >                 KRMap;
+//     typedef map<char*, lpid_t, cmp_greater >::iterator       KRMapIt;
+//     typedef map<char*, lpid_t, cmp_greater >::const_iterator KRMapCIt;
+
+//     typedef map<cvec_t, lpid_t, cmp_greater >                 KRMap;
+//     typedef map<cvec_t, lpid_t, cmp_greater >::iterator       KRMapIt;
+//     typedef map<cvec_t, lpid_t, cmp_greater >::const_iterator KRMapCIt;
+
+    typedef map<foo, lpid_t, cmp_greater >                 KRMap;
+    typedef map<foo, lpid_t, cmp_greater >::iterator       KRMapIt;
+    typedef map<foo, lpid_t, cmp_greater >::const_iterator KRMapCIt;
 
 private:
 
@@ -118,9 +198,9 @@ protected:
 
     // range_init_key -> root of the corresponding subtree
     KRMap _keyRangesMap;
-    char* _minKey;
-    char* _maxKey;
     uint  _numPartitions;
+
+    vector<foo*> _fookeys;
 
     // for the hack to reduce number of mallocs (if something is put
     // to the map without any space allocation, then in destructor it
@@ -132,20 +212,23 @@ protected:
 
     // Splits the partition where "key" belongs to two partitions. The start of 
     // the second partition is the "key".
-    virtual w_rc_t _addPartition(char* keyS, lpid_t& newRoot);
+//     virtual w_rc_t _addPartition(char* keyS, lpid_t& newRoot);
 
     // Delete the partition where "key" belongs, by merging it with the 
     // previous partition
-    virtual w_rc_t _deletePartitionByKey(char* keyS, // Input
-					 lpid_t& root1, lpid_t& root2, // Outputs
-					 Key& startKey1, Key& startKey2); // Outputs
+//     virtual w_rc_t _deletePartitionByKey(char* keyS, // Input
+// 					 lpid_t& root1, lpid_t& root2, // Outputs
+// 					 Key& startKey1, Key& startKey2); // Outputs
 
 public:
 
     //// Construction ////
     // Calls one of the initialization functions
     key_ranges_map();
-    key_ranges_map(char* minKey, char* maxKey, const uint numParts, const bool physical);
+    key_ranges_map(const sinfo_s& sinfo, 
+                   const cvec_t& minKey, const cvec_t& maxKey, 
+                   const uint numParts, 
+                   const bool physical);
     key_ranges_map(const key_ranges_map& rhs);
     virtual ~key_ranges_map();
 
@@ -154,8 +237,10 @@ public:
     // The default initialization creates numParts partitions of equal size
 
     // Create a partitioning but does not do any physical changes, uses
-    uint nophy_equal_partitions(char* minKey, char* maxKey, const uint numParts);
-
+    w_rc_t nophy_equal_partitions(const sinfo_s& sinfo, 
+                                  const cvec_t& minKey, const cvec_t& maxKey, 
+                                  const uint numParts);
+    
 
     ////  Map management ////
 
@@ -179,8 +264,9 @@ public:
     // @note: In the baseline version of the MRBTree each partition is identified
     //        by the lpid_t of the root of the corresponding sub-tree. In the 
     //        DORA version each partition can also be identified by a partition-id 
+    w_rc_t getPartitionByUnscrambledKey(const sinfo_s& sinfo, const Key& key, lpid_t& pid);
     w_rc_t getPartitionByKey(const Key& key, lpid_t& pid);
-    w_rc_t getPartitionByKey(char* keyS, lpid_t& pid);
+
     
     // Returns the list of partitions that cover: 
     // [key1, key2], (key1, key2], [key1, key2), or (key1, key2) ranges
@@ -189,18 +275,11 @@ public:
                          vector<lpid_t>& pidVec);
     // Returns the list of all root ids in partitions
     w_rc_t getAllPartitions(vector<lpid_t>& pidVec);
-    // Returns the list of all start keys of partitions
-    w_rc_t getAllStartKeys(vector<cvec_t*>& keyVec);
 
 
-    // Returns the range boundaries of a partition in a pair
-    w_rc_t getBoundaries(lpid_t pid, pair<cvec_t, cvec_t>& keyRange);
     // Returns the range boundaries of a partition in start&end key
     w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey, bool& last);
 
-
-    // Returns a vector with the key boundaries for all the partitions
-    w_rc_t getBoundariesVec(vector< pair<char*,char*> >& keyBoundariesVec);
 
     // Updates the root of the partition starting with key
     w_rc_t updateRoot(const Key& key, const lpid_t& root);
@@ -217,7 +296,7 @@ public:
     uint getNumPartitions() const;
     char* getMinKey() const;
     char* getMaxKey() const;
-    map<char*, lpid_t, cmp_greater> getMap() const;
+    KRMap getMap() const;
 
     // for debugging
     void printPartitions(); 

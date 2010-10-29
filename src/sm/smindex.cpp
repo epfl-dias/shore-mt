@@ -553,6 +553,17 @@ rc_t ss_m::get_range_map(stid_t stid, key_ranges_map*& rangemap)
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::get_store_info()                                      *
+ *--------------------------------------------------------------*/
+rc_t ss_m::get_store_info(stid_t stid, sinfo_s& sinfo)
+{
+    SM_PROLOGUE_RC(ss_m::get_store_info, in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
+    W_DO(_get_store_info(stid, sinfo));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::make_equal_partitions()                               *
  *--------------------------------------------------------------*/
 rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
@@ -740,7 +751,8 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
      // scramble the start keys
      vector<cvec_t*> keys;
-     ranges.getAllStartKeys(keys);
+     assert(0);// TODO
+     //ranges.getAllStartKeys(keys);
      vector<cvec_t*> real_keys;
 
      for(uint i=0; i< keys.size(); i++) {
@@ -1357,15 +1369,29 @@ rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map*& rangemap)
 
     // get the sinfo from sdesc
     sdesc_t* sd;
-    W_DO(dir->access(stid, sd, EX));
+    W_DO(dir->access(stid, sd, SH));
 
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
     rangemap = sd->get_partitions_p();
+    return (RCOK);
+}
 
-    return RCOK;
+
+rc_t ss_m::_get_store_info(stid_t stid, sinfo_s& sinfo)
+{
+    FUNC(ss_m::_get_store_info);
+
+    DBG(<<" stid " << stid);
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, SH));
+
+    sinfo = sd->sinfo();
+    return (RCOK);
 }
 
 rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
@@ -1404,30 +1430,21 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     maxKey.copy_to(&upper_bound, sizeof(int));
 
     int space = upper_bound - lower_bound;
-    int diff = space / numParts;
-    uint partsCreated = 0; // In case it cannot divide to numParts partitions
-    
-    int current_key = lower_bound;
+    double diff = (double)space / (double)numParts;
+    uint partsCreated = 0; // In case it cannot divide to numParts partitions   
+    double current_key = lower_bound;
+
     while(partsCreated < numParts - 1) {
 	current_key = current_key + diff;
-	cvec_t start_key_vec((char*)(&current_key), sizeof(int));
+        int startKey = current_key;
+	cvec_t start_key_vec((char*)(&startKey), sizeof(int));
 	W_DO(bt->_scramble_key(real_key, start_key_vec, minKey.count(), sd->sinfo().kc));
 	sd->partitions().addPartition(*real_key, roots[partsCreated]);
 	partsCreated++;
     }
     // --------------------------------------------------------------
-    
-    ///W_DO(bt->_scramble_key(real_minKey, minKey, minKey.count(), sd->sinfo().kc));
-    ///sd->partitions().setMinKey(*real_minKey);
-    ///W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
-    ///sd->partitions().setMaxKey(*real_maxKey);
-	
-    ///uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
 
-    //while(partsCreated < numParts) {
-    // 	W_DO( io->free_page(roots[partsCreated-2], false/*checkstore*/) );
-    // 	partsCreated++;
-    //}
+    sd->partitions().printPartitions();
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
