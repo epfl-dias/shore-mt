@@ -411,9 +411,15 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
     DBGTHRD( << "want to acquire in mode " 
             << W_ENUM(new_mode) << " " << *this
             );
-    w_assert2(new_mode != LATCH_NL);
+    //w_assert2(new_mode != LATCH_NL); // mrbt
     w_assert2(me);
 
+    if(new_mode == LATCH_NL) {
+	// do nothing
+	return (RCOK);
+    }
+		
+    
     bool is_upgrade = false;
     if(me->_latch == this) 
     {
@@ -464,7 +470,7 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
         }
         else {
             // forever timeout
-            if(new_mode == LATCH_SH) {
+	    if(new_mode == LATCH_SH) {
                 _lock.acquire_read();
             }
             else {
