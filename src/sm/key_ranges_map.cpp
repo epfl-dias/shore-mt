@@ -88,6 +88,7 @@ foo& foo::operator=(const foo& v)
     _m = v._m;
     _len = v._len;
     _alloc = false;
+    return (*this);
 }
 
 
