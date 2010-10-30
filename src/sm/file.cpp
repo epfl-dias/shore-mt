@@ -755,14 +755,14 @@ file_m::create_mrbt_rec_in_given_page(
     } // close scope for hu
 
     if(rec_impl == t_large_0) {
-        W_DO(append_mrbt_rec(rid, data, sd));
+        W_DO(append_mrbt_rec(rid, data, sd, bIgnoreLatches));
     }
 
     return RCOK;
 }
 
 rc_t
-file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page)
+file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page, const bool bIgnoreLatches)
 {
 
     DBGTHRD(<<"destroy_rec_slot");
@@ -771,15 +771,15 @@ file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page)
      * Find or create a histoid for this store.
      */
     w_assert2(page.is_fixed());
-    w_assert2(page.is_latched_by_me());
-    w_assert2(page.is_mine());
+    w_assert2(bIgnoreLatches || page.is_latched_by_me());
+    w_assert2(bIgnoreLatches || page.is_mine());
 
     W_DO( page.destroy_rec(rid.slot) ); // does a page_mark for the slot
 
     if (page.rec_count() == 0) {
         DBG(<<"Now free page");
         w_assert2(page.is_fixed());
-        W_DO(_free_page(page));
+        W_DO(_free_page(page, bIgnoreLatches));
         return RCOK;
     } 
 
@@ -1667,20 +1667,24 @@ file_m::_create_rec_in_slot(
  */
 
 rc_t
-file_m::destroy_rec(const rid_t& rid)
+file_m::destroy_rec(const rid_t& rid, const bool bIgnoreLatches)
 {
     file_p       page;
     record_t*    rec;
 
     DBGTHRD(<<"destroy_rec");
-    W_DO(_locate_page(rid, page, LATCH_EX));
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    W_DO(_locate_page(rid, page, latch));
 
     /*
      * Find or create a histoid for this store.
      */
     w_assert2(page.is_fixed());
-    w_assert2(page.is_latched_by_me());
-    w_assert2(page.is_mine());
+    w_assert2(bIgnoreLatches || page.is_latched_by_me());
+    w_assert2(bIgnoreLatches || page.is_mine());
 
 
     W_DO( page.get_rec(rid.slot, rec) );
@@ -1699,7 +1703,7 @@ file_m::destroy_rec(const rid_t& rid)
     if (page.rec_count() == 0) {
         DBG(<<"Now free page");
         w_assert2(page.is_fixed());
-        W_DO(_free_page(page));
+        W_DO(_free_page(page, bIgnoreLatches));
         return RCOK;
     } 
 
@@ -1715,17 +1719,15 @@ file_m::destroy_rec(const rid_t& rid)
 }
 
 rc_t
-file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data
-#ifdef SM_DORA
-                   , const bool /* bIgnoreLocks */
-#endif
-                   )
+file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data, const bool bIgnoreLatches)
 {
     file_p    page;
     record_t*            rec;
 
     latch_mode_t page_latch_mode = LATCH_EX;
-
+    if(bIgnoreLatches) {
+	page_latch_mode = LATCH_NL;
+    }
     DBGTHRD(<<"update_rec");
     W_DO(_locate_page(rid, page, page_latch_mode));
 
@@ -2305,13 +2307,17 @@ file_m::truncate_mrbt_rec(const rid_t& rid, uint4_t amount, bool& should_forward
 
 rc_t
 file_m::read_hdr(const rid_t& s_rid, int& len,
-                 void* buf)
+                 void* buf, const bool bIgnoreLatches)
 {
     rid_t rid(s_rid);
     file_p page;
     
     DBGTHRD(<<"read_hdr");
-    W_DO(_locate_page(rid, page, LATCH_SH) );
+    latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    W_DO(_locate_page(rid, page, latch) );
     record_t* rec;
     W_DO( page.get_rec(rid.slot, rec) );
     
@@ -2330,13 +2336,18 @@ file_m::read_hdr(const rid_t& s_rid, int& len,
 
 rc_t
 file_m::read_rec(const rid_t& s_rid,
-                 int start, uint4_t& len, void* buf)
+                 int start, uint4_t& len, void* buf,
+		 const bool bIgnoreLatches)
 {
     rid_t rid(s_rid);
     file_p page;
     
     DBGTHRD(<<"read_rec");
-    W_DO( _locate_page(rid, page, LATCH_SH) );
+        latch_mode_t latch = LATCH_SH;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    W_DO( _locate_page(rid, page, latch) );
     record_t* rec;
     W_DO( page.get_rec(rid.slot, rec) );
     
@@ -2352,11 +2363,15 @@ file_m::read_rec(const rid_t& s_rid,
 
 rc_t
 file_m::splice_hdr(rid_t rid, slot_length_t start, slot_length_t len, 
-        const vec_t& hdr_data)
+		   const vec_t& hdr_data, const bool bIgnoreLatches)
 {
     file_p page;
     DBGTHRD(<<"splice_hdr");
-    W_DO( _locate_page(rid, page, LATCH_EX) );
+    latch_mode_t latch = LATCH_EX;
+    if(bIgnoreLatches) {
+	latch = LATCH_NL;
+    }
+    W_DO( _locate_page(rid, page, latch) );
 
     record_t* rec;
     W_DO( page.get_rec(rid.slot, rec) );
@@ -2507,7 +2522,7 @@ file_m::_locate_page(const rid_t& rid, file_p& page, latch_mode_t mode)
 // we are doing the same, since they both find the record count to be 0.)
 //
 rc_t
-file_m::_free_page(file_p& page)
+file_m::_free_page(file_p& page, const bool bIgnoreLatches)
 {
     w_assert2(page.is_fixed());
     lpid_t pid = page.pid();
@@ -2540,8 +2555,12 @@ file_m::_free_page(file_p& page)
                 page.unfix();
                 rc = lm->lock_force(pid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
                 if(!rc.is_error()) {
+		    latch_mode_t latch = LATCH_EX;
+		    if(bIgnoreLatches) {
+			latch = LATCH_NL;
+		    }
                     // got lock. nothing should go wrong with the latch
-                    W_DO(page.conditional_fix(pid, LATCH_EX));
+                    W_DO(page.conditional_fix(pid, latch));
 
                     // Re-check.   Because we unfixed the page and
                     // re-fixed it, we have to check that it's
@@ -2994,7 +3013,7 @@ file_m::_append_large(file_p& page, slotid_t slot, const vec_t& data)
             }
         }
         W_DO(_append_to_large_pages(num_pages, new_pages, data, 
-                                        left_to_append) );
+				    left_to_append) );
         w_assert3(left_to_append >= append_cnt);
         left_to_append -= append_cnt;
 
@@ -3041,7 +3060,7 @@ file_m::_append_to_large_pages(int num_pages, const lpid_t new_pages[],
          */
 
         /* NB: Causes page to be formatted: */
-        W_DO(lgdata.fix(new_pages[i], LATCH_EX, lgdata.t_virgin, store_flags) );
+	W_DO(lgdata.fix(new_pages[i], LATCH_EX, lgdata.t_virgin, store_flags) );
     
 
         //  args:          vec,  starting offset, #bytes

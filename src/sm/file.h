@@ -323,16 +323,14 @@ public:
 			 rid_t& new_rid,
 			 const bool bIgnoreLatches = false);
 	
-    static rc_t destroy_rec_slot(const rid_t rid, file_mrbt_p& page);
+    static rc_t destroy_rec_slot(const rid_t rid, file_mrbt_p& page, const bool bIgnoreLatches = false);
     // --
 
-    static rc_t destroy_rec(const rid_t& rid);
+    static rc_t destroy_rec(const rid_t& rid, const bool bIgnoreLatches = false);
 
     static rc_t update_rec(const rid_t& rid, uint4_t start,
-                           const vec_t& data
-#ifdef SM_DORA
-                           , const bool bIgnoreParents = false
-#endif
+                           const vec_t& data,
+                           const bool bIgnoreLatches = false
                            );
 
     static rc_t append_rec(const rid_t& rid, 
@@ -347,7 +345,7 @@ public:
     // --
     
     static rc_t truncate_rec(const rid_t& rid, uint4_t amount, 
-            bool &should_forward);
+			     bool &should_forward);
 
     // -- mrbt
     static rc_t truncate_mrbt_rec(const rid_t& rid, uint4_t amount, 
@@ -355,13 +353,13 @@ public:
     // --
 
     static rc_t splice_hdr(rid_t rid, slot_length_t start, slot_length_t len,
-                           const vec_t& hdr_data);
+                           const vec_t& hdr_data, const bool bIgnoreLatches = false);
 
-    static rc_t read_rec(const rid_t& rid, int start, uint4_t& len, void* buf);
-    static rc_t read_rec(const rid_t& rid, uint4_t& len, void* buf)  {
-        return read_rec(rid, 0, len, buf);
+    static rc_t read_rec(const rid_t& rid, int start, uint4_t& len, void* buf, const bool bIgnoreLatches = false);
+    static rc_t read_rec(const rid_t& rid, uint4_t& len, void* buf, const bool bIgnoreLatches = false)  {
+        return read_rec(rid, 0, len, buf, bIgnoreLatches);
     }
-    static rc_t read_hdr(const rid_t& rid, int& len, void* buf);
+    static rc_t read_hdr(const rid_t& rid, int& len, void* buf, const bool bIgnoreLatches = false);
 
     // The following functions return the first/next pages in a
     // store.  If "allocated" is NULL then only allocated pages will be
@@ -509,7 +507,7 @@ protected:
     // --
 
     static rc_t _undo_alloc_file_page(file_p& page);
-    static rc_t _free_page(file_p& page);
+    static rc_t _free_page(file_p& page, const bool bIgnoreLatches = false);
     static rc_t _alloc_page(stid_t fid, 
                             const lpid_t& near, lpid_t& pid,
 			    file_p &page,

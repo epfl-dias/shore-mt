@@ -862,7 +862,7 @@ btree_impl::_move_recs_l(
 	old_rids.push_back(rid);
 	new_rids.push_back(new_rid);
 	// delete the record from its prev page
-	W_DO( file_m::destroy_rec_slot(rid, old_page) );
+	W_DO( file_m::destroy_rec_slot(rid, old_page, bIgnoreLatches) );
 	// update rid in leaf_page
 	btrec_t btree_rec(leaf_page, slot_map[rid]);
 	cvec_t elem;
@@ -1118,7 +1118,7 @@ btree_impl::_move_recs_p(
 	old_rids.push_back(rid);
 	new_rids.push_back(new_rid);
 	// delete the record from its prev page
-	W_DO( file_m::destroy_rec_slot(rid, old_page) );
+	W_DO( file_m::destroy_rec_slot(rid, old_page, bIgnoreLatches) );
 	// update rid in leaf_page
 	W_DO( leaf_page.fix(leaf_map[rid], latch) );
 	btrec_t btree_rec(leaf_page, slot_map[rid]);
@@ -3114,7 +3114,7 @@ again:
 							  bIgnoreLatches) );
 	    }
 	    // 3. delete the record from its prev heap file
-	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page, bIgnoreLatches) );
 	    // 4. update rid to be inserted
 	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}
@@ -4089,7 +4089,7 @@ again:
 							  bIgnoreLatches) );
 	    }
 	    // 3. delete the record from its prev heap file
-	    W_DO( file_m::destroy_rec_slot(rid, heap_page) );
+	    W_DO( file_m::destroy_rec_slot(rid, heap_page, bIgnoreLatches) );
 	    // 4. update rid to be inserted
 	    el.set((char*)(&new_rid), sizeof(rid_t));
 	}

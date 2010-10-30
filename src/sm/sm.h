@@ -2616,6 +2616,7 @@ public:
         const vec_t&             key, 
         el_filler&             ef,
         const bool             bIgnoreLocks = false,
+	const bool             bIgnoreLatches = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL,
 	const lpid_t           root = lpid_t::null);
 
@@ -2631,6 +2632,7 @@ public:
         const vec_t&             key,
         const vec_t&             el,
         const bool             bIgnoreLocks = false,
+	const bool             bIgnoreLatches = false,
 	const lpid_t           root = lpid_t::null);
 
     /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
@@ -2644,6 +2646,7 @@ public:
         stid_t                  stid, 
         const vec_t&            key,
         int&                    num_removed,
+	const bool             bIgnoreLocks = false,
 	const bool              bIgnoreLatches = false,
 	const lpid_t           root = lpid_t::null);
 
@@ -2672,6 +2675,7 @@ public:
 				      smsize_t&               elen, 
 				      bool&                   found,
 				      const bool             bIgnoreLocks = false,
+				      const bool             bIgnoreLatches = false,
 				      const lpid_t           root = lpid_t::null);
     
 
@@ -2712,7 +2716,7 @@ public:
      */
     static rc_t add_partition_init(stid_t stid,
 				   const vec_t& key,
-				   const bool bIgnoreLocks = false);
+				   const bool bIgnoreLatches = false);
     
     /**\brief Add a new partition starting from the given key Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -2722,7 +2726,7 @@ public:
      */
     static rc_t add_partition(stid_t stid,
 			      const vec_t& key,
-			      const bool bIgnoreLocks = false, 
+			      const bool bIgnoreLatches = false, 
 			      RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
     /**\brief Delete the partition that contains the given key and add it to its previous partition
@@ -3195,7 +3199,7 @@ public:
         rid_t&                   new_rid
 #ifdef SM_DORA
         , const bool             bIgnoreLocks = false
-#endif
+#endif	
     ); 
 
     /**\brief Create a new record in given page.
@@ -3224,7 +3228,8 @@ public:
         const vec_t&             data, 
         rid_t&                   new_rid,
 	bool&                    space_found,
-        const bool             bIgnoreLocks = false);
+	const bool             bIgnoreLocks = false,
+        const bool             bIgnoreLatches = false);
 
     // TODO: comment on this if they decide to use
     static rc_t            find_page_and_create_mrbt_rec(
@@ -3234,33 +3239,41 @@ public:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-        const bool             bIgnoreLocks = false); 
+	const bool             bIgnoreLocks = false,
+        const bool             bIgnoreLatches = false); 
 
     static rc_t            destroy_mrbt_rec(const rid_t& rid
 #ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
+        , const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false
 #endif
                                        );
 
     static rc_t            update_mrbt_rec(
         const rid_t&             rid, 
         smsize_t                 start, 
-        const vec_t&             data);
+        const vec_t&             data,
+	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false);
 
     static rc_t            update_mrbt_rec_hdr(
         const rid_t&             rid, 
         smsize_t                 start, 
-        const vec_t&             hdr);
+        const vec_t&             hdr,
+	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false);
 
     static rc_t            append_mrbt_rec(
         const rid_t&             rid, 
         const vec_t&             data,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false
                 );
 
     static rc_t            truncate_mrbt_rec(
         const rid_t&             rid, 
         smsize_t                 amount,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false
     );
 
@@ -3268,6 +3281,7 @@ public:
         const rid_t&             rid, 
         smsize_t                 amount,
         bool&                    should_forward,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false
     );
     // --
@@ -3752,7 +3766,8 @@ private:
         const stid_t  &        stid, 
         const vec_t&           key, 
         el_filler&           eg,
-        const bool             bIgnoreLocks,
+	const bool             bIgnoreLocks,
+        const bool             bIgnoreLatches,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,
 	const lpid_t           root);
 
@@ -3760,14 +3775,16 @@ private:
         const stid_t &        stid, 
         const vec_t&          key,
         const vec_t&          el,
-        const bool             bIgnoreLocks,
+	const bool             bIgnoreLocks,
+        const bool             bIgnoreLatches,
 	const lpid_t           root);
 
     static rc_t            _destroy_mr_all_assoc(
         const stid_t&        stid, 
         const vec_t&         key,
         int&                 num_removed,
-	const bool          bIgnoreLatches,
+	const bool             bIgnoreLocks,
+        const bool             bIgnoreLatches,
 	const lpid_t           root);
     
     static rc_t            _find_mr_assoc(
@@ -3776,6 +3793,7 @@ private:
         void*                el, 
         smsize_t&            elen, 
         bool&                found,
+        const bool             bIgnoreLatches,
         const bool             bIgnoreLocks,
 	const lpid_t           root);
     
@@ -3791,11 +3809,11 @@ private:
 
     static rc_t _add_partition_init(stid_t stid,
 				    const vec_t& key,
-				    const bool bIgnoreLocks);
+				    const bool bIgnoreLatches);
     
     static rc_t _add_partition(stid_t stid,
 			       const vec_t& key,
-			       const bool bIgnoreLocks,
+			       const bool bIgnoreLatches,
 			       RELOCATE_RECORD_CALLBACK_FUNC relocate_callback);
     
     static rc_t _delete_partition(stid_t stid,
@@ -3944,7 +3962,8 @@ private:
         const vec_t&             data, 
         rid_t&                   new_rid,
 	bool&                    space_found,
-        const bool             bIgnoreLocks = false); 
+	const bool             bIgnoreLocks = false,
+        const bool             bIgnoreLatches = false); 
 
     static rc_t            _find_page_and_create_mrbt_rec(
         const stid_t&            fid,
@@ -3953,19 +3972,42 @@ private:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-        const bool             bIgnoreLocks = false);
+	const bool             bIgnoreLocks = false,
+        const bool             bIgnoreLatches = false);
+
+    static rc_t            _destroy_mrbt_rec(const rid_t& rid
+#ifdef SM_DORA
+        , const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false
+#endif
+                                       ); 
+
+    static rc_t            _update_mrbt_rec(
+	const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             data,
+	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false);
+
+    static rc_t            _update_mrbt_rec_hdr(
+	const rid_t&             rid, 
+        smsize_t                 start, 
+        const vec_t&             data,
+	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false);
     
     static rc_t            _append_mrbt_rec(
         const rid_t&             rid, 
         const vec_t&             data,
-	const bool               bIgnoreLatches
-        );
+	const bool               bIgnoreLocks = false,
+	const bool               bIgnoreLatches = false);
 
     static rc_t            _truncate_mrbt_rec(
             const rid_t&         rid, 
             smsize_t             amount,
             bool&                should_forward,
-	    const bool           bIgnoreLatches
+	    const bool           bIgnoreLocks = false,
+	    const bool           bIgnoreLatches = false
         );
     // --
     
