@@ -318,6 +318,97 @@ failure:
     return rc;
 }
 
+rc_t pin_i::update_mrbt_rec(smsize_t start, const vec_t& data,
+			    int* old_value, /* temporary: for degugging only */
+			    const bool bIgnoreLocks,
+			    const bool bIgnoreLatches)
+{
+    bool        was_pinned = pinned(); // must be first due to hp CC bug
+    w_rc_t      rc;
+
+    SM_PROLOGUE_RC(pin_i::update_mrbt_rec, in_xct, read_write,  0);
+    DBG(<<"update_rec " << this->_rid << " #bytes=" << data.size());
+
+    if (was_pinned && _rec->is_small()) {
+
+        if (was_pinned) {
+            DBG(<<"pinned");
+            _check_lsn();
+        }
+        W_DO_GOTO(rc, _repin(EX, old_value
+#ifdef SM_DORA
+                             , bIgnoreLocks
+#endif
+                             ));
+        w_assert3(bIgnoreLatches || _hdr_page().latch_mode() == LATCH_EX);
+        w_assert3((_lmode == EX) || bIgnoreLocks); // IP: In DORA we disable the second assertion
+
+        //
+        // Avoid calling ss_m::_update_rec by just
+        // splicing in the new data, but first make sure
+        // the starting location and size to no go off
+        // the "end" of the record.
+        //
+        if (start >= rec()->body_size()) {
+            return RC(eBADSTART);
+        }
+        if (data.size() > (rec()->body_size()-start)) {
+            return RC(eRECUPDATESIZE);
+        }
+        W_DO_GOTO(rc, _hdr_page().splice_data(_rid.slot, u4i(start), data.size(), data));
+
+    } else {
+
+        if (bIgnoreLocks) {
+            W_DO_GOTO(rc, SSM->_update_mrbt_rec(_rid, start, data, bIgnoreLocks, bIgnoreLatches));      
+        } else {
+  
+	    // if !locked, then unpin in case lock req (in update) blocks
+	    if (was_pinned && _lmode != EX) unpin();
+	    
+	    W_DO_GOTO(rc, SSM->_update_mrbt_rec(_rid, start, data, bIgnoreLocks, bIgnoreLatches));
+	    _lmode = EX;  // record is now EX locked
+	    if (was_pinned) W_DO_GOTO(rc, _repin(EX));
+	    
+        }
+	
+    }
+
+// success
+    if (was_pinned) {
+        w_assert2(pinned());
+        _set_lsn();
+    } else {
+        unpin();
+    }
+    w_assert2(was_pinned == pinned());
+    return RCOK;
+
+failure:
+    if (was_pinned && !pinned()) {
+        // this should not fail.
+        // Unfortunately, it can deadlock here.
+        // We (or another cooperating thread) might
+        // have converted a latch-lock deadlock to a
+        // lock-lock deadlock, and we might be the victim.
+        // In that case, the other (which probably holds the latch)
+        // cannot continue until we free our locks, and
+        // if we try to repin here we are right back into the
+        // latch-lock deadlock scenario.
+        // So we check for eDEADLOCK here, and if that wasn't
+        // the cause, we'll try to repin, but if it was,
+        // we'll not try to repin.
+        // I'm not sure this won't result in all sorts of
+        // other problems because our pin state changed.
+        if(rc.err_num() == eDEADLOCK) return rc; // gnats 90
+        
+        W_COERCE(_repin(SH)); 
+    }
+    w_assert2(was_pinned == pinned());
+
+    return rc;
+}
+
 rc_t pin_i::update_rec_hdr(smsize_t start, const vec_t& hdr
 #ifdef SM_DORA
                            , const bool bIgnoreLocks
@@ -376,6 +467,53 @@ rc_t pin_i::append_rec(const vec_t& data)
     if (was_pinned) unpin();
 
     rc_t rc = SSM->_append_rec(_rid, data); 
+    DBG(<<"rc=" << rc);
+    if (rc.is_error()) {
+        goto failure;
+    }
+
+    // record is now EX locked
+    _lmode = EX;
+
+    if (was_pinned) W_DO_GOTO(rc, _repin(EX));
+
+// success
+    if (was_pinned) {
+        w_assert3(pinned());
+        _set_lsn();
+    } else {
+        unpin();
+    }
+    w_assert3(was_pinned == pinned());
+    w_assert2(rc.is_error() == false);
+    return rc;
+
+failure:
+    if (was_pinned && !pinned()) {
+        // this should not fail
+        if(rc.err_num() == eDEADLOCK) return rc; // gnats 90
+        W_COERCE(_repin(SH)); 
+    }
+    w_assert3(was_pinned == pinned());
+    return rc;
+}
+
+rc_t pin_i::append_mrbt_rec(const vec_t& data,
+			    const bool bIgnoreLocks,
+			    const bool bIgnoreLatches)
+{
+    bool was_pinned = pinned(); // must be first due to hp CC bug
+
+    SM_PROLOGUE_RC(pin_i::append_mrbt_rec, in_xct,  read_write,0);
+    DBG(<< this->_rid << " #bytes=" << data.size());
+    rid_t  rid;  // local variable for phys rec id
+
+    // must unpin for 2 reasons:
+    // 1. in case lock request (in append) blocks
+    // 2. since record may move on page
+    if (was_pinned) unpin();
+
+    rc_t rc = SSM->_append_mrbt_rec(_rid, data, bIgnoreLocks, bIgnoreLatches); 
     DBG(<<"rc=" << rc);
     if (rc.is_error()) {
         goto failure;

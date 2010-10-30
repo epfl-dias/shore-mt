@@ -351,6 +351,10 @@ public:
 #endif
                        );
 
+    rc_t    update_mrbt_rec(smsize_t start, const vec_t& data, int* old_value = 0,
+			    const bool bIgnoreLocks = false,
+			    const bool bIgnoreLatches = false);
+
     /**\brief Update the pinned record's header.
      * \details
      * @param[in] start The offset from the beginning of the header of the
@@ -372,6 +376,10 @@ public:
      */
     rc_t    append_rec(const vec_t& data);
 
+    rc_t    append_mrbt_rec(const vec_t& data,
+			    const bool bIgnoreLocks = false,
+			    const bool bIgnoreLatches = false);
+    
     /**\brief Shorten a record.
      * \details
      * @param[in] amount Number of bytes to chop off the end of the 
