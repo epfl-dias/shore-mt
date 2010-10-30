@@ -499,11 +499,12 @@ rc_t ss_m::print_mr_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef, 
 			   const bool bIgnoreLocks, // = false
+			   const bool bIgnoreLatches, // = false
 			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,  // = NULL 
 			   const lpid_t root) // lpid_t::null
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
-    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, relocate_callback, root));
+    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, bIgnoreLatches, relocate_callback, root));
     return RCOK;
 }
 
@@ -511,10 +512,11 @@ rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef,
  *  ss_m::destroy_mr_assoc()                                    *
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
-			    const bool bIgnoreLocks, const lpid_t root)
+			    const bool bIgnoreLocks, const bool bIgnoreLatches,
+			    const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, root));
+    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, bIgnoreLatches, root));
     return RCOK;
 }
 
@@ -522,10 +524,11 @@ rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
  *  ss_m::destroy_mr_all_assoc()                                *
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
-				const bool bIgnoreLocks, const lpid_t root)
+				const bool bIgnoreLocks, const bool bIgnoreLatches,
+				const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, root));
+    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, bIgnoreLatches, root));
     return RCOK;
 }
 
@@ -534,10 +537,11 @@ rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
  *--------------------------------------------------------------*/
 rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key, 
 			 void* el, smsize_t& elen, bool& found,
-			 const bool bIgnoreLocks, const lpid_t root)
+			 const bool bIgnoreLocks, const bool bIgnoreLatches,
+			 const lpid_t root)
 {
     SM_PROLOGUE_RC(ss_m::find_mr_assoc, in_xct, read_only, 0);
-    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, root));
+    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, bIgnoreLatches, root));
     return RCOK;
 }
 
@@ -578,23 +582,23 @@ rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
 /*--------------------------------------------------------------*
  *  ss_m::add_partition_init()                                  *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
 {
     SM_PROLOGUE_RC(ss_m::add_partition_init, in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition_init(stid, key, bIgnoreLocks));
+    W_DO(_add_partition_init(stid, key, bIgnoreLatches));
     return RCOK;
 }
 
 /*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLocks, 
+rc_t ss_m::add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches, 
 			 RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition(stid, key, bIgnoreLocks, relocate_callback));
+    W_DO(_add_partition(stid, key, bIgnoreLatches, relocate_callback));
     return RCOK;
 }
 
@@ -993,6 +997,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			    const vec_t&         key, 
 			    el_filler&         ef,
 			    const bool bIgnoreLocks, // = false
+			    const bool bIgnoreLatches, // = false
 			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback, // = NULL
 			    const lpid_t root) // = lpid_t::null
 {
@@ -1056,7 +1061,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			   is_unique, 
 			   cc,
 			   *real_key, ef._el, 50, 
-			   bIgnoreLocks));
+			   bIgnoreLatches));
         break;
 
     case t_mrbtree_l:
@@ -1067,7 +1072,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			     is_unique, 
 			     cc,
 			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-			     bIgnoreLocks, relocate_callback));
+			     bIgnoreLatches, relocate_callback));
 	_ef = NULL;
 	break;
 
@@ -1079,7 +1084,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			     is_unique, 
 			     cc,
 			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-			     bIgnoreLocks));
+			     bIgnoreLatches));
 	_ef = NULL;
 	break;
 	
@@ -1100,7 +1105,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid, 
 			     const vec_t&         key, 
 			     const vec_t&         el,
-			     const bool bIgnoreLocks,
+			     const bool bIgnoreLocks, const bool bIgnoreLatches,
 			     const lpid_t root)
 {
 
@@ -1168,7 +1173,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     
         W_DO(bt->mr_remove(subroot, 
 			   is_unique,
-			   cc, *real_key, el, bIgnoreLocks) );
+			   cc, *real_key, el, bIgnoreLatches) );
         break;
 
     case t_rtree:
@@ -1185,7 +1190,8 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
  *  ss_m::_destroy_mr_all_assoc()                               *
  *--------------------------------------------------------------*/
 rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
-				 bool const bIgnoreLocks, const lpid_t root)
+				 const bool bIgnoreLocks, const bool bIgnoreLatches,
+				 const lpid_t root)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -1257,7 +1263,7 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
         W_DO(bt->mr_remove_key(subroot, 
 			       sd->sinfo().nkc, sd->sinfo().kc,
 			       is_unique,
-			       cc, *real_key, num, bIgnoreLocks));
+			       cc, *real_key, num, bIgnoreLatches));
         break;
 
     case t_rtree:
@@ -1280,6 +1286,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 			  smsize_t&             elen, 
 			  bool&                 found,
 			  const bool bIgnoreLocks,
+			  const bool bIgnoreLatches,
 			  const lpid_t root)
 {
 
@@ -1347,7 +1354,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         W_DO(bt->mr_lookup(subroot, 
 			   is_unique,
 			   cc,
-			   *real_key, el, elen, found, bIgnoreLocks) );
+			   *real_key, el, elen, found, bIgnoreLatches) );
         break;
 	
     case t_rtree:
@@ -1452,7 +1459,8 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key,
+			       const bool bIgnoreLatches)
 {
 
     FUNC(ss_m::_add_partition_init);
@@ -1461,8 +1469,7 @@ rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnore
 
     lock_mode_t                index_mode = NL; // lock mode needed on index
     
-    // IP: DORA inserts using the lowest concurrency and lock mode
-    if (bIgnoreLocks) {
+    if (bIgnoreLatches) {
       index_mode = NL;
     } else {
 
@@ -1494,7 +1501,7 @@ rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnore
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLocks));
+	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLatches));
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	// update the ranges page & key_ranges_map which keeps the partition info
 	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
@@ -1595,7 +1602,8 @@ rc_t ss_m::_add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatch
     return RCOK;    
 }
 
-rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
+rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key,
+			     const bool bIgnoreLatches)
 {
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
@@ -1659,7 +1667,8 @@ rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLa
     return RCOK;    
 }
 
-rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatches)
+rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2,
+			     const bool bIgnoreLatches)
 {
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
