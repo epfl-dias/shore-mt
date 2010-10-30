@@ -501,7 +501,7 @@ rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef,
 			   const bool bIgnoreLocks, // = false
 			   const bool bIgnoreLatches, // = false
 			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,  // = NULL 
-			   const lpid_t root) // lpid_t::null
+			   const lpid_t& root) // lpid_t::null
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
     W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, bIgnoreLatches, relocate_callback, root));
@@ -513,7 +513,7 @@ rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef,
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
 			    const bool bIgnoreLocks, const bool bIgnoreLatches,
-			    const lpid_t root)
+			    const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
     W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, bIgnoreLatches, root));
@@ -525,7 +525,7 @@ rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
 				const bool bIgnoreLocks, const bool bIgnoreLatches,
-				const lpid_t root)
+				const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
     W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, bIgnoreLatches, root));
@@ -538,7 +538,7 @@ rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
 rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key, 
 			 void* el, smsize_t& elen, bool& found,
 			 const bool bIgnoreLocks, const bool bIgnoreLatches,
-			 const lpid_t root)
+			 const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::find_mr_assoc, in_xct, read_only, 0);
     W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, bIgnoreLatches, root));
@@ -999,7 +999,7 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			    const bool bIgnoreLocks, // = false
 			    const bool bIgnoreLatches, // = false
 			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback, // = NULL
-			    const lpid_t root) // = lpid_t::null
+			    const lpid_t& root) // = lpid_t::null
 {
 
     // usually we will do kvl locking and already have an IX lock
@@ -1106,7 +1106,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 			     const vec_t&         key, 
 			     const vec_t&         el,
 			     const bool bIgnoreLocks, const bool bIgnoreLatches,
-			     const lpid_t root)
+			     const lpid_t& root)
 {
 
     concurrency_t cc = t_cc_bad;
@@ -1191,7 +1191,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
  *--------------------------------------------------------------*/
 rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
 				 const bool bIgnoreLocks, const bool bIgnoreLatches,
-				 const lpid_t root)
+				 const lpid_t& root)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -1287,7 +1287,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 			  bool&                 found,
 			  const bool bIgnoreLocks,
 			  const bool bIgnoreLatches,
-			  const lpid_t root)
+			  const lpid_t& root)
 {
 
     concurrency_t cc = t_cc_bad;

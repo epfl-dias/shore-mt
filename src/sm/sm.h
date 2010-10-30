@@ -2618,7 +2618,7 @@ public:
         const bool             bIgnoreLocks = false,
 	const bool             bIgnoreLatches = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL,
-	const lpid_t           root = lpid_t::null);
+	const lpid_t&           root = lpid_t::null);
 
     /**\brief Remove an entry from a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
@@ -2633,7 +2633,7 @@ public:
         const vec_t&             el,
         const bool             bIgnoreLocks = false,
 	const bool             bIgnoreLatches = false,
-	const lpid_t           root = lpid_t::null);
+	const lpid_t&           root = lpid_t::null);
 
     /**\brief Destroy all entries associated with a key in a Multi-rooted B+-Tree index. 
      * \ingroup SSMBTREE
@@ -2648,7 +2648,7 @@ public:
         int&                    num_removed,
 	const bool             bIgnoreLocks = false,
 	const bool              bIgnoreLatches = false,
-	const lpid_t           root = lpid_t::null);
+	const lpid_t&           root = lpid_t::null);
 
     /**\brief Find an entry associated with a key in a Multi-rooted B+-Tree index. 
      * \ingroup SSMBTREE
@@ -2676,7 +2676,7 @@ public:
 				      bool&                   found,
 				      const bool             bIgnoreLocks = false,
 				      const bool             bIgnoreLatches = false,
-				      const lpid_t           root = lpid_t::null);
+				      const lpid_t&           root = lpid_t::null);
     
 
 
@@ -3769,7 +3769,7 @@ private:
 	const bool             bIgnoreLocks,
         const bool             bIgnoreLatches,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,
-	const lpid_t           root);
+	const lpid_t&           root);
 
     static rc_t            _destroy_mr_assoc(
         const stid_t &        stid, 
@@ -3777,7 +3777,7 @@ private:
         const vec_t&          el,
 	const bool             bIgnoreLocks,
         const bool             bIgnoreLatches,
-	const lpid_t           root);
+	const lpid_t&           root);
 
     static rc_t            _destroy_mr_all_assoc(
         const stid_t&        stid, 
@@ -3785,7 +3785,7 @@ private:
         int&                 num_removed,
 	const bool             bIgnoreLocks,
         const bool             bIgnoreLatches,
-	const lpid_t           root);
+	const lpid_t&           root);
     
     static rc_t            _find_mr_assoc(
         const stid_t&        stid, 
@@ -3795,7 +3795,7 @@ private:
         bool&                found,
         const bool             bIgnoreLatches,
         const bool             bIgnoreLocks,
-	const lpid_t           root);
+	const lpid_t&           root);
     
     static rc_t _get_range_map(stid_t stid, key_ranges_map*& rangemap);
 
