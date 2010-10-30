@@ -316,19 +316,24 @@ scan_index_i::_init(
 	    vector<lpid_t> roots;
 	    cvec_t* bound_key;
 	    cvec_t* b2_key;
-	    _error_occurred = bt->_scramble_key(bound_key, bound, bound.count(), sd->sinfo().kc);
-	    _error_occurred = bt->_scramble_key(b2_key, b2, bound.count(), sd->sinfo().kc);
+	    _error_occurred = bt->_scramble_key(bound_key, bound, sd->sinfo().nkc, sd->sinfo().kc);
+	    char* bound_sc = (char*) malloc((*bound_key).size());
+	    (*bound_key).copy_to(bound_sc, (*bound_key).size());
+	    cvec_t b1(bound_sc, (*bound_key).size());
+	    _error_occurred = bt->_scramble_key(b2_key, b2, sd->sinfo().nkc, sd->sinfo().kc);
 
-	    _error_occurred = sd->partitions().getPartitions(*bound_key, inclusive, *b2_key,
+	    _error_occurred = sd->partitions().getPartitions(b1, inclusive, *b2_key,
 							     c2 == eq || c2 == ge || c2 == le, roots);
 	    
 	    _error_occurred = bt->mr_fetch_init(*_btcursor, roots, 
 						sd->sinfo().nkc, sd->sinfo().kc,
 						ntype == t_uni_btree,
 						key_lock_level,
-						*bound_key, *elem, 
+						b1, *elem, 
 						cond, c2, *b2_key, mode);
-            if (_error_occurred.is_error())  {
+	    free(bound_sc);
+	    
+	    if (_error_occurred.is_error())  {
                 return;
             }
             if(_btcursor->is_backward()) {
