@@ -2406,7 +2406,7 @@ stat_map log_stats;
 void print_log_stats() {
     if(print_lsn_groups) {
 	fprintf(stderr, "Consolidation array group size distribution:\n");
-	for(long i=0; i < sizeof(combination_stats)/sizeof(combination_stats[0]); i++) {
+	for(long i=0; i < (long)(sizeof(combination_stats)/sizeof(combination_stats[0])); i++) {
 	    long count = combination_stats[i];
 	    if(count) {
 		fprintf(stderr, "	%ld %ld\n", i, count);
@@ -2417,7 +2417,7 @@ void print_log_stats() {
 
     if(print_expose_groups) {
 	fprintf(stderr, "Exposure group size distribution:\n");
-	for(long i=0; i < sizeof(expose_stats)/sizeof(expose_stats[0]); i++) {
+	for(long i=0; i < (long)(sizeof(expose_stats)/sizeof(expose_stats[0])); i++) {
 	    long count = expose_stats[i];
 	    if(count) {
 		fprintf(stderr, "	%ld %ld\n", i, count);
