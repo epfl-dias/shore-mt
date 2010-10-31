@@ -226,7 +226,8 @@ public:
     rc_t        pin(
         const rid_t &          rid,
         smsize_t               start,
-        lock_mode_t            lmode = SH);
+        lock_mode_t            lmode = SH,
+        const bool             bIgnoreLatches = false);
 
     /**\brief Pin a portion of the record starting at a given location. 
      * \details
@@ -421,7 +422,8 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m, 
                     latch_mode_t l);
 
-    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m);
+    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m,
+                     const bool bIgnoreLatches = false);
 
     rc_t        _repin(lock_mode_t lmode, int* old_value = 0
 #ifdef SM_DORA

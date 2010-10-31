@@ -2447,7 +2447,7 @@ public:
      * \ingroup SSMBTREE
      * @param[in] vid   Volume on which to create the index.
      * @param[in] ntype   Type of index. Legitimate values are: 
-     *  - t_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
+     *  - t_mrbtree : Multi-rooted B+-Tree with duplicate keys (1st design)
      *  - t_uni_mrbtree : Multi-rooted B+-Tree without duplicate keys (1st design)
      *  - t_mrbtree_l : Multi-rooted B+-Tree with duplicate keys allowed (2nd design)
      *  - t_uni_mrbtree_l : Multi-rooted B+-Tree without duplicate keys (2nd design)

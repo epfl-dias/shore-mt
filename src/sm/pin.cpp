@@ -104,13 +104,15 @@ pin_i::~pin_i()
     _data_page().destructor();
 }
 
-rc_t pin_i::pin(const rid_t& rid, smsize_t start, lock_mode_t lmode)
+rc_t pin_i::pin(const rid_t& rid, smsize_t start, lock_mode_t lmode,
+                const bool bIgnoreLatches)
 {
-    return pin(rid, start, lmode, lock_to_latch(lmode));
+    latch_mode_t latch_mode = ( bIgnoreLatches ? LATCH_NL : lock_to_latch(lmode) );
+    return pin(rid, start, lmode, latch_mode);
 }
 
 rc_t pin_i::pin(const rid_t& rid, smsize_t start, 
-        lock_mode_t lmode, latch_mode_t latch_mode)
+                lock_mode_t lmode, latch_mode_t latch_mode)
 {
     SM_PROLOGUE_RC(pin_i::pin, in_xct, read_only,  2);
     if (lmode != SH && lmode != UD && lmode != EX && lmode != NL)
@@ -656,15 +658,17 @@ const char* pin_i::_body_large()
 }
 
 rc_t pin_i::_pin(const rid_t& rid, 
-        smsize_t start, 
-        lock_mode_t m) 
+                 smsize_t start, 
+                 lock_mode_t lock_mode,
+                 const bool bIgnoreLatches)
 {
-  return _pin(rid, start, m, lock_to_latch(m));
+    latch_mode_t latch_mode = ( bIgnoreLatches ? LATCH_NL : lock_to_latch(lock_mode) );
+    return _pin(rid, start, lock_mode, latch_mode);
 }
 
 rc_t pin_i::_pin(const rid_t& rid, smsize_t start, 
-        lock_mode_t lmode, 
-        latch_mode_t latch_mode)
+                 lock_mode_t lmode, 
+                 latch_mode_t latch_mode)
 {
     rc_t rc;
     bool pin_page = false;        // true indicates page needs pinning
