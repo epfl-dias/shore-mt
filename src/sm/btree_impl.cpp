@@ -6338,12 +6338,12 @@ btree_impl::_grow_tree(btree_p& rp, const bool bIgnoreLatches)
      */
     fix_latch = LATCH_EX;
     if(bIgnoreLatches) {
-	fix_latch = LATCH_NL;
+        fix_latch = LATCH_EX;
+        rp.upgrade_latch(fix_latch);
+        w_assert9(rp.latch_mode() == fix_latch);
+        w_assert1(rp.next());
+        w_assert9(rp.is_smo());        
     }
-    rp.upgrade_latch(fix_latch);
-    w_assert9(rp.latch_mode() == fix_latch);
-    w_assert1(rp.next());
-    w_assert9(rp.is_smo());
 
     /*
      *  First right sibling
@@ -6354,12 +6354,12 @@ btree_impl::_grow_tree(btree_p& rp, const bool bIgnoreLatches)
 
     // "following" a link here means fixing the page
     INC_TSTAT(bt_links);
-    fix_latch = LATCH_EX;
+
     if(bIgnoreLatches) {
-	fix_latch = LATCH_NL;
+	fix_latch = LATCH_EX;
+        W_DO( np.fix(nxtpid, fix_latch) );
+        w_assert1(!np.next());
     }
-    W_DO( np.fix(nxtpid, fix_latch) );
-    w_assert1(!np.next());
 
 
     /*
