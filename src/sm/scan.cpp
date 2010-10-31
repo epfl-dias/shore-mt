@@ -121,7 +121,8 @@ scan_index_i::scan_index_i(
     const cvec_t&         bound2_, 
     bool                  include_nulls,
     concurrency_t         cc,
-    lock_mode_t           mode
+    lock_mode_t           mode,
+    const bool            bIgnoreLatches
     ) 
 : xct_dependent_t(xct()),
   _stid(stid_),
@@ -130,11 +131,12 @@ scan_index_i::scan_index_i(
   _error_occurred(),
   _btcursor(0),
   _skip_nulls( ! include_nulls ),
-  _cc(cc)
+  _cc(cc),
+  _bIgnoreLatches(bIgnoreLatches)
 {
     INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, prologue_rc_t::read_only, 1);
 
-    _init(c1, bound1_, c2, bound2_, mode);
+    _init(c1, bound1_, c2, bound2_, mode, bIgnoreLatches);
     register_me();
 }
 
@@ -160,7 +162,8 @@ scan_index_i::_init(
     const cvec_t&         bound,
     cmp_t                 c2, 
     const cvec_t&         b2,
-    lock_mode_t           mode)
+    lock_mode_t           mode,
+    const bool            bIgnoreLatches)
 {
     _finished = false;
 
@@ -330,7 +333,8 @@ scan_index_i::_init(
 						ntype == t_uni_btree,
 						key_lock_level,
 						b1, *elem, 
-						cond, c2, *b2_key, mode);
+						cond, c2, *b2_key, mode,
+                                                bIgnoreLatches);
 	    free(bound_sc);
 	    
 	    if (_error_occurred.is_error())  {
@@ -646,15 +650,17 @@ scan_rt_i::xct_state_changed(
 
 scan_file_i::scan_file_i(
         const stid_t& stid_, const rid_t& start,
-         concurrency_t cc, bool pre, 
-         lock_mode_t /*mode TODO: remove.  is documented as ignored*/) 
+        concurrency_t cc, bool pre, 
+        lock_mode_t, /*mode TODO: remove.  is documented as ignored*/
+        const bool bIgnoreLatches) 
 : xct_dependent_t(xct()),
   stid(stid_),
   curr_rid(start),
   _eof(false),
   _cc(cc), 
   _do_prefetch(pre),
-  _prefetch(0)
+  _prefetch(0),
+  _bIgnoreLatches(bIgnoreLatches)
 {
     INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
             cc == t_cc_append ? prologue_rc_t::read_write : prologue_rc_t::read_only,
@@ -670,13 +676,16 @@ scan_file_i::scan_file_i(
 }
 
 scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc, 
-   bool pre, lock_mode_t /*mode TODO: remove. this documented as ignored*/) 
+                         bool pre, 
+                         lock_mode_t, /*mode TODO: remove. this documented as ignored*/ 
+                         const bool bIgnoreLatches)
 : xct_dependent_t(xct()),
   stid(stid_),
   _eof(false),
   _cc(cc),
   _do_prefetch(pre),
-  _prefetch(0)
+  _prefetch(0),
+  _bIgnoreLatches(bIgnoreLatches)
 {
     INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
         cc == t_cc_append?prologue_rc_t::read_write:prologue_rc_t::read_only,  0);
