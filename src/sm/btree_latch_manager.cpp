@@ -79,11 +79,13 @@ void btree_latch_manager::shutdown()
     _latches.clear();
 }
 
-latch_t &btree_latch_manager::find_latch(lpid_t const &root) 
+latch_t &btree_latch_manager::find_latch(lpid_t const &root, const bool bIgnoreLatches) 
 {
     latch_t *latch=NULL;
     {
-        CRITICAL_SECTION(cs, _latch_lock OCCREAD);
+	if(!bIgnoreLatches) {
+	    CRITICAL_SECTION(cs, _latch_lock OCCREAD);
+	}
         btree_latch_map::iterator pos=_latches.find(root);
         if(pos != _latches.end()) {
             lpid_t xxx = pos->first;
@@ -94,7 +96,9 @@ latch_t &btree_latch_manager::find_latch(lpid_t const &root)
     }
     
     // not there... need to add a new entry (but verify first!)
-    CRITICAL_SECTION(cs, _latch_lock OCCWRITE);
+    if(!bIgnoreLatches) {
+	CRITICAL_SECTION(cs, _latch_lock OCCWRITE);
+    }
     if( (latch=_latches[root]) )   {
         return *latch; // somebody else beat us to it
     }

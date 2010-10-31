@@ -105,7 +105,7 @@ private:
 
 public:
     // Return a ref to the per-btree latch. If none exists, creates one.
-    latch_t &find_latch(lpid_t const &root) ;
+    latch_t &find_latch(lpid_t const &root, bool const bIgnoreLatches = false) ;
     // Destroy latch for the btree with root.
     void destroy_latches(lpid_t const &root) ; // on btree_merge
     // Destroy all latches for btrees on this store.

@@ -383,7 +383,7 @@ private:
 
 
 public:
-    NORET tree_latch(const lpid_t pid) ;
+    NORET tree_latch(const lpid_t pid, const bool bIgnoreLatches = false) ;
 
     NORET ~tree_latch(); 
 

@@ -202,13 +202,13 @@ btree_impl::mk_kvl(concurrency_t cc, lockid_t& kvl,
 
 
 
-tree_latch::tree_latch(const lpid_t pid) 
+tree_latch::tree_latch(const lpid_t pid, const bool bIgnoreLatches) 
     : _pid(pid), _mode(LATCH_NL), 
     // Store latch manager keeps track of a single latch per store.
     // If there isn't already one for this store, we create a latch_t
     // for it.  This allows us to grab read/write/upgradable/downgradable
     // locks on a store.
-    _latch(btree_latches.find_latch(pid)), _fixed(false)
+      _latch(btree_latches.find_latch(pid, bIgnoreLatches)), _fixed(false)
 {
     check(); 
     // w_assert2(_latch.held_by_me() == 0); might be wrong until the first 
@@ -1486,7 +1486,7 @@ btree_impl::_mr_insert(
     }
     
     {
-        tree_latch         tree_root(root);
+        tree_latch         tree_root(root, bIgnoreLatches);
 
 	// latch modes
 	latch_mode_t traverse_latch;
@@ -2317,7 +2317,7 @@ btree_impl::_insert_l(
     }
     
     {
-        tree_latch         tree_root(root);
+        tree_latch         tree_root(root, bIgnoreLatches);
 
 	// latch modes
 	latch_mode_t traverse_latch;
@@ -3217,7 +3217,7 @@ btree_impl::_insert_p(
     }
     
     {
-        tree_latch         tree_root(root);
+        tree_latch         tree_root(root, bIgnoreLatches);
 
 	// latch modes
 	latch_mode_t traverse_latch;
@@ -4259,7 +4259,7 @@ btree_impl::_insert(
     }
     
     {
-        tree_latch         tree_root(root);
+        tree_latch         tree_root(root, bIgnoreLatches);
 
 	// latch modes
 	latch_mode_t traverse_latch;
@@ -5076,7 +5076,7 @@ btree_impl::_remove(
     }
     
     {
-    tree_latch         tree_root(root);
+    tree_latch         tree_root(root, bIgnoreLatches);
 
     // latch modes
     latch_mode_t traverse_latch;
@@ -7171,7 +7171,7 @@ btree_impl::_traverse(
         INC_TSTAT(bt_partial_traverse_cnt);
     }
 
-    tree_latch                 tree_root(__root); // latch the store
+    tree_latch                 tree_root(__root, bIgnoreLatches); // latch the store
                                // NOTE: this used to be the root page
     slotid_t                   slot = -1;
 
