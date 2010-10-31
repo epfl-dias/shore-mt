@@ -912,6 +912,11 @@ sdesc_t::operator=(const sdesc_t& other)
         add_store_utilization(other._histoid->copy());
     }
 
+    // -- mrbt
+    _partitions = other._partitions;
+    _partitions_filled = other._partitions_filled;
+    // --
+
     return *this;
 } 
 

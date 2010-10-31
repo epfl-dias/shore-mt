@@ -301,6 +301,8 @@ public:
     // for debugging
     void printPartitions(); 
 
+    //
+    key_ranges_map& operator=(const key_ranges_map& krm);
 
 private:
 

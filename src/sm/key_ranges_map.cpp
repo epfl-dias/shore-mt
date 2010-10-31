@@ -80,7 +80,7 @@ foo::~foo()
     if (_alloc && _m) {
         free(_m);
         _m = NULL;
-    }
+   }
 }
 
 foo& foo::operator=(const foo& v)
@@ -780,6 +780,51 @@ bool key_ranges_map::is_same(const key_ranges_map& krm)
     return (true);
 }
 
+
+key_ranges_map& key_ranges_map::operator=(const key_ranges_map& krm)
+{
+    DBG(<<"Copying the ranges map: ");
+
+    KRMapCIt mapcit;
+    
+    _rwlock.acquire_write();
+    
+    _numPartitions = 0;
+    _fookeys.clear();
+    _keyRangesMap.clear();
+    for (vector<foo*>::const_iterator cit = krm._fookeys.begin() ;
+	 cit != krm._fookeys.end(); ++cit) {
+	foo* newkv = new foo((*cit)->_m, (*cit)->_len, true);
+	mapcit = krm._keyRangesMap.lower_bound(*(*cit));
+	assert (mapcit == krm._keyRangesMap.end()); // Should be there	
+	_keyRangesMap[*newkv] = (*mapcit).second;
+	_fookeys.push_back(newkv);
+	_numPartitions++;
+    }
+    assert (_numPartitions == krm._numPartitions);
+
+    _rwlock.release_write();
+
+    
+    /*
+    for(int i=0; i<krm._fookeys.size(); i++) {
+	foo* newkv = new foo((*krm._fookeys[i])._m, (*krm._fookeys[i])._len, true);
+	lpid_t pid = krm._keyRangesMap[*(krm._fookeys[i])];
+	_keyRangesMap[*newkv] = pid; //dummy; //krm._keyRangesMap[*krm._fookeys[i]];
+	_fookeys.push_back(newkv);
+    }
+
+      for (iter = krm._fookeys.begin(); iter != krm._fookeys.end(); ++iter) {
+	if (*iter) { 
+	    foo* newkv = new foo((*iter)->_m, (*iter)->_len, true);
+	    _keyRangesMap[*newkv] = krm._keyRangesMap[**iter];
+	    _fookeys.push_back(newkv);
+        }
+    }
+    */
+    
+    return *this;
+}
 
 #if 0
 int main(void)
