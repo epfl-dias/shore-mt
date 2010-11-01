@@ -463,7 +463,7 @@ scan_index_i::_fetch(
              */
             do {
                 DBG(<<"");
-                W_DO( bt->fetch(*_btcursor) );
+                W_DO( bt->fetch(*_btcursor, _bIgnoreLatches) );
                 if(_btcursor->eof()) break;
             } while (_skip_nulls && (_btcursor->klen() == 0));
         }
@@ -658,9 +658,9 @@ scan_file_i::scan_file_i(
   curr_rid(start),
   _eof(false),
   _cc(cc), 
+  _bIgnoreLatches(bIgnoreLatches),
   _do_prefetch(pre),
-  _prefetch(0),
-  _bIgnoreLatches(bIgnoreLatches)
+  _prefetch(0)
 {
     INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
             cc == t_cc_append ? prologue_rc_t::read_write : prologue_rc_t::read_only,
@@ -683,9 +683,9 @@ scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc,
   stid(stid_),
   _eof(false),
   _cc(cc),
+  _bIgnoreLatches(bIgnoreLatches),
   _do_prefetch(pre),
-  _prefetch(0),
-  _bIgnoreLatches(bIgnoreLatches)
+  _prefetch(0)
 {
     INIT_SCAN_PROLOGUE_RC(scan_file_i::scan_file_i,
         cc == t_cc_append?prologue_rc_t::read_write:prologue_rc_t::read_only,  0);
