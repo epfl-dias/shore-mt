@@ -5780,7 +5780,7 @@ btree_impl::_lookup(
     stid_t         stid = root.stid();
 
     {
-        tree_latch   tree_root(root); // for latching the whole tree
+        tree_latch   tree_root(root, bIgnoreLatches); // for latching the whole tree
         lpid_t       search_start_pid = root;
         lsn_t        search_start_lsn = lsn_t::null;
 
