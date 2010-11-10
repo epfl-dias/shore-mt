@@ -780,6 +780,7 @@ file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page, const bool bIgnoreL
         DBG(<<"Now free page");
         w_assert2(page.is_fixed());
         W_DO(_free_page(page, bIgnoreLatches));
+	INC_TSTAT(page_file_mrbt_dealloc);
         return RCOK;
     } 
 
@@ -1703,8 +1704,13 @@ file_m::destroy_rec(const rid_t& rid, const bool bIgnoreLatches)
     if (page.rec_count() == 0) {
         DBG(<<"Now free page");
         w_assert2(page.is_fixed());
+	if(page.tag() == page_p::t_file_p) {
+	    INC_TSTAT(page_file_dealloc);
+	} else if(page.tag() == page_p::t_file_mrbt_p) {
+	    INC_TSTAT(page_file_mrbt_dealloc);
+	}
         W_DO(_free_page(page, bIgnoreLatches));
-        return RCOK;
+	return RCOK;
     } 
 
     DBG(<<"Update page utilization");
@@ -2824,6 +2830,8 @@ file_m::_alloc_page(
     w_assert2(page.lsn().valid());
     w_assert2(page.is_mine()); // EX-latched
 
+    INC_TSTAT(page_file_alloc);
+
     return RCOK;
 }
 
@@ -2874,6 +2882,8 @@ file_m::_alloc_mrbt_page(
     w_assert2(page.lsn().valid());
     w_assert2(page.is_mine()); // EX-latched
 
+    INC_TSTAT(page_file_mrbt_alloc);
+    
     return RCOK;
 }
 // --

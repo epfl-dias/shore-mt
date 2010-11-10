@@ -1434,6 +1434,8 @@ btree_impl::_merge_trees(
 	W_DO( io->free_page(root2, false/*checkstore*/) );
 	
 	btree_latches.destroy_latches(root2);
+
+	INC_TSTAT(page_btree_dealloc);
     }
     
     return RCOK;
@@ -4223,6 +4225,9 @@ btree_impl::_alloc_page(
 
 
     DBGTHRD(<<"allocated btree page " << pid << " at level " << level);
+
+    INC_TSTAT(page_btree_alloc);
+    
     return RCOK;
 }
 
@@ -6296,6 +6301,7 @@ btree_impl::_shrink_tree(btree_p& rp, const bool bIgnoreLatches)
 	}
         W_DO( io->free_page(pid, false/*checkstore*/) );
 
+	INC_TSTAT(page_btree_dealloc);
     } else {
         /*
          *  No child in pid0. Simply set the level of root to 1.

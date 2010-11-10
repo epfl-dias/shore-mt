@@ -254,6 +254,14 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long page_alloc_cnt	Pages allocated
     u_long page_dealloc_cnt	Pages deallocated
 
+    // Specific pages alloc/dealloc counts
+    u_long page_btree_alloc	       Number of index pages alloced
+    u_long page_file_alloc	       Number of file pages alloced
+    u_long page_file_mrbt_alloc	       Number of file pages alloced by plp-leaf & plp-part
+    u_long page_btree_dealloc	       Number of index pages dealloced
+    u_long page_file_dealloc	       Number of file pages dealloced
+    u_long page_file_mrbt_dealloc      Number of file pages dealloced by plp-leaf & plp-part
+    
     // Extent operation counts
     u_long ext_lookup_hits	Hits in extent lookups in cache 
     u_long ext_lookup_misses	Misses in extent lookups in cache 
