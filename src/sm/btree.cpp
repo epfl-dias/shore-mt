@@ -175,6 +175,9 @@ btree_m::create(
          return RC(eNDXNOTEMPTY);
     }
     DBGTHRD(<<"returning from btree_create, store " << stid);
+
+    INC_TSTAT(page_btree_alloc);
+	
     return RCOK;
 }
 
