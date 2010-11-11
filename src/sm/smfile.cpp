@@ -565,8 +565,8 @@ ss_m::_create_mrbt_file(vid_t vid, stid_t& fid,
     DBGTHRD(<<"locked " << fid);
 
     lpid_t first;
-    W_DO( fi->create_mrbt(fid, first) );
-    DBGTHRD(<<"locked &created -- put in store directory: " << fid);
+    //W_DO( fi->create_mrbt(fid, first) );
+    //DBGTHRD(<<"locked &created -- put in store directory: " << fid);
 
     sinfo_s sinfo(fid.store, t_file, 100/*unused*/, 
            t_bad_ndx_t, t_cc_none/*not used*/, first.page, 0, 0);
