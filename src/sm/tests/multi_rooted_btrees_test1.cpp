@@ -40,6 +40,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <cassert>
 #include "sm_vas.h"
 #include "w_getopt.h"
+#include "stopwatch.h"
 ss_m* ssm = 0;
 
 // shorten error code type name
@@ -105,9 +106,13 @@ class smthread_user_t : public smthread_t {
     rid_t       _end_rid;
     stid_t      _fid;
     bool        _initialize_device;
+    bool        _scan_file;
+    bool        _bIgnoreLocks;
+    bool        _bIgnoreLatches;
     option_group_t* _options;
     vid_t       _vid;
     int         _test_no;
+    int         _num_parts;
 public:
     int         retval;
     
@@ -122,6 +127,10 @@ public:
 	  _options(NULL),
 	  _vid(1),
 	  _test_no(0),
+	  _num_parts(10),
+	  _scan_file(false),
+	  _bIgnoreLocks(false),
+	  _bIgnoreLatches(false),
 	  retval(0) { }
     
     ~smthread_user_t()  { if(_options) delete _options; }
@@ -145,6 +154,7 @@ public:
     w_rc_t insert_rec_to_index(stid_t stid);
     w_rc_t print_the_mr_index(stid_t stid);
     w_rc_t static print_updated_rids(const stid_t& stid, rid_t* old_rids, rid_t* new_rids, uint nrecs);
+    w_rc_t scan_the_index(stid_t stid);  
     // --
     w_rc_t scan_the_file();
     w_rc_t scan_the_root_index();
@@ -223,7 +233,7 @@ smthread_user_t::create_the_file()
     memset(dummy, '\0', _rec_size);
     vec_t data(dummy, _rec_size);
 
-    for(int j=0; j < 1001; j++)
+    for(int j=0; j < _num_rec; j++)
     {
         {
             w_ostrstream o(dummy, _rec_size);
@@ -235,10 +245,10 @@ smthread_user_t::create_the_file()
         const vec_t hdr(&i, sizeof(i));
         W_COERCE(ssm->create_rec(info.fid, hdr,
                                 _rec_size, data, rid));
-        cout << "Creating rec " << j << endl;
+        //cout << "Creating rec " << j << endl;
         if (j == 0) {
             info.first_rid = rid;
-        } else if(j == 1000) {
+        } else if(j == _num_rec) {
 	    info.last_rid = rid;
 	}
     }
@@ -266,13 +276,14 @@ smthread_user_t::create_the_file()
 // -- mrbt
 rc_t smthread_user_t::print_updated_rids(const stid_t& stid, rid_t* old_rids, rid_t* new_rids, uint nrecs)
 {
+  /*
   cout << endl;
   cout << "Index store id: " << stid << endl;
   cout << "Old rids\tNew rids" << endl;
   for(uint i=0; i<nrecs; i++) {
     cout << old_rids[i] << "\t" << new_rids[i] << endl;
   }
-
+  */
   return RCOK;
 }
 
@@ -289,7 +300,7 @@ rc_t smthread_user_t::mr_index_test0()
 
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
     W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
@@ -313,20 +324,20 @@ rc_t smthread_user_t::mr_index_test1()
     stid_t stid;    
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
 
     int key1 = 700;
     vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec1));
+    W_DO(ssm->add_partition_init(stid, key_vec1, false));
     
     
     int key2 = 500;
     vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec2));                   
+    W_DO(ssm->add_partition_init(stid, key_vec2, false));                   
     W_DO(ssm->commit_xct());
 
     W_DO(insert_rec_to_index(stid));
@@ -352,7 +363,7 @@ rc_t smthread_user_t::mr_index_test2()
     stid_t stid;
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
     W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
@@ -365,7 +376,7 @@ rc_t smthread_user_t::mr_index_test2()
     vec_t key_vec((char*)(&key), sizeof(key));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key << endl;
-    W_DO(ssm->add_partition(stid, key_vec));
+    W_DO(ssm->add_partition(stid, key_vec, false));
     
 
     W_DO(print_the_mr_index(stid));
@@ -382,7 +393,7 @@ rc_t smthread_user_t::mr_index_test2()
     cout << "Record body "  << new_key << endl;
     cout << "body size "  << el.size() << endl;
     eg1._el.put(el);
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec, eg1));
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec, eg1, false, false));
 
     
     cout << "ssm->create_mr_assoc" << endl;
@@ -395,7 +406,7 @@ rc_t smthread_user_t::mr_index_test2()
     cout << "Record body "  << new_key2 << endl;
     cout << "body size "  << el.size() << endl;
     eg2._el.put(el2);
-    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, eg2));
+    W_DO(ssm->create_mr_assoc(stid, new_key_vec2, eg2, false, false));
     W_DO(ssm->commit_xct());
 
 
@@ -417,7 +428,7 @@ rc_t smthread_user_t::mr_index_test3()
     stid_t stid;
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
     W_DO(ssm->commit_xct());
     
     W_DO(insert_rec_to_index(stid));
@@ -430,7 +441,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key1_vec((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
-    W_DO(ssm->add_partition(stid, key1_vec));
+    W_DO(ssm->add_partition(stid, key1_vec, false));
 
     
     W_DO(print_the_mr_index(stid));
@@ -440,7 +451,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key2_vec((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key2 << endl;
-    W_DO(ssm->add_partition(stid, key2_vec));
+    W_DO(ssm->add_partition(stid, key2_vec, false));
 
 
     W_DO(print_the_mr_index(stid));
@@ -450,7 +461,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key3 << endl;
-    W_DO(ssm->add_partition(stid, key3_vec));
+    W_DO(ssm->add_partition(stid, key3_vec, false));
 
     
     W_DO(print_the_mr_index(stid));
@@ -460,7 +471,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key4_vec((char*)(&key4), sizeof(key4));
     cout << "ssm->add_partition(stid = " << stid
 	 << ", key_vec = " << key4 << endl;
-    W_DO(ssm->add_partition(stid, key4_vec));
+    W_DO(ssm->add_partition(stid, key4_vec, false));
 
     
     W_DO(print_the_mr_index(stid));
@@ -468,7 +479,7 @@ rc_t smthread_user_t::mr_index_test3()
 
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key1 << endl;
-    W_DO(ssm->delete_partition(stid, key1_vec));
+    W_DO(ssm->delete_partition(stid, key1_vec, false));
 
 
     W_DO(print_the_mr_index(stid));
@@ -478,7 +489,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key5_vec((char*)(&key5), sizeof(key5));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key5 << endl;
-    W_DO(ssm->delete_partition(stid, key5_vec));
+    W_DO(ssm->delete_partition(stid, key5_vec, false));
 
     
     W_DO(print_the_mr_index(stid));
@@ -488,7 +499,7 @@ rc_t smthread_user_t::mr_index_test3()
     vec_t key6_vec((char*)(&key6), sizeof(key6));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key_vec = " << key6 << endl;
-    W_DO(ssm->delete_partition(stid, key6_vec));
+    W_DO(ssm->delete_partition(stid, key6_vec, false));
 
     
     W_DO(print_the_mr_index(stid));
@@ -511,20 +522,20 @@ rc_t smthread_user_t::mr_index_test4()
     stid_t stid;    
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
  
     int key1 = 700;
     vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec1));
+    W_DO(ssm->add_partition_init(stid, key_vec1, false));
     
     
     int key2 = 500;
     vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec2));
+    W_DO(ssm->add_partition_init(stid, key_vec2, false));
 
 
     sm_du_stats_t stats;
@@ -553,20 +564,20 @@ rc_t smthread_user_t::mr_index_test5()
     stid_t stid;    
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
 
     int key1 = 700;
     vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec1));
+    W_DO(ssm->add_partition_init(stid, key_vec1, false));
     
     
     int key2 = 500;
     vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec2));
+    W_DO(ssm->add_partition_init(stid, key_vec2, false));
     W_DO(ssm->commit_xct());
 
 
@@ -580,7 +591,7 @@ rc_t smthread_user_t::mr_index_test5()
     vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key = " << key3 << endl;
-    W_DO(ssm->delete_partition(stid, key3_vec));
+    W_DO(ssm->delete_partition(stid, key3_vec, false));
 
 
     W_DO(print_the_mr_index(stid));
@@ -602,20 +613,20 @@ rc_t smthread_user_t::mr_index_test6()
     stid_t stid;    
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
 
     int key1 = 700;
     vec_t key_vec1((char*)(&key1), sizeof(key1));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key1 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec1));
+    W_DO(ssm->add_partition_init(stid, key_vec1, false));
     
     
     int key2 = 500;
     vec_t key_vec2((char*)(&key2), sizeof(key2));
     cout << "ssm->add_partition_init(stid = " << stid
 	 << ", key = " << key2 << endl;
-    W_DO(ssm->add_partition_init(stid, key_vec2));
+    W_DO(ssm->add_partition_init(stid, key_vec2, false));
     W_DO(ssm->commit_xct());
 
 
@@ -629,7 +640,7 @@ rc_t smthread_user_t::mr_index_test6()
     vec_t key3_vec((char*)(&key3), sizeof(key3));
     cout << "ssm->delete_partition(stid = " << stid
 	 << ", key = " << key3 << endl;
-    W_DO(ssm->delete_partition(stid, key3_vec));
+    W_DO(ssm->delete_partition(stid, key3_vec, false));
 
 
     W_DO(print_the_mr_index(stid));
@@ -689,42 +700,31 @@ rc_t smthread_user_t::mr_index_test8()
     key_ranges_map ranges;
     int min_key = 0;
     vec_t min_key_vec((char*)(&min_key), sizeof(min_key));
-    int max_key = 1000;
+    int max_key = _num_rec;
     vec_t max_key_vec((char*)(&max_key), sizeof(max_key));
 
-
-
-    int key1 = 0;
-    vec_t key_vec1((char*)(&key1), sizeof(key1));
-    int key2 = 200;
-    vec_t key_vec2((char*)(&key2), sizeof(key2));
-    int key3 = 400;
-    vec_t key_vec3((char*)(&key3), sizeof(key3));
-    int key4 = 600;
-    vec_t key_vec4((char*)(&key4), sizeof(key4));
-    int key5 = 800;
-    vec_t key_vec5((char*)(&key5), sizeof(key5));
-
-    
-    cout << "Creating multi rooted btree index." << endl;
     stid_t stid;    
     W_DO(ssm->begin_xct());
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
-			      "i4", smlevel_0::t_cc_kvl, stid));
-    //W_DO(ssm->add_partition_init(stid, key_vec1));
-    //W_DO(ssm->add_partition_init(stid, key_vec2));                   
-    //W_DO(ssm->add_partition_init(stid, key_vec3));
-    //W_DO(ssm->add_partition_init(stid, key_vec4));                   
-    //W_DO(ssm->add_partition_init(stid, key_vec5));
+			      "i4", smlevel_0::t_cc_kvl, stid, false));
 
-    W_DO(ssm->make_equal_partitions(stid, min_key_vec, max_key_vec, 10));
+    W_DO(ssm->make_equal_partitions(stid, min_key_vec, max_key_vec, _num_parts));
     W_DO(ssm->commit_xct());
 
     W_DO(insert_rec_to_index(stid));
 
     
-    W_DO(print_the_mr_index(stid));
+    //W_DO(print_the_mr_index(stid));
 
+
+    if(_scan_file) {
+      stopwatch_t timer;
+      W_DO(scan_the_file());
+      cout << "After file scan: " << timer.time() << endl;
+      timer.reset();
+      W_DO(scan_the_index(stid));
+      cout << "After index scan: " << timer.time() << endl;
+    }
     
     return RCOK;
 }
@@ -749,27 +749,27 @@ rc_t smthread_user_t::insert_rec_to_index(stid_t stid)
       return rc;
     }
     if(eof) break;
-    if(i == 0 || i == 1000) {
-	i++;
-	continue;
-    }
+    //if(i == 0 || i == 1000) {
+    //	i++;
+    //	continue;
+    //}
     
-    cout << "Record " << i << "/" << _num_rec << endl;
+    //cout << "Record " << i << "/" << _num_rec << endl;
     vec_t       key(cursor->hdr(), cursor->hdr_size());
     int         hdrcontents;
     key.copy_to(&hdrcontents, sizeof(hdrcontents));
-    cout << "Key: "  << hdrcontents << endl;
-    cout << "key size " << key.size() << endl;
+    //cout << "Key: "  << hdrcontents << endl;
+    //cout << "key size " << key.size() << endl;
     vec_t el((char*)(&cursor->rid()), sizeof(cursor->rid()));
-    cout << "El: " << cursor->rid() << endl;
-    cout << "El size "  << el.size() << endl;
+    //cout << "El: " << cursor->rid() << endl;
+    //cout << "El size "  << el.size() << endl;
 
     const char *body = cursor->body();
     w_assert1(cursor->body_size() == _rec_size);
-    cout << "Record body "  << body << endl;
+    //cout << "Record body "  << body << endl;
 
     eg._el.put(el);
-    W_DO(ssm->create_mr_assoc(stid, key, eg));
+    W_DO(ssm->create_mr_assoc(stid, key, eg, false, false));
 
     i++;
   } while (!eof);
@@ -862,22 +862,69 @@ smthread_user_t::scan_the_file()
         }
         if(eof) break;
 
-        cout << "Record " << i << "/" << _num_rec
-            << " Rid "  << cursor->rid() << endl;
+        //cout << "Record " << i << "/" << _num_rec
+        //    << " Rid "  << cursor->rid() << endl;
         vec_t       header (cursor->hdr(), cursor->hdr_size());
         int         hdrcontents;
         header.copy_to(&hdrcontents, sizeof(hdrcontents));
-        cout << "Record hdr "  << hdrcontents << endl;
+        //cout << "Record hdr "  << hdrcontents << endl;
 
         const char *body = cursor->body();
         //w_assert1(cursor->body_size() == _rec_size);
-        cout << "Record body "  << body << endl;
+        //cout << "Record body "  << body << endl;
         i++;
     } while (!eof);
     //w_assert1(i == _num_rec-1);
 
     W_DO(ssm->commit_xct());
     return RCOK;
+}
+
+rc_t
+smthread_user_t::scan_the_index(stid_t stid) 
+{
+  W_DO(ssm->begin_xct());
+  cout << "Scanning index " << stid << endl;
+  scan_index_i scan(stid, 
+		    scan_index_i::ge, vec_t::neg_inf,
+		    scan_index_i::le, vec_t::pos_inf, false,
+		    ss_m::t_cc_kvl);
+  bool        eof(false);
+  int         i(0);
+  smsize_t    klen(0);
+  smsize_t    elen(0);
+#define MAXKEYSIZE 100
+  char *      keybuf[MAXKEYSIZE];
+  file_info_t info;
+  
+  do {
+    w_rc_t rc = scan.next(eof);
+    if(rc.is_error()) {
+      cerr << "Error getting next: " << rc << endl;
+      retval = rc.err_num();
+      return rc;
+    }
+    if(eof) break;
+
+    // get the key len and element len
+    W_DO(scan.curr(NULL, klen, NULL, elen));
+    // Create vectors for the given lengths.
+    vec_t key(keybuf, klen);
+    vec_t elem(&info, elen);
+    // Get the key and element value
+    W_DO(scan.curr(&key, klen, &elem, elen));
+
+    //cout << "Key " << keybuf << endl;
+    //cout << "Value " 
+    //	 << " { fid " << info.fid 
+    //	 << " first_rid " << info.first_rid
+    //	 << " #rec " << info.num_rec
+    //	 << " rec size " << info.rec_size << " }"
+    //	 << endl;
+    i++;
+  } while (!eof);
+  W_DO(ssm->commit_xct());
+  return RCOK;
 }
 
 rc_t
@@ -948,8 +995,8 @@ smthread_user_t::no_init()
     delete [] lvid_list;
 
     W_COERCE(find_file_info());
-    W_COERCE(scan_the_root_index());
-    W_DO(scan_the_file());
+    //W_COERCE(scan_the_root_index());
+    //W_DO(scan_the_file());
     switch(_test_no) {
     case 0:
 	W_DO(mr_index_test0()); // ok
@@ -989,8 +1036,8 @@ smthread_user_t::do_work()
       cout << "do init" << endl;
       W_DO(do_init());
     }
-    else  
-      W_DO(no_init());
+    //    else  
+    W_DO(no_init());
     return RCOK;
 }
 
@@ -1056,52 +1103,28 @@ w_rc_t smthread_user_t::handle_options()
 
     // Process the command line: looking for the "-h" flag
     int option;
-    while ((option = getopt(_argc, _argv, "hi012345678")) != -1) {
+    while ((option = getopt(_argc, _argv, "hit:p:s")) != -1) {
         switch (option) {
         case 'i' :
             _initialize_device = true;
             break;
 
+	case 's' :
+	  _scan_file = true;
+	  break;
+
         case 'h' :
             usage(options);
             break;
 
-	case '0':
-	    _test_no = 0;
-	    break;
-	    
-	case '1':
-	    _test_no = 1;
-	    break;
-	    
-	case '2':
-	    _test_no = 2;
-	    break;
-	    
-	case '3':
-	    _test_no = 3;
-	    break;
-	    
-	case '4':
-	    _test_no = 4;
-	    break;
-	    
-	case '5':
-	    _test_no = 5;
-	    break;
-		    
-	case '6':
-	    _test_no = 6;
-	    break;
-
-	case '7':
-	    _test_no = 7;
-	    break;
-
-	case '8':
-	  _test_no = 8;
+	case 't':
+	  _test_no = atoi(optarg);
 	  break;
-	    
+
+	case 'p':
+	  _num_parts = atoi(optarg);
+	  break;
+
         default:
             usage(options);
             retval = 1;
@@ -1110,9 +1133,10 @@ w_rc_t smthread_user_t::handle_options()
         }
     }
 
-    if(!_initialize_device) 
+    if(!_initialize_device) {
 	cout << "TEST" << _test_no << endl;
-
+		cout << "Number of partitions: " << _num_parts << endl;
+    }
     {
         cout << "Checking for required options...";
         /* check that all required options have been set */
@@ -1157,7 +1181,7 @@ void smthread_user_t::run()
 
     sm_config_info_t config_info;
     W_COERCE(ss_m::config_info(config_info));
-    _rec_size = config_info.max_small_rec; // minus a header
+    _rec_size = 100; //config_info.max_small_rec; // minus a header
 
     // Subroutine to set up the device and volume and
     // create the num_rec records of rec_size.
