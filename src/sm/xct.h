@@ -286,6 +286,7 @@ public:
     const lsn_t&                last_lsn() const;
     const lsn_t&                first_lsn() const;
     const lsn_t&                undo_nxt() const;
+    bool                        is_read_only_sofar() const;
     const logrec_t*             last_log() const;
     fileoff_t                   get_log_space_used() const;
     rc_t                        wait_for_log_space(fileoff_t amt);
@@ -926,6 +927,12 @@ void
 xct_t::set_undo_nxt(const lsn_t &l) 
 {
     _undo_nxt = l;
+}
+
+inline
+bool xct_t::is_read_only_sofar() const
+{
+    return (_first_lsn == lsn_t::null);
 }
 
 inline
