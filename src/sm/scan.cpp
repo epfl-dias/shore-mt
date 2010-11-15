@@ -325,9 +325,12 @@ scan_index_i::_init(
 	    cvec_t b1(bound_sc, (*bound_key).size());
 	    _error_occurred = bt->_scramble_key(b2_key, b2, sd->sinfo().nkc, sd->sinfo().kc);
 
-	    _error_occurred = sd->partitions().getPartitions(b1, inclusive, *b2_key,
-							     c2 == eq || c2 == ge || c2 == le, roots);
-	    
+	    if(&bound == &vec_t::neg_inf && &b2 == &vec_t::pos_inf) {
+		_error_occurred = sd->partitions().getAllPartitions(roots);
+	    } else {
+		_error_occurred = sd->partitions().getPartitions(b1, inclusive, *b2_key,
+								 c2 == eq || c2 == ge || c2 == le, roots);
+	    }
 	    _error_occurred = bt->mr_fetch_init(*_btcursor, roots, 
 						sd->sinfo().nkc, sd->sinfo().kc,
 						ntype == t_uni_btree,
