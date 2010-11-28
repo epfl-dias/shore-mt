@@ -264,7 +264,7 @@ option_t* ss_m::_log_warn_percent = NULL;
 option_t* ss_m::_num_page_writers = NULL;
 option_t* ss_m::_logging = NULL;
 // -- mrbt
-ss_m::el_filler* ss_m::_ef = NULL;
+el_filler* ss_m::_ef = NULL;
 // --
 
 /*

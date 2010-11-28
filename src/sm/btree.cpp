@@ -355,7 +355,8 @@ btree_m::mr_insert_l(
     bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    rc_t (*fill_el)(vec_t&, const lpid_t&), // I- callback function to determine the element
+    //rc_t (*fill_el)(vec_t&, const lpid_t&), // I- callback function to determine the element
+    el_filler*                       ef,
     size_t el_size,                         // I - size of the element
     int                  split_factor,        // I-  tune split in %
     const bool           bIgnoreLatches,
@@ -384,7 +385,9 @@ btree_m::mr_insert_l(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, 
+    //    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, 
+    //				bIgnoreLatches, relocate_callback);
+    rc = btree_impl::_mr_insert(root, unique, cc, key, ef, el_size, split_factor, 
 				bIgnoreLatches, relocate_callback);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
@@ -412,7 +415,8 @@ btree_m::mr_insert_p(
     bool                 unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    //rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    el_filler*                       ef,
     size_t el_size,                          // I - size of the element
     int                  split_factor,        // I-  tune split in %
     const bool           bIgnoreLatches)
@@ -440,7 +444,8 @@ btree_m::mr_insert_p(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, bIgnoreLatches);
+    //    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, bIgnoreLatches);
+        rc = btree_impl::_mr_insert(root, unique, cc, key, ef, el_size, split_factor, bIgnoreLatches);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
             // retries++; // for debugging

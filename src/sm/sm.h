@@ -2583,24 +2583,6 @@ public:
     static rc_t            print_mr_index(stid_t stid);
     /**\endcond skip */
 
-    /**\brief Helper struct for create_mr_assoc.
-     * \ingroup SSMBTREE
-     *
-     */
-     struct el_filler {
-	 size_t _el_size; // the size of the element
-	 vec_t _el; // to give the element if it's already determined (for the 1st design)
-	 
-	 /* to be used as a callback function during btree insert (for the 2nd and 3rd designs)
-	  * @param[out] el  the element, contents to be determined after leaf page is found
-	  * @param[in] leaf  leaf page that the insertion will take place for the el  
-	  */
-	 virtual rc_t fill_el(vec_t& /* el */, const lpid_t& /* leaf */) { return RCOK; }
-	 
-	 // destructor
-	 virtual ~el_filler() {}
-    };
-
     /**\brief Create an entry in a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *

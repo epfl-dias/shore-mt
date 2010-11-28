@@ -1463,7 +1463,8 @@ btree_impl::_mr_insert(
     bool                unique,                // I-  true if tree is unique
     concurrency_t        cc,                // I-  concurrency control 
     const cvec_t&        key,                // I-  which key
-    rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    //rc_t (*fill_el)(vec_t&, const lpid_t&),  // I-  callback function to determine the element
+    el_filler*                       ef,
     size_t el_size,                          // I - size of the element
     int                 split_factor,        // I-  tune split in %
     const bool bIgnoreLatches,
@@ -2214,7 +2215,7 @@ again:
 	    lpid_t leaf_page_pid = leaf.pid();
 	    leaf.unfix();
 
-	    (*fill_el)(el2, leaf_page_pid);
+	    ef->fill_el(el2, leaf_page_pid);
 	    fix_latch = LATCH_EX;
 	    if(bIgnoreLatches) {
 		fix_latch = LATCH_NL;

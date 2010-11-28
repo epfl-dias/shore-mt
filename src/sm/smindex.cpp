@@ -1067,25 +1067,35 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_mrbtree_l:
     case t_uni_mrbtree_l:
 
-	_ef = &ef;
+	//_ef = &ef;
+	//W_DO(bt->mr_insert_l(subroot, 
+	//		     is_unique, 
+	//		     cc,
+	//		     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+	//		     bIgnoreLatches, relocate_callback));
+	//_ef = NULL;
 	W_DO(bt->mr_insert_l(subroot, 
 			     is_unique, 
 			     cc,
-			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+			     *real_key, &ef, ef._el_size, 50, 
 			     bIgnoreLatches, relocate_callback));
-	_ef = NULL;
 	break;
 
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	_ef = &ef;
+	//_ef = &ef;
+	//W_DO(bt->mr_insert_p(subroot, 
+	//		     is_unique, 
+	//		     cc,
+	//		     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+	//		     bIgnoreLatches));
+	//_ef = NULL;
 	W_DO(bt->mr_insert_p(subroot, 
 			     is_unique, 
 			     cc,
-			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
+			     *real_key, &ef, ef._el_size, 50, 
 			     bIgnoreLatches));
-	_ef = NULL;
 	break;
 	
     case t_rtree:

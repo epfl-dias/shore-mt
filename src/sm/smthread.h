@@ -288,6 +288,8 @@ class smthread_t : public sthread_t {
         cvec_t  _kc_vec;
         // Used by page.cpp check()
         char    _page_check_map[SM_PAGESIZE]; // a little bigger than needed
+	// ptr to local element filler for plp-insert operations
+	
 
         void    create_TL_stats();
         void    clear_TL_stats();
