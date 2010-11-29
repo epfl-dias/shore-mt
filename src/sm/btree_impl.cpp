@@ -605,7 +605,6 @@ btree_impl::_split_tree(
 	if(ret_slot < page.nrecs()) {
 	    W_DO( page.shift(ret_slot, new_tree_page) );
 	}
-	page.unfix();
 	pid0 = new_tree_page.pid().page;
 	// update prev/next pointers
 	next_page_id = page.next();
@@ -617,6 +616,7 @@ btree_impl::_split_tree(
 	    W_DO( next_page.link_up(pid0, next_page.next()) );
 	    next_page.unfix();
 	}
+	page.unfix();
 	// set the root of the new page to root_new
 	W_DO( new_tree_page.set_root(root_new.page) );
 	new_tree_page.unfix();
@@ -1230,7 +1230,7 @@ rc_t btree_impl::_link_after_merge(const lpid_t& root,
     W_DO( page1.fix(current_p1, latch) );
     W_DO( page2.fix(current_p2, latch) );
     
-    w_assert9( page1.level() == page2.level() );
+    w_assert0( page1.level() == page2.level() );
 
     // update prev/next values
     W_DO( page1.link_up(page1.prev(), p2) );
@@ -1242,10 +1242,10 @@ rc_t btree_impl::_link_after_merge(const lpid_t& root,
     } else {
 	W_DO( page2.set_root(root.page) );
     }
-    
+
     // go update next level
     if(!page1.is_leaf()) {
-	shpid_t new_p1 = page1.child(page1.nrecs());
+	shpid_t new_p1 = page1.child(page1.nrecs()-1);
 	shpid_t new_p2 = page2.pid0();
 	
 	page1.unfix();
