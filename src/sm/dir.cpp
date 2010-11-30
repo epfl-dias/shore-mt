@@ -383,7 +383,7 @@ dir_vol_m::_access(const stid_t& stid, sinfo_s& si)
     smsize_t len = sizeof(si);
     W_DO( bt->lookup(_root[i], 1, &dir_key_type,
                      true, t_cc_none,
-                     key, &si, len, found) );
+                     key, &si, len, found, true) );
     if (!found)        {
         DBG(<<"_access: BADSTID " << stid.store);
         return RC(eBADSTID);

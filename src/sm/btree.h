@@ -281,7 +281,8 @@ public:
         const cvec_t&                     key_to_find, 
         void*                            el, 
         smsize_t&                     elen,
-        bool&                     found);
+        bool&                     found,
+	bool                         is_dirm = false);
 
     /* for lid service only */
     static rc_t                        lookup_prev(
@@ -340,13 +341,15 @@ public:
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*            kc);
+        const key_type_s*            kc,
+	bool                        is_dirm = false);
 
     static rc_t                        _unscramble_key(
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*             kc);
+        const key_type_s*             kc,
+	bool                        is_dirm = false);
 
     // pin: to debug (protected shoudl be moved up later
 protected:

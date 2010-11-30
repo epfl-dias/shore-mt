@@ -853,7 +853,8 @@ btree_m::lookup(
     const cvec_t&         key,        // I-  key we want to find
     void*                 el,        // I-  buffer to put el found
     smsize_t&             elen,        // IO- size of el
-    bool&                 found)        // O-  true if key is found
+    bool&                 found,        // O-  true if key is found
+    bool                  is_dirm)
 {
     if(
         (cc != t_cc_none) && (cc != t_cc_file) &&
@@ -864,7 +865,7 @@ btree_m::lookup(
     w_assert1(kc && nkc > 0);
     cvec_t* real_key;
     DBGTHRD(<<"");
-    W_DO(_scramble_key(real_key, key, nkc, kc));
+    W_DO(_scramble_key(real_key, key, nkc, kc, is_dirm));
 
     DBGTHRD(<<"");
     cvec_t null;
@@ -1551,7 +1552,8 @@ btree_m::_scramble_key(
     cvec_t*&                 ret,
     const cvec_t&         key, 
     int                 nkc,
-    const key_type_s*         kc)
+    const key_type_s*         kc,
+    bool                is_dirm)
 {
     FUNC(btree_m::_scramble_key);
     DBGTHRD(<<" SCrambling " << key );
@@ -1568,7 +1570,7 @@ btree_m::_scramble_key(
     }
 
 
-    ret = me()->get_kc_vec();
+    ret = me()->get_kc_vec(is_dirm);
     ret->reset();
 
     char* p = 0;
@@ -1582,7 +1584,7 @@ btree_m::_scramble_key(
             t == key_type_s::f ||
             t == key_type_s::F 
             ) {
-            p = me()->get_kc_buf();
+            p = me()->get_kc_buf(is_dirm);
             break;
         }
     }
@@ -1663,12 +1665,13 @@ btree_m::_unscramble_key(
     cvec_t*&                 ret,
     const cvec_t&         key, 
     int                 nkc,
-    const key_type_s*         kc)
+    const key_type_s*         kc,
+    bool                 is_dirm)
 {
     FUNC(btree_m::_unscramble_key);
     DBGTHRD(<<" UNscrambling " << key );
     w_assert1(kc && nkc > 0);
-    ret = me()->get_kc_vec();
+    ret = me()->get_kc_vec(is_dirm);
     ret->reset();
     char* p = 0;
     int i;
@@ -1687,7 +1690,7 @@ btree_m::_unscramble_key(
                 t == key_type_s::f ||
                 t == key_type_s::F 
                 )  {
-            p = me()->get_kc_buf();
+            p = me()->get_kc_buf(is_dirm);
             break;
         }
     }

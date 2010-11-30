@@ -288,7 +288,9 @@ class smthread_t : public sthread_t {
         cvec_t  _kc_vec;
         // Used by page.cpp check()
         char    _page_check_map[SM_PAGESIZE]; // a little bigger than needed
-	// ptr to local element filler for plp-insert operations
+	// for scramble/unscramble requests coming from dir_m
+	double  _kc_buf_double_d[smlevel_0::page_sz/sizeof(double)]; // not initialized
+        cvec_t  _kc_vec_d;
 	
 
         void    create_TL_stats();
@@ -627,8 +629,20 @@ public:
                                                return tcb().__metarecs; }
     int&                           get___metarecs_in() { 
                                                return tcb().__metarecs_in; }
-    char *                         get_kc_buf()  { return (char *)&(tcb()._kc_buf_double[0]); }
-    cvec_t*                        get_kc_vec()  { return &(tcb()._kc_vec); }
+    char *                         get_kc_buf(bool is_dirm = false)  {
+	if(is_dirm) {
+	    return (char *)&(tcb()._kc_buf_double_d[0]);
+	} else {
+	    return (char *)&(tcb()._kc_buf_double[0]);
+	}
+    }
+    cvec_t*                        get_kc_vec(bool is_dirm = false)  {
+	if(is_dirm) {
+	    return &(tcb()._kc_vec_d);
+	} else {
+	    return &(tcb()._kc_vec);
+	}
+    }
     char *                         get_page_check_map() {
                                          return &(tcb()._page_check_map[0]);  }
 private:
