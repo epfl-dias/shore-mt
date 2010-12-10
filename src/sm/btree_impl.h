@@ -128,24 +128,6 @@ protected:
 	const bool bIgnoreLatches = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
 
-    static rc_t                        _insert_l(
-        const lpid_t&                     root,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                     key,
-        cvec_t&                     elem,
-        int                             split_factor = 50,
-	const bool bIgnoreLatches = false);
-
-    static rc_t                        _insert_p(
-        const lpid_t&                     root,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                     key,
-        cvec_t&                     elem,
-        int                             split_factor = 50,
-	const bool bIgnoreLatches = false);
-
     static rc_t                 _split_leaf_and_relocate_recs(
         const lpid_t&                    root_pid,         // I - root of tree
         btree_p&                    leaf,         // I - page to be split
