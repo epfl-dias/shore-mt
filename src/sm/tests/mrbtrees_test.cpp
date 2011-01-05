@@ -205,8 +205,9 @@ public:
   w_rc_t mr_index_test4();
   w_rc_t mr_index_test5();
   w_rc_t mr_index_test6();
+  w_rc_t mr_index_test7();
 
-  w_rc_t print_the_mr_index();
+  w_rc_t print_the_index();
   w_rc_t static print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids);
 
   w_rc_t do_work();
@@ -240,8 +241,14 @@ public:
   ~smthread_creator_t() {}
 
   // helper functions for run
+
+  // without bulk loading
   w_rc_t fill_the_file_regular();
   w_rc_t fill_the_file_non_regular();
+
+  // with bulk loading
+  w_rc_t fill_the_file_regular_bl();
+  w_rc_t fill_the_file_non_regular_bl();
   
   void run();
 };
@@ -279,9 +286,14 @@ void smthread_creator_t::run()
   rc_t rc = find_file_info();
 
   if(!rc.is_error()) { 
-    if(_design_no == 0) { // pin: later might want to add an option for regular btrees (non-mrbtree)
-      cout << "Wrong design option!" << endl;
-      rc = RC(fcASSERT);
+    if(_design_no == 0) { 
+      if(_test_no == 7) { // bulk loading test
+	rc = fill_the_file_regular_bl();
+      } else {
+	// TODO: implement non-bulkloading option here
+	cout << "This test is not supported for this design option yet!" << endl;
+	rc = RC(fcASSERT);
+      }
     }
     else if(_design_no == 1) {
       rc = fill_the_file_regular(); // mrbt regular
@@ -404,7 +416,7 @@ rc_t smthread_main_t::create_the_file()
     W_DO(ssm->begin_xct());
 
     // Create the file. Stuff its fid in the persistent file_info
-    if(_design_no == 1) {
+    if(_design_no < 2) {
       W_DO(ssm->create_file(_vid, info.fid, smlevel_3::t_regular));
     } else {
       W_DO(ssm->create_mrbt_file(_vid, info.fid, smlevel_3::t_regular));
@@ -433,11 +445,9 @@ rc_t smthread_main_t::create_the_file()
 
 // creates the index based on the given design option
 rc_t smthread_main_t::create_the_index() {
-  if(_design_no == 0) { // pin: not used now but later can be use to add the option without mrbtrees
-    cout << "Wrong design option!" << endl;
-    return RC(fcASSERT);
-    //    W_DO(ssm->create_index(_vid, smlevel_0::t_btree, smlevel_3::t_regular, 
-    //			   "i4", smlevel_0::t_cc_kvl, _index_id, false));
+  if(_design_no == 0) { 
+    W_DO(ssm->create_index(_vid, smlevel_0::t_btree, smlevel_3::t_regular, 
+    			   "i4", smlevel_0::t_cc_kvl, _index_id));
   }
   else if(_design_no == 1) {
     W_DO(ssm->create_mr_index(_vid, smlevel_0::t_mrbtree, smlevel_3::t_regular, 
@@ -555,6 +565,79 @@ rc_t smthread_creator_t::fill_the_file_non_regular()
   return RCOK;
 }
 
+// TODO: implement something more general like specified in the comments
+// creates records in a regular file to be later used in bulk loading ( can be used in the baseline system
+// with or without mrbtrees and plp-regular )
+// it's better not to do this record creation in parallel since we need a sorted order for bulk loading
+// if records are not in sorted order then we should sort them but i'm leaving this as a TODO now
+// WARNING: right now just testing simple bulk loading
+// create the recs with one thread then perform bulk loading
+rc_t smthread_creator_t::fill_the_file_regular_bl() 
+{
+  int num_inserted = 1;
+  
+  W_DO(ssm->begin_xct());
+  
+  char* dummy = new char[_rec_size];
+  memset(dummy, '\0', _rec_size);
+  vec_t data(dummy, _rec_size);
+  rid_t rid;
+  for(int j=_start_key; j <= _end_key; j++, num_inserted++) {
+    if( j == _end_key && (_end_key != _num_rec || _test_no != 2)) {
+      continue; // for test 2 we want to insert one more record and
+                // it is the reason for all the weird continues here TODO: try to make this better
+    }
+    {
+      w_ostrstream o(dummy, _rec_size);
+      o << j << ends;
+      w_assert1(o.c_str() == dummy);
+    }
+    // header contains record #
+    int i = j;
+    const vec_t hdr(&i, sizeof(i));
+    W_COERCE(ssm->create_rec(_fid, hdr, _rec_size, data, rid, _bIgnoreLocks));
+    cout << "Created rec " << j << " rid:" << rid << endl;
+    if (j == 0) {
+      _first_rid = rid;
+      if(_test_no == 2) {
+	continue;
+      }
+    } else if(j == _num_rec) {
+      _last_rid = rid;
+      continue;
+    }
+  
+    // if we want to insert a lot of records then we run out of log space
+    // to avoid it, we should flush the log after inserting some number of records
+    if(num_inserted >= 20000) {
+      W_DO(ssm->commit_xct());
+      num_inserted = 0;
+      W_DO(ssm->begin_xct());
+    }
+  }
+  cout << "Created all. First rid " << _first_rid << " Last rid " << _last_rid << endl;
+  delete [] dummy;
+  
+  W_DO(ssm->commit_xct());
+
+  // filled the file, now perform bulk-loading
+  W_DO(ssm->begin_xct());
+  
+  sm_du_stats_t        bl_stats;
+  W_DO(ssm->bulkld_index(_index_id, _fid, bl_stats));
+  
+  W_DO(ssm->commit_xct());
+  
+  return RCOK;
+}
+
+// for using bulk loading with plp-part&leaf
+rc_t smthread_creator_t::fill_the_file_non_regular_bl()
+{
+  // TODO: implement
+  return RCOK;
+}
+
 // prints the old&new rids of the moved records, used instead of RELOCATE_RECS callback
 rc_t smthread_main_t::print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids)
 {
@@ -590,7 +673,7 @@ rc_t smthread_main_t::mr_index_test0()
     creator_thread->join();
     delete creator_thread;
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
     
     return RCOK;
 }
@@ -642,7 +725,7 @@ rc_t smthread_main_t::mr_index_test1()
     delete creator_thread2;
     delete creator_thread3;
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
     
     return RCOK;
 }
@@ -668,14 +751,14 @@ rc_t smthread_main_t::mr_index_test2()
     creator_thread->join();
     delete creator_thread;
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key = (int) (0.7 * _num_rec);
     vec_t key_vec(&key, sizeof(key));
     cout << "add_partition: stid = " << _index_id << ", key = " << key << endl;
     W_DO(ssm->add_partition(_index_id, key_vec, _bIgnoreLatches, &print_updated_rids));
     
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     // create two more recs&assocs 
     W_DO(ssm->begin_xct());
@@ -705,7 +788,7 @@ rc_t smthread_main_t::mr_index_test2()
     W_DO(ssm->create_mr_assoc(_index_id, new_key_vec2, eg, _bIgnoreLocks, _bIgnoreLatches, &print_updated_rids));
     W_DO(ssm->commit_xct());
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     return RCOK;
 }
@@ -730,54 +813,54 @@ rc_t smthread_main_t::mr_index_test3()
     creator_thread->join();
     delete creator_thread;
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
     
     int key1 = (int) (0.2 * _num_rec);
     vec_t key1_vec(&key1, sizeof(key1));
     cout << "add_partition: stid = " << _index_id << ", key = " << key1 << endl;
     W_DO(ssm->add_partition(_index_id, key1_vec, _bIgnoreLatches, &print_updated_rids));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key2 = (int) (0.4 * _num_rec);
     vec_t key2_vec(&key2, sizeof(key2));
     cout << "add_partition: stid = " << _index_id << ", key = " << key2 << endl;
     W_DO(ssm->add_partition(_index_id, key2_vec, _bIgnoreLatches, &print_updated_rids));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key3 = (int) (0.6 * _num_rec);
     vec_t key3_vec(&key3, sizeof(key3));
     cout << "add_partition: stid = " << _index_id << ", key = " << key3 << endl;
     W_DO(ssm->add_partition(_index_id, key3_vec, _bIgnoreLatches, &print_updated_rids));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key4 = (int) (0.8 * _num_rec);
     vec_t key4_vec(&key4, sizeof(key4));
     cout << "add_partition: stid = " << _index_id << ", key = " << key4 << endl;
     W_DO(ssm->add_partition(_index_id, key4_vec, _bIgnoreLatches, &print_updated_rids));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     cout << "delete_partition: stid = " << _index_id << ", key = " << key1 << endl;
     W_DO(ssm->delete_partition(_index_id, key1_vec, _bIgnoreLatches));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key5 = (int) (0.7 * _num_rec);
     vec_t key5_vec(&key5, sizeof(key5));
     cout << "delete_partition: stid = " << _index_id << ", key = " << key5 << endl;
     W_DO(ssm->delete_partition(_index_id, key5_vec, _bIgnoreLatches));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     int key6 = (int) (0.5 * _num_rec);
     vec_t key6_vec(&key6, sizeof(key6));
     cout << "delete_partition: stid = " << _index_id << ", key = " << key6 << endl;
     W_DO(ssm->delete_partition(_index_id, key6_vec, _bIgnoreLatches));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     return RCOK;
 }
@@ -798,7 +881,7 @@ rc_t smthread_main_t::mr_index_test4()
     cout << "delete_partition: stid = " << _index_id << ", key = " << key << endl;
     W_DO(ssm->delete_partition(_index_id, key_vec, _bIgnoreLatches));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     return RCOK;
 }
@@ -819,7 +902,7 @@ rc_t smthread_main_t::mr_index_test5()
     cout << "delete_partition: stid = " << _index_id << ", key = " << key << endl;
     W_DO(ssm->delete_partition(_index_id, key_vec, _bIgnoreLatches));
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
     
     return RCOK;
 }
@@ -870,17 +953,46 @@ rc_t smthread_main_t::mr_index_test6()
     }
     delete[] subthreads;
 
-    W_DO(print_the_mr_index());
+    W_DO(print_the_index());
 
     return RCOK;
 }
 
+rc_t smthread_main_t::mr_index_test7()
+{
+    cout << endl;
+    cout << " ------- TEST7 -------" << endl;
+    cout << "To test bulk loading! Single threaded version." << endl;
+    cout << endl;
+    
+    cout << "Creating conventional btree index." << endl;
+    W_DO(ssm->begin_xct());
+    W_DO(create_the_index());
+    W_DO(ssm->commit_xct());
+
+    // create the records and their assocs
+    threadptr creator_thread = new smthread_creator_t(_num_rec, _rec_size,
+						      _bIgnoreLocks, _bIgnoreLatches,
+						      _design_no, 0, _num_rec, _index_id, 7);
+    creator_thread->fork();
+    creator_thread->join();
+    delete creator_thread;
+
+    W_DO(print_the_index());
+    
+    return RCOK;
+}
+
 // prints the btree
-rc_t smthread_main_t::print_the_mr_index() 
+rc_t smthread_main_t::print_the_index() 
 {
     cout << "printing the mr index from store " << _index_id << endl;
-    W_DO(ssm->begin_xct());     
-    W_DO(ssm->print_mr_index(_index_id));
+    W_DO(ssm->begin_xct());
+    if(_design_no == 0) {
+        W_DO(ssm->print_index(_index_id));
+    } else {
+      W_DO(ssm->print_mr_index(_index_id));
+    }
     W_DO(ssm->commit_xct());
     return RCOK;
 }   
@@ -1053,6 +1165,9 @@ rc_t smthread_main_t::no_init()
       break;
     case 6:
       W_DO(mr_index_test6()); //
+      break;
+    case 7:
+      W_DO(mr_index_test7()); //
       break;
     }
 
