@@ -61,9 +61,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
-// -- mrbt
 #include <set>
-// --
 
 #ifndef BTREE_H
 #include "btree.h"
@@ -86,7 +84,6 @@ class btree_impl : protected btree_m  {
 
 protected:
 
-    // -- mrbt
     static rc_t                        _split_tree(
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
@@ -121,7 +118,6 @@ protected:
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-	//rc_t (*fill_el)(vec_t&, const lpid_t&), 
 	el_filler*                       ef,
 	size_t el_size,
         int                             split_factor = 50,
@@ -174,7 +170,7 @@ protected:
 	vector<rid_t>& old_rids,
 	vector<rid_t>& new_rids,
 	const bool bIgnoreLatches); 
-// --
+
 
     static rc_t                        _alloc_page(
         const lpid_t&                    root,

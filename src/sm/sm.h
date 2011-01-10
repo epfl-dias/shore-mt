@@ -460,11 +460,11 @@ class option_t;
 class prologue_rc_t;
 class rtree_m;
 class sort_stream_i;
-// -- mrbt
+
 class ranges_m;
 class key_ranges_map;
 struct sinfo_s;
-// --
+
 
 /**\addtogroup SSMSP  
  * A transaction may perform a partial rollback using savepoints.
@@ -587,9 +587,7 @@ public:
     typedef smlevel_0::concurrency_t concurrency_t;
     typedef smlevel_1::xct_state_t xct_state_t;
 
-    // -- mrbt
     typedef smlevel_0::RELOCATE_RECORD_CALLBACK_FUNC RELOCATE_RECORD_CALLBACK_FUNC;
-    // --
 
     typedef sm_store_property_t store_property_t;
 
@@ -2439,9 +2437,8 @@ public:
 #endif
     );
 
-    // -- mrbt
-    
-    // TODO: add explaination for MRBT (SSMMRBTREE :)
+
+    // TODO: pin: add explaination for MRBT (SSMMRBTREE :)
 
     /**\brief Create a MR-B+-Tree index.
      * \ingroup SSMBTREE
@@ -2757,7 +2754,6 @@ public:
 				 lpid_t& root,
 				 const bool bIgnoreLatches = false);
 
-    // --
 
     //
     // Functions for R*tree (multi-dimensional(MD), spatial) Indexes
@@ -3169,7 +3165,7 @@ public:
         bool&                    should_forward 
     );
 
-    // -- mrbt
+
     /**\addtogroup SSMFILE
      * 
      * This functions are for the heap file that are used in MRBtree design
@@ -3237,7 +3233,23 @@ public:
 	const bool             bIgnoreLocks = false,
         const bool             bIgnoreLatches = false);
 
-    // TODO: comment on this if they decide to use
+    /**\brief Create a new record in one of the pages pointed
+     *        by the leaf in PLP-Leaf or by the subtree in PLP-Part.
+     * \ingroup SSMFILE
+     * \details
+     * @param[in] fid  ID of the file in which to create a record.
+     * @param[in] leaf The subtree leaf page
+     * @param[in] hdr  What to put in the record's header.
+     * @param[in] len_hint  Hint about how big the record will ultimately be.
+     * This is used to determine the initial format of the record. If you plan
+     * to append to the record and know that it will ultimately become a large
+     * record, it is more efficient to give a size hint that is larger than
+     * a page here. Otherwise, the record will be made small (as determined by
+     * the size of the parameter \a data ), and subsequent appends will cause 
+     * the record to be converted to a large record.
+     * @param[in] data  What to put in the record's body. 
+     * @param[out] new_rid  ID of the newly created record.
+     */
     static rc_t            find_page_and_create_mrbt_rec(
         const stid_t&            fid,
 	const lpid_t&            leaf,
@@ -3290,7 +3302,7 @@ public:
 	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false
     );
-    // --
+
     
 #ifdef OLDSORT_COMPATIBILITY
     typedef ssm_sort::key_info_t key_info_t;
@@ -3574,13 +3586,6 @@ private:
     static option_t* _log_warn_percent;
     static option_t* _num_page_writers;
     static option_t* _logging;
-    // -- mrbt
-    static el_filler* _ef;
-
-    static rc_t _el_filler_wrapper(
-        vec_t&                 el,
-        const lpid_t&          leaf);
-    // --
 
     static rc_t            _set_option_logsize(
         option_t*              opt,
@@ -3725,7 +3730,6 @@ private:
 #endif
     );
 
-    // -- mrbt
 
     static rc_t            _create_mr_index(
         vid_t                 vid, 
@@ -3839,8 +3843,8 @@ private:
     static rc_t _delete_partition(stid_t stid,
 				  lpid_t& root,
 				  const bool bIgnoreLatches);
-    // --
 
+    
     // below method overloaded for rtree
     static rc_t            _create_md_index(
         vid_t                 vid, 
@@ -3951,7 +3955,7 @@ private:
             bool&                should_forward
         );
 
-    // -- mrbt
+
     static rc_t            _create_mrbt_file(
         vid_t                 vid, 
         stid_t&               fid,
@@ -4025,7 +4029,7 @@ private:
 	    const bool           bIgnoreLocks = false,
 	    const bool           bIgnoreLatches = false
         );
-    // --
+
     
     static rc_t            _draw_rtree(const stid_t& stid, ostream &);
 

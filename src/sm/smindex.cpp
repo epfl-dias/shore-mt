@@ -59,12 +59,12 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_int_4.h"
 #include "sm_du_stats.h"
 #include "sm.h"
-// -- mrbt
+
 #include "ranges_p.h"
 #include "btree_latch_manager.h"
 // NOTE : this is shared with btree layer
 btree_latch_manager btree_latches;
-// --
+
 
 /*==============================================================*
  *  Physical ID version of all the index operations                *
@@ -378,8 +378,8 @@ ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat,
     return RCOK;
 }
 
-// -- mrbt
 
+// TODO: pin: if you decide not to use system xcts anymore remove these 
 #if VOLUME_OPS_USE_OCC
 typedef occ_rwlock sm_vol_rwlock_t;
 typedef occ_rwlock::occ_rlock sm_vol_rlock_t;
@@ -679,13 +679,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 (cc != t_cc_im)
 	 ) return RC(eBADCCLEVEL);
 
-     // pin:
-     //vec_t startKey;
-     //cvec_t* real_key;
-     //int i = 0;
-     //startKey.put((char*)(&i),sizeof(i));
-     //W_DO(bt->_scramble_key(real_key, startKey, count, kcomp));
-    
      switch (ntype)  {
      case t_mrbtree:
      case t_uni_mrbtree:
@@ -996,13 +989,6 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     return RCOK;
 }
 
-rc_t ss_m::_el_filler_wrapper(
-        vec_t&                 el,
-        const lpid_t&          leaf)
-{
-    return _ef->fill_el(el, leaf);
-}
-
 /*--------------------------------------------------------------*
  *  ss_m::_create_mr_assoc()                                    *
  *--------------------------------------------------------------*/
@@ -1055,11 +1041,12 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1080,13 +1067,6 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_mrbtree_l:
     case t_uni_mrbtree_l:
 
-	//_ef = &ef;
-	//W_DO(bt->mr_insert_l(subroot, 
-	//		     is_unique, 
-	//		     cc,
-	//		     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-	//		     bIgnoreLatches, relocate_callback));
-	//_ef = NULL;
 	W_DO(bt->mr_insert_l(subroot, 
 			     is_unique, 
 			     cc,
@@ -1097,13 +1077,6 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	//_ef = &ef;
-	//W_DO(bt->mr_insert_p(subroot, 
-	//		     is_unique, 
-	//		     cc,
-	//		     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-	//		     bIgnoreLatches));
-	//_ef = NULL;
 	W_DO(bt->mr_insert_p(subroot, 
 			     is_unique, 
 			     cc,
@@ -1175,11 +1148,12 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1264,11 +1238,12 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1355,11 +1330,12 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
 
@@ -1444,11 +1420,12 @@ rc_t ss_m::_update_mr_assoc(const stid_t&       stid,
 
     bool is_unique = sd->sinfo().ntype == t_uni_mrbtree;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc, true));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc, true));
 	subroot = sd->root(*real_key);
     }
 
@@ -1836,8 +1813,6 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2,
 
     return RCOK;
 }
-
-// --
 
 /*--------------------------------------------------------------*
  *  ss_m::_create_index()                                        *

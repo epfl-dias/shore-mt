@@ -187,7 +187,7 @@ file_m::create(stid_t stid, lpid_t& first_page)
     return RCOK;
 }
 
-// -- mrbt
+
 // same as create, except creates a file_mrbt_p as first page instead file_p 
 rc_t 
 file_m::create_mrbt(stid_t stid, lpid_t& first_page)
@@ -209,7 +209,7 @@ file_m::create_mrbt(stid_t stid, lpid_t& first_page)
     DBGTHRD(<<"file_m::create_mrbt(d) first page is  " << first_page);
     return RCOK;
 }
-// --
+
 
 /* NB: argument order is similar to old create_rec */
 rc_t
@@ -248,7 +248,7 @@ file_m::create_rec(
     return RCOK;
 }
 
-// -- mrbt
+
 rc_t
 file_m::create_mrbt_rec(
     const stid_t&        fid,
@@ -284,7 +284,7 @@ file_m::create_mrbt_rec(
     DBG(<<"create_mrbt_rec created " << rid);
     return RCOK;
 }
-// --
+
 
 /* NB: order of arguments is same as old create_rec_at_end */
 rc_t 
@@ -313,7 +313,7 @@ file_m::create_rec_at_end(
     return RCOK;
 }
 
-// -- mrbt
+
 rc_t 
 file_m::create_mrbt_rec_at_end(
         file_mrbt_p&         page, // in-out -- caller might have it fixed
@@ -339,7 +339,7 @@ file_m::create_mrbt_rec_at_end(
     DBG(<<"create_mrbt_rec_at_end created " << rid);
     return RCOK;
 }
-// --
+
 
 /*
  * Called from create_rec_at_end and from create_rec
@@ -466,7 +466,7 @@ file_m::_create_rec(
     return RCOK;
 }
 
-// -- mrbt
+
 // here EX latches are kept because create_rec is called before
 // index related stuff
 rc_t
@@ -1062,7 +1062,6 @@ file_m::create_mrbt_rec_p(
     return RCOK;
 }
 
-// --
 
 rc_t
 file_m::_find_slotted_page_with_space(
@@ -1315,7 +1314,7 @@ file_m::_find_slotted_page_with_space(
     return RC(eSPACENOTFOUND);
 }
 
-// -- mrbt
+
 rc_t
 file_m::_find_slotted_mrbt_page_with_space(
     const stid_t&        stid,
@@ -1566,7 +1565,7 @@ file_m::_find_slotted_mrbt_page_with_space(
     DBG(<<"not found");
     return RC(eSPACENOTFOUND);
 }
-// --
+
 
 /* 
  * add a record on the given page.  page is already
@@ -1893,7 +1892,7 @@ file_m::append_rec(const rid_t& rid, const vec_t& data, const sdesc_t& sd)
     return RCOK;
 }
 
-// -- mrbt
+
 rc_t
 file_m::append_mrbt_rec(const rid_t& rid, const vec_t& data, const sdesc_t& sd, const bool bIgnoreLatches)
 {
@@ -2027,7 +2026,7 @@ file_m::append_mrbt_rec(const rid_t& rid, const vec_t& data, const sdesc_t& sd, 
     hu.update();
     return RCOK;
 }
-// --
+
 
 rc_t
 file_m::truncate_rec(const rid_t& rid, uint4_t amount, bool& should_forward)
@@ -2167,7 +2166,7 @@ file_m::truncate_rec(const rid_t& rid, uint4_t amount, bool& should_forward)
     return RCOK;
 }
 
-// -- mrbt
+
 rc_t
 file_m::truncate_mrbt_rec(const rid_t& rid, uint4_t amount, bool& should_forward, const bool bIgnoreLatches)
 {
@@ -2309,7 +2308,7 @@ file_m::truncate_mrbt_rec(const rid_t& rid, uint4_t amount, bool& should_forward
 
     return RCOK;
 }
-// --
+
 
 rc_t
 file_m::read_hdr(const rid_t& s_rid, int& len,
@@ -2835,7 +2834,7 @@ file_m::_alloc_page(
     return RCOK;
 }
 
-// -- mrbt
+
 //  same as _alloc_page except takes a file_mrbt_p and sets the tag accordingly
 rc_t
 file_m::_alloc_mrbt_page(
@@ -2886,7 +2885,7 @@ file_m::_alloc_mrbt_page(
     
     return RCOK;
 }
-// --
+
 
 rc_t
 file_m::_append_large(file_p& page, slotid_t slot, const vec_t& data)
@@ -3178,7 +3177,6 @@ file_m::_truncate_large(file_p& page, slotid_t slot, uint4_t amount)
     return RCOK;
 }
 
-// -- mrbt
 
 MAKEPAGECODE(file_mrbt_p, file_p)
 
@@ -3290,7 +3288,7 @@ file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
     return rc.reset();
 
 }
-// --
+
 
 rc_t
 file_p::fill_slot(
@@ -3669,7 +3667,7 @@ file_p::choose_rec_implementation(
     return t_badflag;  // keep compiler quite
 }
 
-// -- mrbt
+
 recflags_t 
 file_mrbt_p::choose_rec_implementation(
     uint4_t         est_hdr_len,
@@ -3694,7 +3692,7 @@ file_mrbt_p::choose_rec_implementation(
     W_FATAL(eNOTIMPLEMENTED);
     return t_badflag;  // keep compiler quite
 }
-// --
+
 
 MAKEPAGECODE(file_p, page_p)
 

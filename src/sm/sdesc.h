@@ -168,11 +168,9 @@ class sdesc_t {
     friend class append_file_i;
     friend class sdesc_cache_t;
 
-    // -- mrbt
 private:
     key_ranges_map _partitions;
     bool _partitions_filled;
-    // --
 
 public:
     typedef smlevel_0::store_t store_t;
@@ -201,14 +199,12 @@ public:
         return r;
     }
 
-    // -- mrbt
     inline
     const lpid_t        root(const cvec_t& key) {
 	lpid_t r;
 	partitions().getPartitionByKey(key, r);
 	return r;
     }
-    // --
 
     // store id for large object pages
     inline
@@ -233,14 +229,12 @@ public:
 
     friend ostream &operator<<(ostream &os, sdesc_t const &sd);
     
-    // -- mrbt
     inline stid_t stid() { return _stid; }
     inline bool has_partitions() { return _partitions_filled; } 
     key_ranges_map& partitions();
     key_ranges_map* get_partitions_p();
     rc_t fill_partitions_map();
     rc_t store_partitions();
-    // --
 
 protected:
     sdesc_t&            operator=(const sdesc_t& other);

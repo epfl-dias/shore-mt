@@ -69,9 +69,7 @@ public:
     rc_t            remove(slotid_t slot, bool compress=false);
     rc_t            shift(slotid_t snum, zkeyed_p* rsib, bool cmprs=false);
 
-    // -- mrbt
     rc_t            shift(slotid_t snum, slotid_t snum_dest, zkeyed_p* rsib, bool cmprs=false);
-    // --
     
     /* gnu has a bug -- can't make this protected
      * TODO: see if this is still the case

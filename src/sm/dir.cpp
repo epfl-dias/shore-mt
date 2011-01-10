@@ -72,9 +72,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_p.h"  
 #include "btcursor.h"  
 
-// -- mrbt
 #include "ranges_p.h"
-// --
 
 #ifdef EXPLICIT_TEMPLATE
 // template class w_auto_delete_array_t<snum_t>;
@@ -736,12 +734,7 @@ sdesc_cache_t::remove(const stid_t& stid)
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             if (_sdescsBuckets[i][j].stid() == stid) {
-		// -- mrbt
-		//if(_sdescsBuckets[i][j].has_partitions()) {
-		//    _sdescsBuckets[i][j].store_partitions();
-		//}
-		// --
-                DBG(<<"");
+		DBG(<<"");
                 _sdescsBuckets[i][j].invalidate();
 		if (i < _minFreeBucket) {
 		    _minFreeBucket = i;
@@ -765,11 +758,6 @@ sdesc_cache_t::remove_all()
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             DBG(<<"");
-	    // -- mrbt
-	    //if(_sdescsBuckets[i][j].has_partitions()) {
-	    //_sdescsBuckets[i][j].store_partitions();
-	    //}
-	    // --
             _sdescsBuckets[i][j].invalidate();
         }
     }
@@ -912,15 +900,12 @@ sdesc_t::operator=(const sdesc_t& other)
         add_store_utilization(other._histoid->copy());
     }
 
-    // -- mrbt
     _partitions = other._partitions;
     _partitions_filled = other._partitions_filled;
-    // --
 
     return *this;
 } 
 
-// -- mrbt
 key_ranges_map& sdesc_t::partitions()
 {
     if(!_partitions_filled) {
@@ -950,5 +935,3 @@ rc_t sdesc_t::store_partitions()
     W_DO( ranges_m::fill_page(root(), _partitions) );
     return RCOK;
 }
-
-// --

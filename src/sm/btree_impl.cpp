@@ -488,7 +488,7 @@ tree_latch::get_for_smo(
     return smlevel_0::eOK;
 }
 
-// -- mrbt
+
 /******************************************************************
  *
  *  btree_impl::_split_tree(root_old, root_new, key, leaf_old, leaf_new)
@@ -2285,7 +2285,6 @@ again:
     return RCOK;
 }
 
-// --
 
 /*********************************************************************
  *

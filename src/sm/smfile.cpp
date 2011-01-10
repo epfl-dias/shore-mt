@@ -289,7 +289,7 @@ ss_m::vid_to_lvid(vid_t vid, lvid_t& lvid)
     return RCOK;
 }
 
-// -- mrbt
+
 /*--------------------------------------------------------------*
  *  ss_m::create_mrbt_file()                                    *
  *--------------------------------------------------------------*/
@@ -763,7 +763,7 @@ ss_m::_truncate_mrbt_rec(const rid_t& rid, smsize_t amount, bool& should_forward
     W_DO(fi->truncate_mrbt_rec(rid, amount, should_forward, bIgnoreLatches));
     return RCOK;
 }
-// --
+
 
 /*--------------------------------------------------------------*
  *  ss_m::_set_store_property()                                 *

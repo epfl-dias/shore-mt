@@ -182,9 +182,8 @@ public:
 
     bool operator==(const rid_t& r) const;
     bool operator!=(const rid_t& r) const;
-    // -- mrbt
     bool operator<(const rid_t& r) const;
-    // --
+    
     friend ostream& operator<<(ostream&, const rid_t& s);
     friend istream& operator>>(istream&, rid_t& s);
 
@@ -323,12 +322,10 @@ inline bool rid_t::operator!=(const rid_t& r) const
     return !(*this == r);
 }
 
-// -- mrbt
 inline bool rid_t::operator<(const rid_t& r) const
 {
     return pid < r.pid || (pid == r.pid && slot < r.slot);
 }
-// --
 
 /*<std-footer incl-file-exclusion='SM_S_H'>  -- do not edit anything below this line -- */
 

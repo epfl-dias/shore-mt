@@ -141,7 +141,6 @@ bt_cursor_t::set_up_part_2(cmp_t cond1, const cvec_t& bound1)
     return check_bounds();
 }
 
-// -- mrbt
 void
 bt_cursor_t::set_roots(vector<lpid_t>& roots) {
     is_mrbt = true;
@@ -167,7 +166,6 @@ bt_cursor_t::get_next_root() {
 	return false;
     }
 }
-// --
 
 /*********************************************************************
  *

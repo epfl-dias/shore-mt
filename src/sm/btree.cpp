@@ -285,7 +285,6 @@ btree_m::insert(
     return  rc;
 }
 
-// -- mrbt
 
 /*********************************************************************
  *
@@ -385,8 +384,6 @@ btree_m::mr_insert_l(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    //    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, 
-    //				bIgnoreLatches, relocate_callback);
     rc = btree_impl::_mr_insert(root, unique, cc, key, ef, el_size, split_factor, 
 				bIgnoreLatches, relocate_callback);
     if(rc.is_error()) {
@@ -444,8 +441,7 @@ btree_m::mr_insert_p(
     DBGTHRD(<<"");
     // int retries = 0; // for debugging
  retry:
-    //    rc = btree_impl::_mr_insert(root, unique, cc, key, fill_el, el_size, split_factor, bIgnoreLatches);
-        rc = btree_impl::_mr_insert(root, unique, cc, key, ef, el_size, split_factor, bIgnoreLatches);
+    rc = btree_impl::_mr_insert(root, unique, cc, key, ef, el_size, split_factor, bIgnoreLatches);
     if(rc.is_error()) {
         if(rc.err_num() == eRETRY) {
             // retries++; // for debugging
@@ -753,7 +749,6 @@ btree_m::merge_trees(
     return  rc;
 }
 
-// --
 
 /*********************************************************************
  *
@@ -1057,7 +1052,7 @@ btree_m::fetch_init(
     return RCOK;
 }
 
-// -- mrbt
+
 /*********************************************************************
  *
  *  btree_m::mr_fetch_init(cursor, roots, numkeys, unique, 
@@ -1150,7 +1145,7 @@ btree_m::mr_fetch_init(
     }
     return RCOK;
 }
-//
+
 
 /*********************************************************************
  *
@@ -1309,7 +1304,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
             w_assert3(child->is_fixed());
             w_assert3(child->is_leaf());
 
-	    // -- mrbt
+
 	    if(__eof && cursor.is_mrbt) {
 		if(cursor.get_next_root()) {
 		    p1.unfix();
@@ -1327,7 +1322,6 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
 		    goto again;
 		}
 	    }
-	    // --
 
 
             if(__eof) {
