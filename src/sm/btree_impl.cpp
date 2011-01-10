@@ -780,7 +780,7 @@ btree_impl::_relocate_recs_l(
     leaf_page_new.unfix();
 
     // 4. callback to update the secondary indexes
-    W_DO( (*relocate_callback)(leaf_new._stid, old_rids, new_rids) );
+    W_DO( (*relocate_callback)(old_rids, new_rids) );
     
     return RCOK;
 }
@@ -1031,7 +1031,7 @@ btree_impl::_relocate_recs_p(
     }
 
     // 4. callback to update the secondary indexes
-    W_DO( (*relocate_callback)(root_new._stid, old_rids, new_rids) );
+    W_DO( (*relocate_callback)(old_rids, new_rids) );
     
     return RCOK;
 }
@@ -4267,6 +4267,370 @@ btree_impl::_lookup(
                     rec.elem().copy_to(el, elen);
                 }
             }
+        } else {
+            // rec will be the next record if !found
+            // w_assert9(!rec);
+        }
+
+        }
+        // Destructors did or will unfix all pages.
+    }
+    if(!bIgnoreLatches) {
+	check_latches(___s,___e, ___s+___e); 
+    }
+    return RCOK;
+}
+
+
+/*********************************************************************
+ *
+ *  btree_impl::_update(...)
+ *
+ * Template taken from lookup since this should be the lookup function
+ * changed at the end
+ *
+ *********************************************************************/
+
+rc_t
+btree_impl::_update(
+    const lpid_t&       root,        // I-  root of btree
+    bool                unique, // I-  true if btree is unique
+    concurrency_t       cc,        // I-  concurrency control
+    const cvec_t&       key,        // I-  key we want to find
+    const cvec_t&       old_el,    // I-  element we want to update
+    const cvec_t&       new_el,    // I-  new value of the element
+    bool&               found,  // O-  true if key is found
+    const bool bIgnoreLatches)                
+{
+    FUNC(btree_impl::_update);
+    
+    if(!bIgnoreLatches) {
+	get_latches(___s,___e); 
+    }
+    
+    rc_t        rc;
+
+    // TODO: add this to stats
+    INC_TSTAT(bt_update_cnt);
+    stid_t         stid = root.stid();
+
+    {
+        tree_latch   tree_root(root, bIgnoreLatches); // for latching the whole tree
+        lpid_t       search_start_pid = root;
+        lsn_t        search_start_lsn = lsn_t::null;
+
+	// latch modes
+	latch_mode_t traverse_latch;
+	latch_mode_t smo_mode;
+	latch_mode_t smo_p1mode;
+	latch_mode_t fix_latch;
+
+	if(!bIgnoreLatches) {
+	    check_latches(___s,___e, ___s+___e); 
+	}
+	
+    again:
+        DBGTHRD(<<"_lookup.again");
+
+
+        {   // open scope here so that every restart
+            // causes pages to be unpinned.
+        bool                  total_match = false;
+
+        btree_p                leaf; // first-leaf
+        btree_p                p2; // possibly needed for 2nd leaf
+        btree_p*               child = &leaf;        // child points to leaf or p2
+        btree_p                parent; // parent of leaves
+
+        lsn_t                  leaf_lsn, parent_lsn;
+        slotid_t               slot;
+        lockid_t               kvl;
+
+        found = false;
+
+        /*
+         *  Walk down the tree.  Traverse doesn't
+         *  search the leaf page; it's our responsibility
+         *  to check that we're at the correct leaf.
+         */
+	traverse_latch = LATCH_SH;
+	if(bIgnoreLatches) {
+	    traverse_latch = LATCH_NL;
+	}
+        W_DO( _traverse(root, 
+                search_start_pid, 
+                search_start_lsn,
+                key, old_el, found, 
+                traverse_latch, leaf, parent,
+			leaf_lsn, parent_lsn, bIgnoreLatches) );
+
+	if(!bIgnoreLatches) {
+	    check_latches(___s+2,___e, ___s+___e+2); 
+	}
+	
+        w_assert9(leaf.is_fixed());
+        w_assert9(leaf.is_leaf());
+        
+        w_assert9(parent.is_fixed());
+        w_assert9(parent.is_node() || (parent.is_leaf() &&
+                leaf.pid() == root  ));
+        w_assert9( parent.is_leaf_parent() || parent.is_leaf());
+
+
+        /* 
+         * if we re-start a traversal, we'll start with the parent
+         * in most or all cases:
+         */
+        search_start_pid = parent.pid();
+        search_start_lsn = parent.lsn();
+
+        /*
+         * verify that we're at correct page: search for smallest
+         * satisfying key, or if not found, the next key.
+         * In this case, we don't have an old_elem; we use null.
+         * NB: <key,null> *could be in the tree* 
+         * TODO(correctness) cope with null 
+         * * in the tree. (Write a test for it).
+         */
+        uint whatcase;
+        W_DO(_satisfy(leaf, key, old_el, found, 
+                    total_match, slot, whatcase));
+
+        DBGTHRD(<<"found = " << found 
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid() 
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+        /* 
+         * Deal with SMOs -- these cases are treated in Mohan 3.1
+         */
+        switch (whatcase) {
+        case m_satisfying_key_found_same_page:{
+            // case 1:
+            // found means we found the key we're seeking
+            // !found means the satisfying key is the next key
+            // w_assert9(found);
+            parent.unfix();
+            }break;
+
+        case m_not_found_end_of_non_empty_page: {
+
+            // case 2: possible smo in progress
+            // but leaf is not empty, and it has
+            // a next page -- that much is assured by
+            // _satisfy
+
+            w_assert9(leaf.nrecs());
+            w_assert9(leaf.next());
+
+            /*
+             * Mohan: unlatch the parent and latch the successor.
+             * If the successor is empty or does not have a
+             * satisfying key, unlatch both pages and request
+             * the tree latch in S mode, then restart the search
+             * from the parent.
+             */
+            parent.unfix();
+
+            lpid_t pid = root; // get volume, store part
+            pid.page = leaf.next();
+
+            INC_TSTAT(bt_links);
+	    fix_latch = LATCH_SH;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+            W_DO( p2.fix(pid, fix_latch) );
+            /* 
+             * does successor have a satisfying key?
+             */
+            slot = -1;
+            W_DO( _satisfy(p2, key, old_el, found, total_match, 
+                slot, whatcase));
+
+            DBGTHRD(<<"found = " << found 
+                << " total_match=" << total_match
+                << " leaf=" << leaf.pid() 
+                << " case=" << whatcase
+                << " slot=" << slot);
+
+            w_assert9(whatcase != m_not_found_end_of_file);
+            if(whatcase == m_satisfying_key_found_same_page) {
+                /* 
+                 * Mohan: If a satisfying key is found on the 
+                 * 2nd leaf, (SM bit may be 1), unlatch the first leaf
+                 * immediately, provided the found key is not the very
+                 * first key in the 2nd leaf.
+                 */
+                if(slot > 0) {
+                    leaf.unfix();
+                }
+                child =  &p2;
+            } else {
+                /* no satisfying key; page could be empty */
+
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
+                w_error_t::err_num_t rce;
+                // unconditional
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &p2, LATCH_NL, bIgnoreLatches);
+                //eRETRY means we need to restart the search
+                //but we're going to restart it ANYWAY.
+                //TODO look this case up in the paper and document it here
+                //filed in GNATS 137
+                W_IGNORE(rc);
+
+                tree_root.unfix(); // instant latch
+
+                DBGTHRD(<<"-->again TREE LATCH MODE "
+                            << int(tree_root.latch_mode())
+                            );
+                /* 
+                 * restart the search from the parent
+                 */
+                DBG(<<"-->again NO TREE LATCH");
+                goto again;
+            }
+            }break;
+
+        case m_not_found_end_of_file:{
+            // case 0: end of file
+            // Lock the special EOF value
+            slot = -1;
+	    w_assert9( !total_match ); // but found (key) could be true
+
+           } break;
+
+        case m_not_found_page_is_empty: {
+            // case 3: empty page: smo going on
+            // or it's an empty index.
+            w_assert9(whatcase == m_not_found_page_is_empty);
+            w_assert9(leaf.nrecs() == 0);
+
+            // Must be empty index or a deleted leaf page
+            w_assert1(leaf.is_smo() || root == leaf.pid());
+
+            if(leaf.is_smo()) {
+		smo_mode = LATCH_SH;
+		smo_p1mode = LATCH_SH;
+		if(bIgnoreLatches) {
+		    smo_mode = LATCH_NL;
+		    smo_p1mode = LATCH_NL;
+		}
+                // unconditional
+                w_error_t::err_num_t rce;
+                rce = tree_root.get_for_smo(false, smo_mode,
+                        leaf, smo_p1mode, false, &parent, LATCH_NL, bIgnoreLatches);
+                tree_root.unfix();
+                if(rce && (rce != eRETRY)) {
+                    return RC(rce);
+                }
+                
+                DBGTHRD(<<"-->again TREE LATCH MODE "
+                            << int(tree_root.latch_mode())
+                            );
+                goto again;
+
+            } else {
+                slot = -1;
+                whatcase = m_not_found_end_of_file;
+            }
+            }break;
+
+        default:
+            W_FATAL_MSG(fcINTERNAL, << "bad switch value for case :" << whatcase );
+            break;
+        } // switch
+
+        /*
+         *  Get a handle on the record to 
+         *  grab the key-value locks, as well as to
+         *  return the element the caller seeks.
+         *
+         *  At this point, we don't know if the entry
+         *  we're looking at is precisely the one
+         *  we looked up, or if it's the next one.
+         */
+
+        btrec_t rec;
+
+        if(slot < 0) {
+            w_assert9(whatcase == m_not_found_end_of_file);
+            if(cc > t_cc_none) mk_kvl_eof(cc, kvl, stid);
+        } else {
+            w_assert9(slot < child->nrecs());          
+            // Prepare rec for mk_kvl:
+            rec.set(*child, slot);
+            if(cc > t_cc_none) mk_kvl(cc, kvl, stid, unique, rec);
+        }
+
+        if( (!found && !total_match) &&
+            (cc == t_cc_modkvl) ) {
+            ; /* we don't want to lock next */
+        } else if (cc != t_cc_none)  {
+            /*
+             *  Conditionally lock current/next entry.
+             */
+            lock_mode_t mode = SH;
+            rc = lm->lock(kvl, mode, t_long, WAIT_IMMEDIATE);
+            if (rc.is_error()) {
+                DBG(<<"rc=" << rc);
+                w_assert9((rc.err_num() == eLOCKTIMEOUT) || (rc.err_num() == eDEADLOCK));
+
+                /*
+                 *  Failed to get lock immediately. Unfix pages
+                 *  wait for the lock.
+                 */
+                lsn_t lsn = child->lsn();
+                lpid_t pid = child->pid();
+                leaf.unfix();
+                child->unfix();
+                parent.unfix(); // NEH: added (shore-mt gnats #69). 
+                // Note, unfix checks for fix before unfixing.
+
+                W_DO( lm->lock(kvl, mode, t_long) );
+
+                /*
+                 *  Got the lock. Fix child. If child has
+                 *  changed (lsn does not match) then start the 
+                 *  search over.  This is a gross simplification
+                 *  of Mohan's treatment.
+                 *  Re-starting  from the root is safe only because
+                 *  before we got into btree_m, we'll have grabbed
+                 *  an IS lock on the whole index, at a minimum,
+                 *  meaning there's no chance of the whole index being
+                 *  destroyed in the meantime.
+                 */
+		fix_latch = LATCH_SH;
+		if(bIgnoreLatches) {
+		    fix_latch = LATCH_NL;
+		}
+                W_DO( child->fix(pid, fix_latch) );
+                if (lsn == child->lsn() && child == &leaf)  {
+                    /* do nothing */;
+                } else {
+                    /* filed as GNATS 134 */
+                    /* BUGBUG: A concurrency performance bug, actually:
+                     * Mohan says if the subsequent re-search
+                     * finds a different key (next-key), we should
+                     * unlock the old kvl and lock the new kvl.
+                     * We're not doing that.
+                     */
+                    DBGTHRD(<<"->again");
+                    goto again;        // retry
+                }
+            } // acquiring locks
+        } // if any locking needed
+
+	// pin: this is the only different part actually, you can have a more clever implementation here
+        if (found) {
+	    W_DO( child->overwrite(slot+1, rec.klen()+sizeof(int4_t), new_el) );
         } else {
             // rec will be the next record if !found
             // w_assert9(!rec);

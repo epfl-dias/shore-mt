@@ -316,7 +316,6 @@ public:
 
     // -- mrbt
     typedef w_rc_t (*RELOCATE_RECORD_CALLBACK_FUNC) (
-           const stid_t&      stid,     
 	   vector<rid_t>&    old_rids, 
            vector<rid_t>&    new_rids
        );

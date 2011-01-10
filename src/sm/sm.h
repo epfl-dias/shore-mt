@@ -2636,7 +2636,7 @@ public:
      * \ingroup SSMBTREE
      *
      * @param[in] stid  ID of the index. 
-     * @param[in] key   Key of the entries to be removed.
+     * @param[in] key   Key of the entries to be found.
      * @param[out] el   Element associated with the given key will be copied into this buffer.
      * @param[in] elen Length of buffer into which the 
      *                  result will be written. If too small, eRECWONTFIT will
@@ -2659,6 +2659,30 @@ public:
 				      const bool             bIgnoreLocks = false,
 				      const bool             bIgnoreLatches = false,
 				      const lpid_t&           root = lpid_t::null);
+
+    /**\brief Update an entry associated with a key.
+     * Currently used for updating secondary indexes after record relocation
+     * due to the primary index being MRBT-PART or MRBT-LEAF 
+     * \ingroup SSMBTREE
+     *
+     * @param[in] stid   ID of the index. 
+     * @param[in] key    Key of the entry to be updated.
+     * @param[in] old_el Element associated with the given key
+     *                   This value is the value to be updated
+     * @param[in] new_el New element associated with the given key
+     *                   old_el will be updated with this
+     * @param[out] found   True if an entry is found.
+     *
+     */
+    static rc_t            update_mr_assoc(
+				      stid_t                 stid, 
+				      const vec_t&           key, 
+				      const vec_t&           old_el,
+				      const vec_t&           new_el, 
+				      bool&                  found,
+				      const bool             bIgnoreLocks = false,
+				      const bool             bIgnoreLatches = false,
+				      const lpid_t&          root = lpid_t::null);
     
 
 
@@ -3778,6 +3802,16 @@ private:
         const bool             bIgnoreLatches,
         const bool             bIgnoreLocks,
 	const lpid_t&           root);
+    
+    static rc_t            _update_mr_assoc(
+				      const stid_t&          stid, 
+				      const vec_t&           key, 
+				      const vec_t&           old_el,
+				      const vec_t&           new_el, 
+				      bool&                  found,
+				      const bool             bIgnoreLocks = false,
+				      const bool             bIgnoreLatches = false,
+				      const lpid_t&          root = lpid_t::null);
     
     static rc_t _get_range_map(stid_t stid, key_ranges_map*& rangemap);
 

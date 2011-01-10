@@ -217,6 +217,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bt_clr_smo_traverse	Cleared SMO bits on traverse
     u_long bt_pcompress		Prefixes compressed
     u_long bt_plmax		Maximum prefix levels encountered
+    u_long bt_update_cnt	Btree updates (update_assoc())
 
     // Sort 
     u_long sort_keycmp_cnt	Key-comparison callbacks

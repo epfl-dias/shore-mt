@@ -87,6 +87,7 @@ struct stid_t {
 
     bool operator==(const stid_t& s) const;
     bool operator!=(const stid_t& s) const;
+    bool operator<(const stid_t& s) const;
 
     friend ostream& operator<<(ostream&, const stid_t& s);
     friend istream& operator>>(istream&, stid_t& s);
@@ -119,6 +120,11 @@ inline bool stid_t::operator!=(const stid_t& s) const
     return ! (*this == s);
 }
 
+inline bool stid_t::operator<(const stid_t& s) const
+{
+    return vol < s.vol ||
+      (vol == s.vol && store < s.store);
+}
 
 inline w_base_t::uint4_t w_hash(const stid_t &s) 
 {

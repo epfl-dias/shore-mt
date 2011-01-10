@@ -599,6 +599,41 @@ btree_m::mr_lookup(
 
 /*********************************************************************
  *
+ *  btree_m::mr_update(...)
+ *
+ *  To update a value associated with a key.
+ *  Right now used after record movement in mrbt_leaf and mrbt_part
+ *  designs to update the rids (elements in the btrees) of the moved
+ *  records in secondary indexes.
+ *  The primary index is updated while record movement is taking place.
+ *  Not used for regular btrees since they don't have such a concept as
+ *  record movement now.
+ *
+ *********************************************************************/
+rc_t
+btree_m::mr_update(
+    const lpid_t&         root,        // I-  root of btree
+    bool                  unique, // I-  true if btree is unique
+    concurrency_t         cc,        // I-  concurrency control
+    const cvec_t&         key,        // I-  key we want to find
+    const cvec_t&         old_el,        // I-  el to be updated
+    const cvec_t&         new_el,        // I- new value of old_el
+    bool&                 found,        // O-  true if key is found
+    const bool            bIgnoreLatches)
+{
+    if(
+        (cc != t_cc_none) && (cc != t_cc_file) &&
+        (cc != t_cc_kvl) && (cc != t_cc_modkvl) &&
+        (cc != t_cc_im) 
+        ) return badcc();
+
+    DBGTHRD(<<"");
+    W_DO( btree_impl::_update(root, unique, cc, key, old_el, new_el, found, bIgnoreLatches));
+    return RCOK;
+}
+
+/*********************************************************************
+ *
  *  btree_m::split_tree(root_old, root_new, key, leaf_old, leaf-new)
  *
  *  Split the tree starting from the given key.
@@ -854,7 +889,7 @@ btree_m::lookup(
     void*                 el,        // I-  buffer to put el found
     smsize_t&             elen,        // IO- size of el
     bool&                 found,        // O-  true if key is found
-    bool                  is_dirm)
+    bool                  use_dirbuf)
 {
     if(
         (cc != t_cc_none) && (cc != t_cc_file) &&
@@ -865,7 +900,7 @@ btree_m::lookup(
     w_assert1(kc && nkc > 0);
     cvec_t* real_key;
     DBGTHRD(<<"");
-    W_DO(_scramble_key(real_key, key, nkc, kc, is_dirm));
+    W_DO(_scramble_key(real_key, key, nkc, kc, use_dirbuf));
 
     DBGTHRD(<<"");
     cvec_t null;
@@ -1553,7 +1588,7 @@ btree_m::_scramble_key(
     const cvec_t&         key, 
     int                 nkc,
     const key_type_s*         kc,
-    bool                is_dirm)
+    bool                use_dirbuf)
 {
     FUNC(btree_m::_scramble_key);
     DBGTHRD(<<" SCrambling " << key );
@@ -1570,7 +1605,7 @@ btree_m::_scramble_key(
     }
 
 
-    ret = me()->get_kc_vec(is_dirm);
+    ret = me()->get_kc_vec(use_dirbuf);
     ret->reset();
 
     char* p = 0;
@@ -1584,7 +1619,7 @@ btree_m::_scramble_key(
             t == key_type_s::f ||
             t == key_type_s::F 
             ) {
-            p = me()->get_kc_buf(is_dirm);
+            p = me()->get_kc_buf(use_dirbuf);
             break;
         }
     }
@@ -1666,12 +1701,12 @@ btree_m::_unscramble_key(
     const cvec_t&         key, 
     int                 nkc,
     const key_type_s*         kc,
-    bool                 is_dirm)
+    bool                 use_dirbuf)
 {
     FUNC(btree_m::_unscramble_key);
     DBGTHRD(<<" UNscrambling " << key );
     w_assert1(kc && nkc > 0);
-    ret = me()->get_kc_vec(is_dirm);
+    ret = me()->get_kc_vec(use_dirbuf);
     ret->reset();
     char* p = 0;
     int i;
@@ -1690,7 +1725,7 @@ btree_m::_unscramble_key(
                 t == key_type_s::f ||
                 t == key_type_s::F 
                 )  {
-            p = me()->get_kc_buf(is_dirm);
+            p = me()->get_kc_buf(use_dirbuf);
             break;
         }
     }

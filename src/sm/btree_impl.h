@@ -213,7 +213,17 @@ protected:
         bt_cursor_t*                    cursor,// I/o - put result here OR
         void*                             el,           // I/o-  buffer to put el if !cursor
         smsize_t&                     elen,   // IO- size of el if !cursor
-	const bool bIgnoreLatches = false);        
+	const bool bIgnoreLatches = false);
+
+    static rc_t          _update(
+        const lpid_t&       root,        // I-  root of btree
+	bool                unique, // I-  true if btree is unique
+	concurrency_t       cc,        // I-  concurrency control
+	const cvec_t&       key,        // I-  key we want to find
+	const cvec_t&       old_el,    // I-  element we want to update
+	const cvec_t&       new_el,    // I-  new value of the element
+	bool&               found,  // O-  true if key is found
+	const bool bIgnoreLatches = false);                
 
     static rc_t                 _skip_one_slot(
         btree_p&                    p1, 

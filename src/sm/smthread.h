@@ -629,15 +629,15 @@ public:
                                                return tcb().__metarecs; }
     int&                           get___metarecs_in() { 
                                                return tcb().__metarecs_in; }
-    char *                         get_kc_buf(bool is_dirm = false)  {
-	if(is_dirm) {
+    char *                         get_kc_buf(bool use_dirbuf = false)  {
+	if(use_dirbuf) {
 	    return (char *)&(tcb()._kc_buf_double_d[0]);
 	} else {
 	    return (char *)&(tcb()._kc_buf_double[0]);
 	}
     }
-    cvec_t*                        get_kc_vec(bool is_dirm = false)  {
-	if(is_dirm) {
+    cvec_t*                        get_kc_vec(bool use_dirbuf = false)  {
+	if(use_dirbuf) {
 	    return &(tcb()._kc_vec_d);
 	} else {
 	    return &(tcb()._kc_vec);

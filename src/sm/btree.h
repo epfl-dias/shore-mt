@@ -241,6 +241,15 @@ public:
         smsize_t&                        elen,
         bool&                            found,
 	const bool                       bIgnoreLatches);
+    static rc_t                        mr_update(
+        const lpid_t&                    root, 
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                    key_to_find, 
+        const cvec_t&                    old_el, 
+	const cvec_t&                    new_el,
+        bool&                            found,
+	const bool                       bIgnoreLatches);
     // --
     static rc_t                        insert(
         const lpid_t&                     root,
@@ -282,7 +291,7 @@ public:
         void*                            el, 
         smsize_t&                     elen,
         bool&                     found,
-	bool                         is_dirm = false);
+	bool                         use_dirbuf = false);
 
     /* for lid service only */
     static rc_t                        lookup_prev(
@@ -342,14 +351,14 @@ public:
         const cvec_t&                    key, 
         int                             nkc,
         const key_type_s*            kc,
-	bool                        is_dirm = false);
+	bool                        use_dirbuf = false);
 
     static rc_t                        _unscramble_key(
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
         const key_type_s*             kc,
-	bool                        is_dirm = false);
+	bool                        use_dirbuf = false);
 
     // pin: to debug (protected shoudl be moved up later
 protected:

@@ -546,6 +546,19 @@ rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key,
 }
 
 /*--------------------------------------------------------------*
+ *  ss_m::update_mr_assoc()                                     *
+ *--------------------------------------------------------------*/
+rc_t ss_m::update_mr_assoc(stid_t stid, const vec_t& key, 
+			   const vec_t& old_el, const vec_t& new_el, bool& found,
+			   const bool bIgnoreLocks, const bool bIgnoreLatches,
+			   const lpid_t& root)
+{
+    SM_PROLOGUE_RC(ss_m::update_mr_assoc, in_xct, read_write, 0);
+    W_DO(_update_mr_assoc(stid, key, old_el, new_el, found, bIgnoreLocks, bIgnoreLatches, root));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
  *  ss_m::get_range_map()                                       *
  *--------------------------------------------------------------*/
 rc_t ss_m::get_range_map(stid_t stid, key_ranges_map*& rangemap)
@@ -1371,6 +1384,90 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         fprintf(stderr, "rtree indexes do not support this function");
         return RC(eNOTIMPLEMENTED);
 
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_update_mr_assoc()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_update_mr_assoc(const stid_t&       stid, 
+			    const vec_t&        key,
+			    const vec_t&        old_el, 
+			    const vec_t&        new_el, 
+			    bool&               found,
+			    const bool bIgnoreLocks,
+			    const bool bIgnoreLatches,
+			    const lpid_t& root)
+{
+
+    concurrency_t cc = t_cc_bad;
+    // usually we will to kvl locking and already have an IS lock
+    // on the index
+    lock_mode_t                index_mode = NL;// lock mode needed on index
+
+    // IP: DORA does the dir access and the index lookup 
+    //     using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    }
+    else {
+
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO(lm->query(stid, lock_mode, xd->tid(), true, true));
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode >= SH) {
+		cc = t_cc_none;
+	    } else if (lock_mode >= IS) {
+		// no changes needed
+	    } else {
+		// Index isn't already locked; have to grab IS lock
+		// on it below, via access()
+		index_mode = IS;
+	    }
+	}
+
+    }
+
+    sdesc_t* sd;
+    cvec_t* real_key;
+    W_DO(dir->access(stid, sd, index_mode));
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
+
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree;
+
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc, true));
+	subroot = sd->root(*real_key);
+    }
+
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+
+	// since this is only for secondary indexes in the case of mrbtrees now,
+	// no option for mrbtree_p or mrbtree_l or regular btrees
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    
+        W_DO(bt->mr_update(subroot, 
+			   is_unique,
+			   cc,
+			   *real_key, old_el, new_el,
+			   found, bIgnoreLatches) );
+        break;
+	
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
