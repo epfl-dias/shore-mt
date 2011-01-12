@@ -780,7 +780,9 @@ btree_impl::_relocate_recs_l(
     leaf_page_new.unfix();
 
     // 4. callback to update the secondary indexes
-    W_DO( (*relocate_callback)(old_rids, new_rids) );
+    if(old_rids.size() > 0) {
+	W_DO( (*relocate_callback)(old_rids, new_rids) );
+    }
     
     return RCOK;
 }
@@ -1031,7 +1033,9 @@ btree_impl::_relocate_recs_p(
     }
 
     // 4. callback to update the secondary indexes
-    W_DO( (*relocate_callback)(old_rids, new_rids) );
+    if(old_rids.size() > 0) {
+	W_DO( (*relocate_callback)(old_rids, new_rids) );
+    }
     
     return RCOK;
 }
