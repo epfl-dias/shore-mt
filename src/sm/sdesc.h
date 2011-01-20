@@ -171,6 +171,8 @@ class sdesc_t {
 private:
     key_ranges_map _partitions;
     bool _partitions_filled;
+    map< lpid_t, shpid_t > _pages_with_space;
+
 
 public:
     typedef smlevel_0::store_t store_t;
@@ -230,7 +232,25 @@ public:
     friend ostream &operator<<(ostream &os, sdesc_t const &sd);
     
     inline stid_t stid() { return _stid; }
-    inline bool has_partitions() { return _partitions_filled; } 
+    inline bool has_partitions() { return _partitions_filled; }
+
+    // these two are racy but this is something we can tolerate; a benign race
+    // because we'll just use them to fasten the page allocation for PLP-Part and PLP-Leaf
+    // therefore, reading or writing a wrong page will be noticed during record insertion
+    // and a scan will be done; this is just for doing less of those scans
+    inline shpid_t get_page_with_space(const lpid_t& btree_page) {
+	map< lpid_t, shpid_t >::iterator iter =  _pages_with_space.find(btree_page);
+	if(iter == _pages_with_space.end()) {
+	    return 0;
+	} else {
+	    return _pages_with_space[btree_page];
+	}
+    }
+    inline void set_page_with_space(const lpid_t& btree_page,
+				    const shpid_t page) {
+	_pages_with_space[btree_page] = page;
+    }
+
     key_ranges_map& partitions();
     key_ranges_map* get_partitions_p();
     rc_t fill_partitions_map();

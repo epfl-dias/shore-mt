@@ -782,7 +782,7 @@ file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page, const bool bIgnoreL
         W_DO(_free_page(page, bIgnoreLatches));
 	INC_TSTAT(page_file_mrbt_dealloc);
         return RCOK;
-    } 
+    }
 
     DBG(<<"Update page utilization");
     /*
@@ -866,22 +866,20 @@ file_m::create_mrbt_rec_l(
     latch_mode_t latch = LATCH_EX;
     if(bIgnoreLatches) {
 	latch = LATCH_NL;
-    }
+    } 
 
-    // 1. try to find a file page with empty slot and pointed by leaf
-    btree_p leaf_page;
-    W_DO( leaf_page.fix(leaf, latch) );
+    // 1. use the already assumed to be empty page
+    shpid_t empty_page = sd.get_page_with_space(leaf);
     file_mrbt_p current_heap_page;
     bool space_found = false;
-    set<lpid_t> pages; // to not to look at already looked at heap pages
-    rid_t current_rid;
-    for(int i=0; !space_found && i < leaf_page.nrecs(); i++) {
-	// get a rec from the leaf to find a heap page pointed by this leaf
-	btrec_t rec_leaf(leaf_page, i);
-	rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
-	// put the record to the heap page
-	if(pages.find(current_rid.pid) == pages.end()) {
-	    W_DO( current_heap_page.fix(current_rid.pid, latch ));
+    if(empty_page) {
+	lpid_t heap_page_id;
+	heap_page_id._stid = sd.stid();
+	heap_page_id.page = empty_page;
+	W_DO( current_heap_page.fix(heap_page_id, latch ));
+	lpid_t owner_leaf;
+	current_heap_page.get_owner(owner_leaf);
+	if(owner_leaf == leaf) {
 	    W_DO( create_mrbt_rec_in_given_page(len_hint,
 						sd,
 						hdr,
@@ -890,33 +888,64 @@ file_m::create_mrbt_rec_l(
 						current_heap_page,
 						space_found,
 						bIgnoreLatches) );
-	    pages.insert(current_rid.pid);
 	}
     }
 
-    rc_t rc;
-    
-    // 2. none of the heap pages are empty then create a new one
     if(!space_found) {
-	lpid_t new_page_id;
-	W_DO(_alloc_mrbt_page(sd.stid(),
-			      lpid_t::eof,
-			      new_page_id,
-			      current_heap_page,
-			      true) );
-	W_DO( current_heap_page.set_owner(leaf) );
-	W_DO( create_mrbt_rec_in_given_page(len_hint,
-					    sd,
-					    hdr,
-					    data,
-					    new_rid,
-					    current_heap_page,
-					    space_found,
-					    bIgnoreLatches) );
+	
+	// if we come to this point this means the page kept as the empty page is
+	// either not empty or that heap page doesn't belong to this leaf anymore
+	
+	// 2. try to find a file page with empty slot and pointed by leaf
+	btree_p leaf_page;
+	W_DO( leaf_page.fix(leaf, latch) );
+	set<lpid_t> pages; // to not to look at already looked at heap pages
+	rid_t current_rid;
+	for(int i=0; !space_found && i < leaf_page.nrecs(); i++) {
+	    // get a rec from the leaf to find a heap page pointed by this leaf
+	    btrec_t rec_leaf(leaf_page, i);
+	    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+	    // put the record to the heap page
+	    if(pages.find(current_rid.pid) == pages.end()) {
+		W_DO( current_heap_page.fix(current_rid.pid, latch ));
+		W_DO( create_mrbt_rec_in_given_page(len_hint,
+						    sd,
+						    hdr,
+						    data,
+						    new_rid,
+						    current_heap_page,
+						    space_found,
+						    bIgnoreLatches) );
+		pages.insert(current_rid.pid);
+	    }
+	}
+    
+	// 3. none of the heap pages are empty then create a new one
+	if(!space_found) {
+	    lpid_t new_page_id;
+	    W_DO(_alloc_mrbt_page(sd.stid(),
+				  lpid_t::eof,
+				  new_page_id,
+				  current_heap_page,
+				  true) );
+	    W_DO( current_heap_page.set_owner(leaf) );
+	    W_DO( create_mrbt_rec_in_given_page(len_hint,
+						sd,
+						hdr,
+						data,
+						new_rid,
+						current_heap_page,
+						space_found,
+						bIgnoreLatches) );
+	    sd.set_page_with_space(leaf, new_page_id.page);
+	} else {
+	    sd.set_page_with_space(leaf, current_rid.pid.page);
+	}
+
+	leaf_page.unfix();
+
     }
-
-    leaf_page.unfix();
-
+    
     return RCOK;
 }
 
@@ -940,21 +969,22 @@ file_m::create_mrbt_rec_p(
 	leaf_latch = LATCH_NL;
     }
 
-    // 1. try to find a file page with empty slot and pointed by this sub-tree
     btree_p leaf_page;
     W_DO( leaf_page.fix(leaf, leaf_latch) );
+    lpid_t root = leaf_page.root();
+    
+    // 1. use the already assumed to be empty page
+    shpid_t empty_page = sd.get_page_with_space(root);
     file_mrbt_p current_heap_page;
-    rid_t current_rid;
     bool space_found = false;
-    set<lpid_t> pages; // to not to look at already looked at heap pages
-    // 1.1 start with the leaf page that the insert will take place
-    for(int i=0; !space_found && i < leaf_page.nrecs(); i++) {
-	// get the rec from the leaf_page
-	btrec_t rec_leaf(leaf_page, i);
-	rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
-	// move it to new page
-	if(pages.find(current_rid.pid) == pages.end()) {
-	    W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
+    if(empty_page) {
+	lpid_t heap_page_id;
+	heap_page_id._stid = sd.stid();
+	heap_page_id.page = empty_page;
+	W_DO( current_heap_page.fix(heap_page_id, heap_latch ));
+	lpid_t owner;
+	current_heap_page.get_owner(owner);
+	if(owner == root) {
 	    W_DO( create_mrbt_rec_in_given_page(len_hint,
 						sd,
 						hdr,
@@ -963,102 +993,137 @@ file_m::create_mrbt_rec_p(
 						current_heap_page,
 						space_found,
 						bIgnoreLatches) );
-	    pages.insert(current_rid.pid);
 	}
     }
-    // 1.2 if no space found then traverse the leaf pages that comes after this leaf page
-    if(!space_found && leaf_page.next() != 0) {
-	btree_p next_leaf;
-	lpid_t pid_next_leaf(leaf._stid, leaf_page.next());
-	W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
-	int i = 0;
-	while(!space_found) {
-	    if(i >= next_leaf.nrecs()) {
-		pid_next_leaf.page = next_leaf.next();
-		next_leaf.unfix();
-		if(pid_next_leaf.page != 0) {
-		    i = 0;
-		    W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
-		} else {
-		    break;
-		}
-	    }
-	    // get the rec from the leaf_page
-	    btrec_t rec_leaf(next_leaf, i);
-	    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
-	    if(pages.find(current_rid.pid) == pages.end()) {
-		// move it to new page
-		W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
-		W_DO( create_mrbt_rec_in_given_page(len_hint,
-						    sd,
-						    hdr,
-						    data,
-						    new_rid,
-						    current_heap_page,
-						    space_found,
-						    bIgnoreLatches) );
-		pages.insert(current_rid.pid);
-	    }
-	    i++;
-	}
-    }
-    // 1.3 if still no space found then traverse the leaf pages that comes before this leaf page
-    if(!space_found && leaf_page.prev() != 0) {
-	btree_p prev_leaf;
-	lpid_t pid_prev_leaf(leaf._stid, leaf_page.prev());
-	W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
-	int i = 0;
-	while(!space_found) {
-	    if(i >= prev_leaf.nrecs()) {
-		pid_prev_leaf.page = prev_leaf.next();
-		prev_leaf.unfix();
-		if(pid_prev_leaf.page != 0) {
-		    i = 0;
-		    W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
-		} else {
-		    break;
-		}
-	    }
-	    // get the rec from the leaf_page
-	    btrec_t rec_leaf(prev_leaf, i);
-	    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
-	    if(pages.find(current_rid.pid) == pages.end()) {
-		// move it to new page
-		W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
-		W_DO( create_mrbt_rec_in_given_page(len_hint,
-						    sd,
-						    hdr,
-						    data,
-						    new_rid,
-						    current_heap_page,
-						    space_found,
-						    bIgnoreLatches) );
-		pages.insert(current_rid.pid);
-	    }
-	    i++;
-	}
-    }
-
-    // 2. none of the heap pages are empty then create a new one
+    
     if(!space_found) {
-	lpid_t new_page_id;
-	W_DO( _alloc_mrbt_page(sd.stid(),
-			       lpid_t::eof,
-			       new_page_id,
-			       current_heap_page,
-			       true) );
-	W_DO( current_heap_page.set_owner(leaf_page.root()) );
-	// retry the insert
-	W_DO( create_mrbt_rec_in_given_page(len_hint,
-					    sd,
-					    hdr,
-					    data,
-					    new_rid,
-					    current_heap_page,
-					    space_found,
-					    bIgnoreLatches) );
+	
+	// if we come to this point this means the page kept as the empty page is
+	// either not empty or that heap page doesn't belong to this leaf anymore
+
+    
+	// 1. try to find a file page with empty slot and pointed by this sub-tree
+	rid_t current_rid;
+	set<lpid_t> pages; // to not to look at already looked at heap pages
+	// 1.1 start with the leaf page that the insert will take place
+	for(int i=0; !space_found && i < leaf_page.nrecs(); i++) {
+	    // get the rec from the leaf_page
+	    btrec_t rec_leaf(leaf_page, i);
+	    rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+	    // move it to new page
+	    if(pages.find(current_rid.pid) == pages.end()) {
+		W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
+		W_DO( create_mrbt_rec_in_given_page(len_hint,
+						    sd,
+						    hdr,
+						    data,
+						    new_rid,
+						    current_heap_page,
+						    space_found,
+						    bIgnoreLatches) );
+		pages.insert(current_rid.pid);
+	    }
+	}
+	// 1.2 if no space found then traverse the leaf pages that comes after this leaf page
+	if(!space_found && leaf_page.next() != 0) {
+	    btree_p next_leaf;
+	    lpid_t pid_next_leaf(leaf._stid, leaf_page.next());
+	    W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
+	    int i = 0;
+	    while(!space_found) {
+		if(i >= next_leaf.nrecs()) {
+		    pid_next_leaf.page = next_leaf.next();
+		    next_leaf.unfix();
+		    if(pid_next_leaf.page != 0) {
+			i = 0;
+			W_DO( next_leaf.fix(pid_next_leaf, leaf_latch) );
+		    } else {
+			break;
+		    }
+		}
+		// get the rec from the leaf_page
+		btrec_t rec_leaf(next_leaf, i);
+		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		if(pages.find(current_rid.pid) == pages.end()) {
+		    // move it to new page
+		    W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
+		    W_DO( create_mrbt_rec_in_given_page(len_hint,
+							sd,
+							hdr,
+							data,
+							new_rid,
+							current_heap_page,
+							space_found,
+							bIgnoreLatches) );
+		    pages.insert(current_rid.pid);
+		}
+		i++;
+	    }
+	}
+	// 1.3 if still no space found then traverse the leaf pages that comes before this leaf page
+	if(!space_found && leaf_page.prev() != 0) {
+	    btree_p prev_leaf;
+	    lpid_t pid_prev_leaf(leaf._stid, leaf_page.prev());
+	    W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
+	    int i = 0;
+	    while(!space_found) {
+		if(i >= prev_leaf.nrecs()) {
+		    pid_prev_leaf.page = prev_leaf.next();
+		    prev_leaf.unfix();
+		    if(pid_prev_leaf.page != 0) {
+			i = 0;
+			W_DO( prev_leaf.fix(pid_prev_leaf, leaf_latch) );
+		    } else {
+			break;
+		    }
+		}
+		// get the rec from the leaf_page
+		btrec_t rec_leaf(prev_leaf, i);
+		rec_leaf.elem().copy_to(&current_rid, sizeof(rid_t));
+		if(pages.find(current_rid.pid) == pages.end()) {
+		    // move it to new page
+		    W_DO( current_heap_page.fix(current_rid.pid, heap_latch ));
+		    W_DO( create_mrbt_rec_in_given_page(len_hint,
+							sd,
+							hdr,
+							data,
+							new_rid,
+							current_heap_page,
+							space_found,
+							bIgnoreLatches) );
+		    pages.insert(current_rid.pid);
+		}
+		i++;
+	    }
+	}
+	
+	// 2. none of the heap pages are empty then create a new one
+	if(!space_found) {
+	    lpid_t new_page_id;
+	    W_DO( _alloc_mrbt_page(sd.stid(),
+				   lpid_t::eof,
+				   new_page_id,
+				   current_heap_page,
+				   true) );
+	    W_DO( current_heap_page.set_owner(root) );
+	    // retry the insert
+	    W_DO( create_mrbt_rec_in_given_page(len_hint,
+						sd,
+						hdr,
+						data,
+						new_rid,
+						current_heap_page,
+						space_found,
+						bIgnoreLatches) );
+	    sd.set_page_with_space(root, new_page_id.page);
+	} else {
+	    sd.set_page_with_space(root, current_rid.pid.page);
+	}
+
     }
 
+    leaf_page.unfix();
+    
     return RCOK;
 }
 
