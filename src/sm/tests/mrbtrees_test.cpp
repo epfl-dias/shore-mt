@@ -208,7 +208,7 @@ public:
   w_rc_t mr_index_test7();
 
   w_rc_t print_the_index();
-  w_rc_t static print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids);
+  w_rc_t static print_updated_rids(vector<rid_t>& old_rids, vector<rid_t>& new_rids);
 
   w_rc_t do_work();
   w_rc_t do_init();
@@ -639,10 +639,9 @@ rc_t smthread_creator_t::fill_the_file_non_regular_bl()
 }
 
 // prints the old&new rids of the moved records, used instead of RELOCATE_RECS callback
-rc_t smthread_main_t::print_updated_rids(const stid_t& stid, vector<rid_t>& old_rids, vector<rid_t>& new_rids)
+rc_t smthread_main_t::print_updated_rids(vector<rid_t>& old_rids, vector<rid_t>& new_rids)
 {
   cout << endl;
-  cout << "Index store id: " << stid << endl;
   cout << "Old rids\tNew rids" << endl;
   for(uint i=0; i<old_rids.size(); i++) {
     cout << old_rids[i] << "\t" << new_rids[i] << endl;
