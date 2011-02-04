@@ -235,14 +235,10 @@ xct_i::xct_i(bool already_locked)
 xct_i::~xct_i() {
 }
 
-xct_t* xct_i::next() {
-    if(_cur_xd == _end_xd) {
-	_cur_xd = _end_xd = 0;
-	return 0;
-    }
-
+xct_t* xct_i::next(bool can_delete) {
     /* no thread can leave while the iterator is active so we can walk
-       the list at our leisure, deleting nodes which already left.
+       the list at our leisure, skipping or deleting nodes which
+       already left.
        
        NOTE: new transactions can still join the list, so we have to
        end when we reach the tail we originally saw rather than
@@ -251,40 +247,45 @@ xct_t* xct_i::next() {
        NOTE: the list is (and will stay) in a consistent state
        because transactions can only remove nodes if we don't hold the
        lock (and we do). This means we can skip NODE_LEFT nodes instead
-       of trying to reclaim them.
+       of trying to reclaim them, though we'll delete them if allowed to.
 
        NOTE: if we hit a null next pointer, we know that the
        transaction cannot have started because it does not have a tid
        yet. However, its successors may have read its just-set tid and
-       ocntinued on without it. This means we cannot stop iterating
+       continued on without it. This means we cannot stop iterating
        until we reach _end_xd
 
      */
- retry:
-    xct_link* n;
-    while( !(n=_cur_xd->vthis()->_next) ) ;
-    _cur_xd = n;
-    if(NODE_LEFT == _cur_xd->vthis()->_node_state) {
-	if(_cur_xd == _end_xd)
-	    return 0;
-	    
-	goto retry;
+    while(_cur_xd != _end_xd) {
+	xct_link* n;
+	while( !(n=_cur_xd->vthis()->_next) ) ;
+	if(NODE_LEFT == n->vthis()->_node_state) {
+	    if(can_delete && n != *&_xlist._tail) {
+		// unlink+delete the next and retry
+		// NOTE: single-threaded => no atomic ops
+		_cur_xd->_next = n->_next;
+		delete n;
+	    }
+	    else {
+		// next!
+		_cur_xd = n;
+	    }
+	}
+	else {
+	    // success!
+	    _cur_xd = n;
+	    return n->_owner;
+	}
     }
-
-    // success!
-    return _cur_xd->_owner;
+    return 0;
 }
 
 xct_t* xct_i::erase_and_next() {
-    if(_cur_xd == _end_xd) {
-	_cur_xd = _end_xd = 0;
+    if(_cur_xd == _end_xd)
 	return 0;
-    }
-
-    xct_link* cur = _cur_xd;
-    xct_t* n = this->next();
-    delete cur;
-    return n;
+    
+    _cur_xd->_node_state = NODE_LEFT;
+    return next(true);
 }
 
 
@@ -354,29 +355,49 @@ void xct_list::insert_existing_unsafe(xct_t* owner) {
        guaranteed. Note that by induction all current members of the
        list were inserted by this same code segment.
     */
-    xct_link* _xlink = new xct_link(owner);
+    xct_link* _xlink = owner->_xlink = new xct_link(owner);
     tid_t t = _xlink->_tid = owner->tid();
     w_assert1(t.valid());
     w_assert1(operating_mode == t_in_analysis);
-	
-    // find insertion spot (always exists thanks to list anchor)
-    xct_link* xd = &_anchor;
-    while(t < xd->_tid)
-	xd = xd->_next;
 
-    // do a fake insertion
-    xct_link* next = _xlink->_next = xd->_next; // maybe NULL
-    xd->_next = _xlink;
-    _xlink->_node_state = NODE_ACTIVE;
-
-    // corner case: eol
-    if(!next) 
-	_tail = _xlink;
-
-    // corner case: bol (eol+bol possible)
-    if(xd == &_anchor) {
+    if(_tail) {
+	if(t < _tail->_tid) {
+	    // not eol
+	    if(t < _anchor._tid) {
+		// bol
+		_anchor._tid = t;
+		_xlink->_next = _anchor._next;
+		_anchor._next = _xlink;
+		_xlink->_node_state = NODE_HEAD;
+	    }
+	    else {
+		// somewhere in the middle
+		xct_link* xd = &_anchor;
+		while(1) {
+		    xct_link* next = xd->_next;
+		    if(t < next->_tid) 
+			break;
+		    xd=next;
+		}
+		w_assert1(t != xd->_tid);
+		_xlink->_next = xd->_next;
+		xd->_next = _xlink;
+		_xlink->_node_state = NODE_ACTIVE;
+	    }
+	}
+	else {
+	    // eol
+	    _xlink->_next = NULL;
+	    _tail = _tail->_next = _xlink;
+	    _xlink->_node_state = NODE_ACTIVE;
+	}
+    }
+    else {
+	// empty list (eol+bol)
+	_anchor._tid = t;
+	_xlink->_next = NULL;
+	_tail = _anchor._next = _xlink;
 	_xlink->_node_state = NODE_HEAD;
-	_anchor._next = _xlink;
     }
 }
 
@@ -645,7 +666,7 @@ xct_t::cleanup(bool dispose_prepared)
                     } else {
                         DBG(<< xd->tid() <<"keep -- prepared ");
                         nprepared++;
-			next = i.next();
+			next = i.next(true);
                     }
                 } 
                 break;
@@ -653,7 +674,7 @@ xct_t::cleanup(bool dispose_prepared)
             default: {
                     DBG(<< xd->tid() <<"skipping " 
                             << " w/ state=" << xd->state() );
-		    next = i.next();
+		    next = i.next(true);
                 }
                 break;
             
@@ -697,12 +718,8 @@ xct_t::look_up(const tid_t& tid)
     xct_t* xd;
     xct_i iter(true);
 
-    while ((xd = iter.next())) {
-        if (xd->tid() == tid) {
-            return xd;
-        }
-    }
-    return 0;
+    while ((xd = iter.next()) && xd->tid() < tid);
+    return (xd && xd->tid() == tid)? xd : 0;
 }
 
 xct_lock_info_t*
@@ -1412,7 +1429,6 @@ xct_t::_xct_ended(xct_end_type type) {
 	rc = log_xct_end();
     else if(type == xct_end_abort)
 	rc = log_xct_abort();
-    _xlist.remove(_xlink);
     chkpt_serial_m::trx_release();
     return rc;
 }
@@ -1672,6 +1688,8 @@ xct_t::change_state(state_t new_state)
     while ((d = i.next()))  {
         d->xct_state_changed(old_state, new_state);
     }
+    if(new_state == xct_ended)
+	_xlist.remove(_xlink);
 }
 
 
@@ -2421,6 +2439,7 @@ xct_t::dispose()
     ClearAllLoadStores();
     _core->_state = xct_ended; // unclean!
     me()->detach_xct(this);
+    _xlist.remove(this->_xlink);
     return RCOK;
 }
 

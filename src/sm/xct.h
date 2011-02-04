@@ -816,7 +816,7 @@ struct xct_i {
     xct_link* _cur_xd;
     xct_i(bool already_locked=false);
     ~xct_i();
-    xct_t* next();
+    xct_t* next(bool can_delete=false);
     xct_t* erase_and_next();
 private:
     // disabled
