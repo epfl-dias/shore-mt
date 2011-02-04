@@ -608,7 +608,7 @@ restart_m::analysis_pass(
                 me()->detach_xct(xd);        
             }
             xd->change_state(xct_t::xct_ended);
-            delete xd;
+	    xct_t::destroy_xct(xd);
             break;
 
         default: {
@@ -741,10 +741,10 @@ restart_m::analysis_pass(
                     me()->attach_xct(xd);
 		    next = iter.erase_and_next();
                     W_COERCE( xd->dispose() );
-                    delete xd;
+		    xct_t::destroy_xct(xd);
                 }  else  {
                     DBG( << xd->tid() << " was not freeing space after analysis" );
-		    next = iter.next();
+		    next = iter.next(true);
                 }
             }
         }
@@ -1198,7 +1198,7 @@ restart_m::undo_pass()
 
         me()->attach_xct(xd);
         W_COERCE( xd->abort() );
-        delete xd;
+	xct_t::destroy_xct(xd);
     }
     {
         w_base_t::base_stat_t f = GET_TSTAT(log_fetches);
