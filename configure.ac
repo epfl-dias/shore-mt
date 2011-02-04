@@ -1129,6 +1129,14 @@ AS_IF(
 AC_MSG_RESULT([Debugger symbols $dbgsymbols])
 AM_CONDITIONAL([DEBUGGERSYMBOLS], [test x$dbgsymbols = xtrue -o x$with_debug_level1 = xyes -o x$with_debug_level2 = xyes -o x$with_debug_level3 = xyes])
 
+AC_ARG_ENABLE([optimize],
+[  --enable-optimize	default:yes	Turn off compiler optimizations],
+[case "${enableval}" in
+ yes)	optimize=true ;;
+ no)	optimize=false ;;
+ *)	AC_MSG_ERROR([bad value ${enableval} for --enable-optimize]) ;;
+ esac], [optimize=true])
+AM_CONDITIONAL([DISABLE_OPTIMIZATIONS], [test x$optimize = xfalse])
 
 # -------------------------------------------------------------------------
 #
