@@ -62,8 +62,13 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include "ranges_p.h"
 #include "btree_latch_manager.h"
+#include "data_access_histogram.h"
+
 // NOTE : this is shared with btree layer
 btree_latch_manager btree_latches;
+
+// to keep data access statistics for load balancing
+map< stid_t, data_access_histogram > data_accesses;
 
 
 /*==============================================================*
@@ -1091,6 +1096,9 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+    // update histogram
+    data_accesses[stid].inc_access_count(subroot, *real_key);
     
     return RCOK;
 }
@@ -1180,6 +1188,10 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
     DBG(<<"");
+
+    // update histogram
+    data_accesses[stid].inc_access_count(subroot, *real_key);
+    
     return RCOK;
 }
 
@@ -1271,6 +1283,9 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+    // update histogram
+    data_accesses[stid].inc_access_count(subroot, *real_key);
     
     return RCOK;
 }
@@ -1363,6 +1378,9 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+    // update histogram
+    data_accesses[stid].inc_access_count(subroot, *real_key);
     
     return RCOK;
 }
@@ -1539,7 +1557,11 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
-
+    
+    // initialize the histogram (TODO: this should be generalized, like the common gran,
+    //                                 and should be updated as partitions are updated)
+    data_accesses[stid].initialize(sd->partitions(), 100, false);
+    
     return RCOK;    
 }
 

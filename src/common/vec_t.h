@@ -97,6 +97,7 @@ struct VEC_t {
 class cvec_t : protected VEC_t {
     friend class vec_t; // so vec_t can look at VEC_t
     friend class key_ranges_map; // to reach pair
+    friend class data_access_histogram;
     
 protected:
     static        CADDR_T  zero_location; // see zvec_t, which is supposed

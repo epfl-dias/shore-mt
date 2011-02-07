@@ -71,6 +71,7 @@ include_HEADERS = \
 	btree_latch_manager.h \
 	chkpt.h chkpt_serial.h \
 	crash.h \
+        data_access_histogram.h \
 	device.h dir.h \
 	extent.h \
 	file.h file_s.h \
@@ -108,7 +109,7 @@ libsm_a_SOURCES      =  \
 	chkpt.cpp chkpt_serial.cpp \
 	common_templates.cpp \
 	crash.cpp \
-	device.cpp \
+	data_access_histogram.cpp device.cpp \
 	dir.cpp \
 	file.cpp \
 	histo.cpp \
