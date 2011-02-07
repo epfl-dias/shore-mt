@@ -700,9 +700,14 @@ inline lock_head_t*
 lock_request_t::get_lock_head() const
 {
     // XXX perhaps this should be an "associated list"??
-    return (lock_head_t*) (
-            ((char*)rlink.member_of()) -
-                   w_offsetof(lock_head_t, _queue));
+    union {
+	w_list_base_t* list;
+	long n;
+	lock_head_t* head;
+    } u = {rlink.member_of()};
+    if (u.list) 
+	u.n-= w_offsetof(lock_head_t, _queue);
+    return u.head;
 }
 
 inline NORET            
