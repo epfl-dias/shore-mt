@@ -137,28 +137,8 @@ inline bool cmp_greater::operator()(const foo& a, const foo& b) const
 
 
 
-// For map<char*,lpid_t> to compare char*
-
-// struct cmp_greater
-// {
-//     bool operator()(char const *a, char const *b) const;
-// };
-
-// inline bool cmp_greater::operator()(char const *a, char const *b) const
-// {
-//     return umemcmp(a,b,sizeof(a)) > 0;
-// }
 
 
-// struct cmp_greater
-// {
-//     bool operator()(const cvec_t& a, const cvec_t& b) const;
-// };
-
-// inline bool cmp_greater::operator()(const cvec_t& a, const cvec_t& b) const
-// {
-//     return (a>b);
-// }
 
 
 /******************************************************************** 
@@ -177,14 +157,6 @@ inline bool cmp_greater::operator()(const foo& a, const foo& b) const
 class key_ranges_map
 {
 public:
-
-//     typedef map<char*, lpid_t, cmp_greater >                 KRMap;
-//     typedef map<char*, lpid_t, cmp_greater >::iterator       KRMapIt;
-//     typedef map<char*, lpid_t, cmp_greater >::const_iterator KRMapCIt;
-
-//     typedef map<cvec_t, lpid_t, cmp_greater >                 KRMap;
-//     typedef map<cvec_t, lpid_t, cmp_greater >::iterator       KRMapIt;
-//     typedef map<cvec_t, lpid_t, cmp_greater >::const_iterator KRMapCIt;
 
     typedef map<foo, lpid_t, cmp_greater >                 KRMap;
     typedef map<foo, lpid_t, cmp_greater >::iterator       KRMapIt;

@@ -35,8 +35,6 @@
  *  @author: Ryan Johnson (ryanjohn)
  */
 
-//#include "w_defines.h"
-
 #ifdef __GNUG__
 #           pragma implementation "key_ranges_map.h"
 #endif
@@ -498,33 +496,6 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
 
 /****************************************************************** 
  *
- * @fn:    getPartitionByKey()
- *
- * @brief: Returns the root page id, "pid", of the partition which a
- *         particular "keyS" belongs to
- *
- * @param: char* keyS    - Input
- * @param: lpid_t pid    - Output
- *
- ******************************************************************/
-
-// w_rc_t key_ranges_map::getPartitionByKey(char* keyS, lpid_t& pid)
-// {
-//     _rwlock.acquire_read();
-//     KRMapIt iter = _keyRangesMap.lower_bound(keyS);
-//     if(iter == _keyRangesMap.end()) {
-// 	// the key is not in the map, returns error.
-//         _rwlock.release_read();
-// 	return (RC(mrb_PARTITION_NOT_FOUND));
-//     }
-//     pid = iter->second;
-//     _rwlock.release_read();
-//     return (RCOK);    
-// }
-
-
-/****************************************************************** 
- *
  * @fn:    getPartitions()
  *
  * @param: cvec_t key1    - The start key for the partitions list (Input)
@@ -796,7 +767,7 @@ key_ranges_map& key_ranges_map::operator=(const key_ranges_map& krm)
 	 cit != krm._fookeys.end(); ++cit) {
 	foo* newkv = new foo((*cit)->_m, (*cit)->_len, true);
 	mapcit = krm._keyRangesMap.lower_bound(*(*cit));
-	assert (mapcit == krm._keyRangesMap.end()); // Should be there	
+	assert (mapcit != krm._keyRangesMap.end()); // Should be there	
 	_keyRangesMap[*newkv] = (*mapcit).second;
 	_fookeys.push_back(newkv);
 	_numPartitions++;
@@ -805,99 +776,5 @@ key_ranges_map& key_ranges_map::operator=(const key_ranges_map& krm)
 
     _rwlock.release_write();
 
-    
-    /*
-    for(int i=0; i<krm._fookeys.size(); i++) {
-	foo* newkv = new foo((*krm._fookeys[i])._m, (*krm._fookeys[i])._len, true);
-	lpid_t pid = krm._keyRangesMap[*(krm._fookeys[i])];
-	_keyRangesMap[*newkv] = pid; //dummy; //krm._keyRangesMap[*krm._fookeys[i]];
-	_fookeys.push_back(newkv);
-    }
-
-      for (iter = krm._fookeys.begin(); iter != krm._fookeys.end(); ++iter) {
-	if (*iter) { 
-	    foo* newkv = new foo((*iter)->_m, (*iter)->_len, true);
-	    _keyRangesMap[*newkv] = krm._keyRangesMap[**iter];
-	    _fookeys.push_back(newkv);
-        }
-    }
-    */
-    
     return *this;
 }
-
-#if 0
-int main(void)
-{
-    /*
-      cout << "key_ranges_map(10, 100, 10)" << endl;
-      key_ranges_map* KeyMap = new key_ranges_map(10, 100, 10);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "addPartition(60)" << endl;
-      (*KeyMap).addPartition(60);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "deletePartitionWithKey(20)" << endl;
-      (*KeyMap).deletePartitionWithKey(20);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "deletePartition(9)" << endl;
-      (*KeyMap).deletePartition(9);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "getPartitionWithKey(70)" << endl;
-      cout << (*KeyMap).getPartitionWithKey(70) << endl;
-      cout << endl;
-  
-      cout << (*KeyMap)(70) << endl;
-      cout << endl;
-  
-      cout << "setMinKey(6)" << endl;
-      (*KeyMap).setMinKey(6);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "setMaxKey(110)" << endl;
-      (*KeyMap).setMaxKey(110);
-      (*KeyMap).printPartitions();
-      cout << endl;
-  
-      cout << "[36, 64]" << endl;
-      vector<int> v = (*KeyMap).getPartitions(36,true,64,true);
-      for(int i=0; i < v.size(); i++)
-      cout << v[i] << " " << endl;
-      cout << endl;
-  
-      cout << "(36, 64]" << endl;
-      v = (*KeyMap).getPartitions(36,false,64,true);
-      for(int i=0; i < v.size(); i++)
-      cout << v[i] << " " << endl;
-      cout << endl;
-  
-      cout << "[36, 64)" << endl;
-      v = (*KeyMap).getPartitions(36,true,64,false);
-      for(int i=0; i < v.size(); i++)
-      cout << v[i] << " " << endl;
-      cout << endl;
-  
-      cout << "(36, 64)" << endl;
-      v = (*KeyMap).getPartitions(36,false,64,false);
-      for(int i=0; i < v.size(); i++)
-      cout << v[i] << " " << endl;
-      cout << endl;
-  
-      cout << "get range of partition 3" << endl;
-      pair<int,int> p = (*KeyMap).getBoundaries(3);
-      cout << "[" << p.first << ", " << p.second << ")" << endl;
-      cout << endl;
-    */
-
-    return 0;
-}
-#endif
-
