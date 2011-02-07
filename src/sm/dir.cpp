@@ -902,6 +902,7 @@ sdesc_t::operator=(const sdesc_t& other)
 
     _partitions = other._partitions;
     _partitions_filled = other._partitions_filled;
+    _pages_with_space = other._pages_with_space;
 
     return *this;
 } 
