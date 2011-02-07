@@ -335,14 +335,30 @@ xct_lock_info_t::reset()
     request_list_i it(sli_list);
     lock_cache_elem_t ignore_me;// don't care...
     while(lock_request_t* req = it.next()) {
-	lockid_t const &name = req->get_lock_head()->name;
-	req->keep_me = name.lspace() <= lockid_t::t_store;
-	put_cache(name, req->mode(), req, ignore_me);
+	if(lock_head_t* lock=req->get_lock_head()) {
+	    lockid_t const &name = lock->name;
+	    req->keep_me = name.lspace() <= lockid_t::t_store;
+	    put_cache(name, req->mode(), req, ignore_me);
+	}
+	else {
+	    // clean up ones we know are dead
+	    w_assert0(req->_sli_status == sli_invalid);
+	    req->xlink.detach();
+	    DELETE_LOCK_REQUEST(req);
+	}
     }
     membar_exit(); // can't let the status change precede the lock name read above!
     long inherited = 0;
     for(it.reset(sli_list); lock_request_t* req = it.next(); ++inherited)
-	req->_sli_status = sli_inactive;
+	switch(req->_sli_status) {
+	case sli_not_inherited:
+	case sli_active:
+	    // only deactivate active locks as opposed to
+	    // inactive-possibly-invalid locks
+	    req->_sli_status = sli_inactive;
+	default:
+	    break;
+	}
     ADD_TSTAT(sli_inherited, inherited);
 
     // tid set by init()
