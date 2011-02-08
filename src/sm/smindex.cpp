@@ -62,14 +62,17 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include "ranges_p.h"
 #include "btree_latch_manager.h"
+#ifdef SM_HISTOGRAM
 #include "data_access_histogram.h"
+#endif
 
 // NOTE : this is shared with btree layer
 btree_latch_manager btree_latches;
 
+#ifdef SM_HISTOGRAM
 // to keep data access statistics for load balancing
-map< stid_t, data_access_histogram > data_accesses;
-
+map< stid_t, data_access_histogram* > data_accesses;
+#endif
 
 /*==============================================================*
  *  Physical ID version of all the index operations                *
@@ -1097,8 +1100,10 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
 
+#ifdef SM_HISTOGRAM
     // update histogram
-    data_accesses[stid].inc_access_count(subroot, *real_key);
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1189,8 +1194,10 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     }
     DBG(<<"");
 
+#ifdef SM_HISTOGRAM
     // update histogram
-    data_accesses[stid].inc_access_count(subroot, *real_key);
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1284,8 +1291,10 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
 
+#ifdef SM_HISTOGRAM
     // update histogram
-    data_accesses[stid].inc_access_count(subroot, *real_key);
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1379,8 +1388,10 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
 
+#ifdef SM_HISTOGRAM
     // update histogram
-    data_accesses[stid].inc_access_count(subroot, *real_key);
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1557,10 +1568,12 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
-    
+
+#ifdef SM_HISTOGRAM
     // initialize the histogram (TODO: this should be generalized, like the common gran,
     //                                 and should be updated as partitions are updated)
-    data_accesses[stid].initialize(sd->partitions(), 100, false);
+    data_accesses[stid] = new data_access_histogram(sd->partitions(), 100, false);
+#endif
     
     return RCOK;    
 }
