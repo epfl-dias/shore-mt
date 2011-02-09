@@ -1119,6 +1119,10 @@ ss_m::_destruct_once()
 
     lm->assert_empty(); // no locks should be left
 
+#ifdef SM_HISTOGRAM
+    W_COERCE( destroy_all_histograms() );
+#endif
+    
     /*
      *  Level 4
      */

@@ -566,6 +566,19 @@ rc_t ss_m::update_mr_assoc(stid_t stid, const vec_t& key,
     return RCOK;
 }
 
+#ifdef SM_HISTOGRAM
+/*--------------------------------------------------------------*
+ *  ss_m::destroy_all_histograms()                              *
+ *--------------------------------------------------------------*/
+rc_t ss_m::destroy_all_histograms()
+{
+    SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    W_DO(_destroy_all_histograms());
+    return RCOK;
+}
+#endif
+
 /*--------------------------------------------------------------*
  *  ss_m::get_range_map()                                       *
  *--------------------------------------------------------------*/
@@ -1480,6 +1493,19 @@ rc_t ss_m::_update_mr_assoc(const stid_t&       stid,
     
     return RCOK;
 }
+
+#ifdef SM_HISTOGRAM
+rc_t ss_m::_destroy_all_histograms()
+{
+    for(map< stid_t, data_access_histogram* >::iterator iter = data_accesses.begin();
+	iter != data_accesses.end();
+	iter++) {
+	delete iter->second;
+	iter->second = 0;
+    }
+    return RCOK;
+}
+#endif
 
 rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map*& rangemap)
 {

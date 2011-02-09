@@ -2682,7 +2682,13 @@ public:
 				      const lpid_t&          root = lpid_t::null);
     
 
-
+ #ifdef SM_HISTOGRAM
+    /**\brief Deletes all the data access histogram info
+     * \ingroup SSMBTREE
+     */
+    static rc_t destroy_all_histograms(); 
+#endif
+			      
     /**\brief Returns the range map of a Multi-rooted B+-Tree index.
      * \ingroup SSMBTREE
      *
@@ -3816,7 +3822,11 @@ private:
 				      const bool             bIgnoreLocks = false,
 				      const bool             bIgnoreLatches = false,
 				      const lpid_t&          root = lpid_t::null);
-    
+
+#ifdef SM_HISTOGRAM
+    static rc_t _destroy_all_histograms(); 
+#endif
+	
     static rc_t _get_range_map(stid_t stid, key_ranges_map*& rangemap);
 
     static rc_t _get_store_info(stid_t stid, sinfo_s& sinfo);
