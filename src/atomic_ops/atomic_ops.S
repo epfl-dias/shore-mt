@@ -3,6 +3,14 @@
 */
 
 #include "./../../config/shore-config.h"
+        .section        ".data",#alloc,#write
+	.align  4
+	.global atomic_ops_keep_symtab_nonempty
+atomic_ops_keep_symtab_nonempty:	
+	.word   0x1
+	.type   atomic_ops_keep_symtab_nonempty,#object
+	.size   atomic_ops_keep_symtab_nonempty,4
+	
 #ifndef HAVE_ATOMIC_H
 
 #if defined(ARCH_LP64)
