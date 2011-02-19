@@ -31,6 +31,8 @@ long cpu_info::socket_self() {
 long cpu_info::socket_of(long cpuid) {
     return cpuid/impl_helper::socket_size();
 }
+void cpu_info::init_impl() { }
+
 #elif defined(__SVR4)
 #include <dlfcn.h>
 #include <spawn.h>

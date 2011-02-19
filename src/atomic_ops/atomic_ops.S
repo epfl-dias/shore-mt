@@ -3,6 +3,7 @@
 */
 
 #include "./../../config/shore-config.h"
+#if defined(__sparcv9)
         .section        ".data",#alloc,#write
 	.align  4
 	.global atomic_ops_keep_symtab_nonempty
@@ -10,6 +11,7 @@ atomic_ops_keep_symtab_nonempty:
 	.word   0x1
 	.type   atomic_ops_keep_symtab_nonempty,#object
 	.size   atomic_ops_keep_symtab_nonempty,4
+#endif
 	
 #ifndef HAVE_ATOMIC_H
 
