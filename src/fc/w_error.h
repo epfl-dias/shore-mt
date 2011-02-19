@@ -66,9 +66,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "fc_error_enum_gen.h"
 #include "tls.h"
 
-#define USE_BLOCK_ALLOC_FOR_W_ERROR_T 0
+#define USE_BLOCK_ALLOC_FOR_W_ERROR_T 1
 #if USE_BLOCK_ALLOC_FOR_W_ERROR_T
-DECLARE_TLS_SWATCHZ(w_error_alloc);
+DECLARE_TLS_SCHWARZ(w_error_alloc);
 #endif
 
 /**\brief Error code and associated string.

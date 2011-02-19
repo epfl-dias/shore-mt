@@ -191,7 +191,7 @@ inline w_base_t::uint4_t w_error_t::classify(int er)
 }
 
 #if USE_BLOCK_ALLOC_FOR_W_ERROR_T
-DEFINE_TLS_SWATCHZ(block_alloc<w_error_t>, w_error_alloc);
+DEFINE_TLS_SCHWARZ(block_alloc<w_error_t>, w_error_alloc);
 void w_error_t::operator delete(void* p) {
   block_alloc<w_error_t>::destroy_object((w_error_t*) p);
 }
