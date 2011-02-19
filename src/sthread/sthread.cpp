@@ -784,17 +784,11 @@ void sthread_t::_start()
     w_assert1(isStackFrameOK(0));
     {
         CRITICAL_SECTION(cs, _start_terminate_lock);
-        if(_forked) {
-            // If the parent thread gets to fork() before
-            // the child can get to _start(), then _forked
-            // will be true. In this case, skip the condition wait.
-            CRITICAL_SECTION(cs_thread, _wait_lock);
-            _status = t_running;
-        } else {
+        while(!_forked) {
             DO_PTHREAD(pthread_cond_wait(_start_cond, _start_terminate_lock));
-            CRITICAL_SECTION(cs_thread, _wait_lock);
-            _status = t_running;
-        }
+	}
+	CRITICAL_SECTION(cs_thread, _wait_lock);
+	_status = t_running;
     }
 
 #if defined(PURIFY)
