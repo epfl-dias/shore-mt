@@ -1439,7 +1439,7 @@ lock_core_m::acquire_lock(
 
 	    req = NEW_LOCK_REQUEST(xd, mode, duration);
 
-            atomic_inc(_requests_allocated);
+            //atomic_inc(_requests_allocated);
             DBG(<< "appending request " << req << " to lock " << lock
                     << " lock name=" << lock->name);
 
@@ -1657,7 +1657,7 @@ lock_core_m::acquire_lock(
                 req->xlink.detach();
                 req->rlink.detach();
 		DELETE_LOCK_REQUEST(req);
-                atomic_dec(_requests_allocated);
+                //atomic_dec(_requests_allocated);
                 req = 0;
             }
             if(rce == eDEADLOCK) {
@@ -2217,7 +2217,7 @@ lock_core_m::_release_lock(lock_request_t* request, bool force
     DELETE_LOCK_REQUEST(request);
     DBGTHRD(<<"lock_core_m::_release deleted request" );
 
-    atomic_dec(_requests_allocated);
+    //atomic_dec(_requests_allocated);
     _update_cache(the_xlinfo, lock->name, NL);
 
     lock->granted_mode = lock->granted_mode_other(0);
@@ -2412,7 +2412,7 @@ lock_core_m::release_duration(
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
 		    DELETE_LOCK_REQUEST(request);
-                    atomic_dec(_requests_allocated);
+                    //atomic_dec(_requests_allocated);
                     continue;
                 }
                 lock = request->get_lock_head();
@@ -2424,7 +2424,7 @@ lock_core_m::release_duration(
                 if (request->is_quark_marker()) {
                     // quark markers aren't in the lock head's request queue
 		    DELETE_LOCK_REQUEST(request);
-                    atomic_dec(_requests_allocated);
+                    //atomic_dec(_requests_allocated);
                     continue;
                 }
 
@@ -2479,7 +2479,7 @@ lock_core_m::open_quark(
     xd->lock_info()->set_quark_marker (marker);
     MUTEX_RELEASE(xd->lock_info()->lock_info_mutex);
 
-    atomic_inc(_requests_allocated);
+    //atomic_inc(_requests_allocated);
     if (xd->lock_info()->quark_marker() == NULL) return RC(fcOUTOFMEMORY);
     return RCOK;
 }
@@ -2510,7 +2510,7 @@ lock_core_m::close_quark(
 	DELETE_LOCK_REQUEST(the_xlinfo->quark_marker());
         the_xlinfo->set_quark_marker(NULL);
 
-        atomic_dec(_requests_allocated);
+        //atomic_dec(_requests_allocated);
         MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
         return RCOK;
     }
@@ -2531,7 +2531,7 @@ lock_core_m::close_quark(
             DBGTHRD(<<"detached lock request in close_quark");
             the_xlinfo->set_quark_marker(NULL);
 	    DELETE_LOCK_REQUEST(request);
-            atomic_dec(_requests_allocated);
+            //atomic_dec(_requests_allocated);
             found_marker = true;
             break;  // finished
         }
