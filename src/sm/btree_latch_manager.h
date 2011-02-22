@@ -94,13 +94,21 @@ private:
 		     && (lhs.page < rhs.page) ); }
     };
     typedef std::map<lpid_t, latch_t*, lpid_cmp> btree_latch_map;
+
+    long _socket_count;
+
+    btree_latch_map* _socket_latches;
     btree_latch_map _latches ;
+    
 #define USE_OCC_LOCK_HERE 1
 #ifdef USE_OCC_LOCK_HERE
-    occ_rwlock _latch_lock;
+    typedef occ_rwlock Lock;
 #else
-    queue_based_lock_t _latch_lock;
+    typedef queue_based_lock_t Lock;
 #endif
+    Lock* _socket_latch_locks;
+    Lock _latch_lock;
+
     void _destroy_latches(lpid_t const &root) ; // worker, assumes have lock
 
 public:
@@ -112,6 +120,7 @@ public:
     void destroy_latches(stid_t const &store) ; 
     // Clean up for shutting down storage manager.
     void shutdown() ;
+    btree_latch_manager();
     ~btree_latch_manager() ;
 }; 
 

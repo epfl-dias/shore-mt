@@ -57,6 +57,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include "btree_latch_manager.h"
 #include <vector>
+#include "cpu_info.h"
 
 // This business is to allow us to switch from one kind of
 // lock to another with more ease.
@@ -71,6 +72,10 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 void btree_latch_manager::shutdown()
 {
     CRITICAL_SECTION(cs, _latch_lock OCCWRITE);
+    for(long i=0; i < _socket_count; i++) {
+	CRITICAL_SECTION(cs, _socket_latch_locks[i] OCCWRITE);
+	_socket_latches[i].clear();
+    }
     for(btree_latch_map::iterator it=_latches.begin(); it != _latches.end(); ++it) 
     {
         w_assert1(it->second->mode() == LATCH_NL);
@@ -79,15 +84,21 @@ void btree_latch_manager::shutdown()
     _latches.clear();
 }
 
+btree_latch_manager::btree_latch_manager()
+    : _socket_count(cpu_info::socket_count())
+    , _socket_latches(new btree_latch_map[_socket_count])
+    , _socket_latch_locks(new Lock[_socket_count])
+{
+}
+
 latch_t &btree_latch_manager::find_latch(lpid_t const &root, const bool bIgnoreLatches) 
 {
+    long socket = cpu_info::socket_self();
     latch_t *latch=NULL;
     {
-	if(!bIgnoreLatches) {
-	    CRITICAL_SECTION(cs, _latch_lock OCCREAD);
-	}
-        btree_latch_map::iterator pos=_latches.find(root);
-        if(pos != _latches.end()) {
+	CRITICAL_SECTION(cs, _socket_latch_locks[socket] OCCREAD);
+        btree_latch_map::iterator pos=_socket_latches[socket].find(root);
+        if(pos != _socket_latches[socket].end()) {
             lpid_t xxx = pos->first;
             w_assert1(root==xxx);
             latch=pos->second;
@@ -96,21 +107,28 @@ latch_t &btree_latch_manager::find_latch(lpid_t const &root, const bool bIgnoreL
     }
     
     // not there... need to add a new entry (but verify first!)
-    if(!bIgnoreLatches) {
-	CRITICAL_SECTION(cs, _latch_lock OCCWRITE);
-    }
-    if( (latch=_latches[root]) )   {
+    CRITICAL_SECTION(cs, _latch_lock OCCWRITE);
+    CRITICAL_SECTION(socket_cs, _socket_latch_locks[socket] OCCWRITE);
+    if( (latch=_socket_latches[socket][root]) )   {
         return *latch; // somebody else beat us to it
     }
 
-    latch = new latch_t;
-    _latches[root] = latch;
+    // not in the master directory either?
+    if( ! ( latch=_latches[root]) ) {
+	latch = new latch_t;
+	_latches[root] = latch;
+    }
+    _socket_latches[socket][root] = latch;
     return *latch;
 }
 
 // do the work -- assumes I already have the _latch_lock in write mode
 void btree_latch_manager::_destroy_latches(lpid_t const &root) 
 {
+    for(long i=0; i < _socket_count; i++) {
+	CRITICAL_SECTION(cs, _socket_latch_locks[i] OCCWRITE);
+	_socket_latches[i].erase(root);
+    }
     btree_latch_map::iterator pos=_latches.find(root);
     if(pos != _latches.end())
     {
@@ -161,4 +179,6 @@ void btree_latch_manager::destroy_latches(stid_t const &store)
 btree_latch_manager::~btree_latch_manager() 
 {
     shutdown();
+    delete [] _socket_latches;
+    delete [] _socket_latch_locks;
 }
