@@ -64,6 +64,7 @@ using namespace std;
 
 struct sinfo_s;
 
+
 /******************************************************************** 
  *
  * @brief: Error codes returned by MRBTrees
@@ -271,16 +272,17 @@ public:
     KRMap getMap() const;
 
     // for debugging
-    void printPartitions(); 
+    void printPartitions();
+    void printPartitionsInBytes(); 
 
     //
     key_ranges_map& operator=(const key_ranges_map& krm);
 
-private:
-
-    // Helper functions
-    uint _distributeSpace(const char* A, const char* B, const int sz, 
-                          const uint parts, char** subparts);
+    // Helper functions to make equal partitions with platform independence
+    static bool isBigEndian();
+    static uint distributeSpace(const char* min, const uint minSize,
+				const char* max, const uint maxSize,
+				const uint numParts, char** subParts);    
     
 }; // EOF: key_ranges_map
 

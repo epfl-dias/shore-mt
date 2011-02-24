@@ -1543,6 +1543,9 @@ rc_t ss_m::_get_store_info(stid_t stid, sinfo_s& sinfo)
 rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 				 const vec_t& maxKey, uint numParts)
 {
+    // TODO: might give an error here if some partitions already exists
+    //       this should only be called initially, no assocs in the index yet
+
     FUNC(ss_m::_make_equal_partitions);
 
     DBG(<<" stid " << stid);
@@ -1551,23 +1554,68 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     sdesc_t* sd;
     W_DO(dir->access(stid, sd, EX));
 
-    vector<lpid_t> roots;
-    ///cvec_t* real_minKey;
-    ///cvec_t* real_maxKey;
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    // TODO: might give an error here if some partitions already exists
-    //       this should only be called initially, no assocs in the index yet
-
     bool isCompressed = sinfo.kc[0].compressed != 0;
+    
+
+    // 1. make initial almost equal partitions   
+    cvec_t* real_key;
+    // 1.1. scramble min key
+    W_DO(bt->_scramble_key(real_key, minKey, minKey.count(), sd->sinfo().kc));
+    uint minKey_size = real_key->size();
+    char* minKey_c = (char*) malloc(minKey_size);
+    real_key->copy_to(minKey_c, minKey_size);
+    // 1.2. scramble max key
+    real_key->reset();
+    W_DO(bt->_scramble_key(real_key, maxKey, maxKey.count(), sd->sinfo().kc));
+    uint maxKey_size = real_key->size();
+    char* maxKey_c = (char*) malloc(maxKey_size);
+    real_key->copy_to(maxKey_c, maxKey_size);
+    // 1.3. determine the partition start keys
+    char** subParts = (char**) malloc(numParts*sizeof(char*));
+    uint partsCreated = key_ranges_map::distributeSpace(minKey_c, minKey_size,
+							maxKey_c, maxKey_size,
+							numParts, subParts);
+
+    // 2. Create the btree roots and add partitions to key_ranges_map
+    uint size = (minKey_size < maxKey_size) ? minKey_size : maxKey_size;
+    lpid_t root;    
+    // pin: lines commented out with "d" is for debugging
+    //d char* copy_char = (char*) malloc(size);
+    //d cvec_t* real_key2;
+    for(uint i=0; i<partsCreated; i++) {
+	real_key->reset();
+	real_key->put(subParts[i], size);
+	//d W_DO(bt->_unscramble_key(real_key2, *real_key, maxKey.count(), sd->sinfo().kc, true));
+	//d real_key2->copy_to(copy_char, size);
+	//d cout << *(int*) copy_char << endl;
+	//d if(i != 0) {
+	W_DO(bt->create(stid, root, isCompressed));
+	sd->partitions().addPartition(*real_key, root);
+	//d}
+    }
+
+    // 3. free subParts
+    for(uint i=0; i<partsCreated; i++) {
+	delete subParts[i];
+    }
+    delete subParts;
+
+    // 4. print final partitions
+    sd->partitions().printPartitionsInBytes();  
+
+
+    // pin: old hacked version that just works for integers
+    /*
+    vector<lpid_t> roots;
     for(uint i=0; i<numParts-1; i++) {
 	lpid_t root;
 	W_DO(bt->create(stid, root, isCompressed));
 	roots.push_back(root);
     }
-
     // ------------- HACK FOR THE DEADLINE ------------------------
     cvec_t* real_key;
     int lower_bound = 0;
@@ -1589,8 +1637,9 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 	partsCreated++;
     }
     // --------------------------------------------------------------
+    //sd->partitions().printPartitions();
+    */
 
-    sd->partitions().printPartitions();
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
@@ -1598,7 +1647,7 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 #ifdef SM_HISTOGRAM
     // initialize the histogram (TODO: this should be generalized, like the common gran,
     //                                 and should be updated as partitions are updated)
-    data_accesses[stid] = new data_access_histogram(sd->partitions(), 100, false);
+    data_accesses[stid] = new data_access_histogram(sd->partitions(), 100, 7, false);
 #endif
     
     return RCOK;    

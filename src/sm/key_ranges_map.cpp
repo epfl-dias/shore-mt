@@ -206,95 +206,6 @@ w_rc_t key_ranges_map::nophy_equal_partitions(const sinfo_s& sinfo,
 
 /****************************************************************** 
  *
- * @fn:      _distributeSpace()
- *
- * @brief:   Helper function, which tries to evenly distribute the space between
- *           two strings to a certain number of subspaces
- *
- * @param:   const char* A    - The beginning of the space
- * @param:   const char* B    - The end of the space
- * @param:   const int sz    - The common size of the two strings
- * @param:   const uint parts - The number of partitions which should be created
- * @param:   char** subParts  - An array of strings with the boundaries of the
- *                              distribution
- * 
- * @returns: The number of partitions actually created
- *
- ******************************************************************/
-
-uint key_ranges_map::_distributeSpace(const char* A, 
-                                      const char* B, 
-                                      const int sz, 
-                                      const uint partitions, 
-                                      char** subParts)
-{
-    
-    assert (strcmp(A,B)<0); // It should A<B
-
-    double numASCII = 95;
-    uint startASCII = 31;
-    int totalSize = strlen(A);
-
-    // compute the space between two strings
-    uint space = 0;
-    for(int i=totalSize-1, j=0; i>totalSize-sz-1; i--,j++)
-	space = space + ((int) B[i] - (int) A[i]) * (int) pow(numASCII, j);
-
-    // find the approximate range each partitions should keep
-    uint range = space / partitions;
-       
-    // compute the partitions
-    char* currentKey = (char*) malloc(sz);
-    char* nextKey = (char*) malloc(sz);
-    strcpy(nextKey, A);
-    
-    uint currentDest;
-    int currentCharPos;
-    uint div;
-    uint rmd;
-    uint pcreated = 0;
-    
-    // first partition
-    subParts[pcreated] = (char*) malloc(totalSize+1);
-    strcpy(subParts[pcreated], nextKey);
-
-    // other partitions
-    for(pcreated = 1; pcreated < partitions; pcreated++) {
-	strcpy(currentKey, nextKey);
-	currentCharPos=totalSize-1;
-	div = range;
-
-	do {
-	    currentDest = (int) currentKey[currentCharPos] - startASCII + div;
-	    div = currentDest / numASCII;
-	    rmd = currentDest - div*numASCII;
-	    nextKey[currentCharPos] = (char) rmd + startASCII;
-	    currentCharPos--;
-	} while(div > numASCII);
-   
-	if(div != 0) {
-	    nextKey[currentCharPos] = (char) ((int) currentKey[currentCharPos] + div);
-	    currentCharPos--;
-	}
-      
-	for(; currentCharPos >= totalSize-sz-1; currentCharPos--) {
-	    nextKey[currentCharPos] = currentKey[currentCharPos];
-	}
-
-	subParts[pcreated] = (char*) malloc(totalSize+1);
-	strcpy(subParts[pcreated], nextKey);
-    }
-    
-    free(currentKey);
-    free(nextKey);
-    
-    return pcreated;
-}
-
-
-
-/****************************************************************** 
- *
  * @fn:    addPartition()
  *
  * @brief: Splits the partition where "key" belongs to two partitions. 
@@ -668,6 +579,28 @@ void key_ranges_map::printPartitions()
     _rwlock.release_read();
 }
 
+void key_ranges_map::printPartitionsInBytes()
+{
+    KRMapIt iter;
+    uint i = 0;
+    _rwlock.acquire_read();
+    printf("#Partitions (%d)\n", _numPartitions);
+    char* content = NULL;
+    for (iter = _keyRangesMap.begin(); iter != _keyRangesMap.end(); ++iter, i++) {
+	//DBG(<<"Partition " << i << "\tStart key (" << iter->first << ")\tRoot (" << iter->second << ")");        
+        content = (char*)malloc(sizeof(char)*(iter->first._len)+1);
+        memset(content,0,iter->first._len+1);
+        memcpy(content,iter->first._m,iter->first._len);
+	printf("Root (%d): ", iter->second.page);
+	for(uint j=0; j<iter->first._len; j++) {
+	    printf("%d\t", (uint) content[j]);
+	}
+	printf("\n");
+	free (content);
+    }
+    _rwlock.release_read();
+}
+
 void key_ranges_map::setNumPartitions(uint numPartitions)
 {
     // pin: we do not actually need this function
@@ -777,4 +710,141 @@ key_ranges_map& key_ranges_map::operator=(const key_ranges_map& krm)
     _rwlock.release_write();
 
     return *this;
+}
+
+
+/****************************************************************** 
+ *
+ * @fn:    isBigEndian()
+ *
+ * @brief: Determines whether the architecture is LSB or MSB
+ *
+ ******************************************************************/
+
+bool key_ranges_map::isBigEndian() 
+{
+    int i = 1;
+    return ((*(char*)&i) == 0);
+}
+
+
+/****************************************************************** 
+ *
+ * @fn:    distributeSpace()
+ *
+ * @brief:   Helper function, which tries to evenly distribute the space between
+ *           two strings to a certain number of subspaces
+ *
+ * @param:   const char* min     - The beginning of the space
+ * @param:   const int minSize   - The size (in bytes) of the lower space boundary
+ * @param:   const char* max     - The end of the space
+ * @param:   const int maxSize   - The size (in bytes) of the upper space boundary
+ * @param:   const uint numParts - The number of partitions which should be created
+ * @param:   char** subParts     - An array of strings with the boundaries of the
+ *                                 distribution
+ * 
+ * @returns: The number of partitions actually created
+ *
+ ******************************************************************/
+
+uint key_ranges_map::distributeSpace(const char* min, const uint minSize,
+				     const char* max, const uint maxSize,
+				     const uint numParts, char** subParts) 
+{
+    // @note: pin: Here partitions might not be of exactly equal lenght but they
+    //             will be very very close to being equal. The reason is I prefer
+    //             to keep the difference as a 4-byte integer and use integer sum/
+    //             division for this operation. However, if there are more than
+    //             4 bytes in min/max values, then getting the difference and finding
+    //             the space in between are harder. However, I see no big benefit for
+    //             taking into account such a situation. I think dividing according to
+    //             first 4 bytes (and considering rest of the bytes as 0s) should be
+    //             enough to have a nice almost-equal partitions initially
+
+    
+    // 0. find the total size to consider (smaller of the two is enough)
+    uint size = (minSize < maxSize) ? minSize : maxSize;
+
+    uint diff_size = sizeof(int);
+	
+    assert(umemcmp(min,max,size)<0); // min should be less than max
+	
+    // 1. Pass the initial bytes that are equal
+    //    However, have a char* that is at least sizeof(int) bytes
+    const char* min_p = min;
+    const char* max_p = max;
+    uint pre_size = 0;
+    while(size-pre_size > diff_size && *min_p == *max_p) {
+	min_p++;
+	max_p++;
+	pre_size++;
+    }
+    
+    // 2. Do the partitions
+    uint partsCreated = 0;
+    
+    // 2.1 If the architecture is MSB we have no problem with continuing with integers
+    // 2.2 If it's LSB then we should reverse the bytes first because casting them to
+    //     integer will reverse the bytes
+    if(isBigEndian()) { // 2.1 MSB
+	
+	uint min_i = *(uint*) min_p;
+	uint max_i = *(uint*) max_p;
+	
+	double diff = (double)(max_i - min_i) / (double)numParts;
+	if(diff<1) {
+	    diff = 1;
+	}
+	
+	double current_d = min_i;
+	double max_d = max_i;
+	while(current_d < max_d) {
+	    uint current = current_d;
+	    subParts[partsCreated] = (char*)malloc(size);
+	    memset(subParts[partsCreated], 0, size);
+	    if(pre_size > 0) {
+		memcpy(subParts[partsCreated], min, pre_size);
+	    }
+	    memcpy(&(subParts[partsCreated][pre_size]), (char*) (&current), diff_size);
+	    current_d = current_d + diff;
+	    partsCreated++;
+	}
+	
+    } else { // 2.2 LSB
+
+	char* min_p_rev = (char*) malloc(diff_size);
+	char* max_p_rev = (char*) malloc(diff_size);
+	for(uint i=0; i<diff_size; i++) {
+	    min_p_rev[i] = min_p[diff_size-1-i];
+	    max_p_rev[i] = max_p[diff_size-1-i];
+	}
+
+       	uint min_i = *(uint*) min_p_rev;
+	uint max_i = *(uint*) max_p_rev;
+
+	double diff = (double)(max_i - min_i) / (double)numParts;
+	if(diff<1) {
+	    diff = 1;
+	}
+	
+	double current_d = min_i;
+	double max_d = max_i;
+	while(current_d < max_d) {
+	    uint current = current_d;
+	    subParts[partsCreated] = (char*)malloc(size);
+	    memset(subParts[partsCreated], 0, size);
+	    if(pre_size > 0) {
+		memcpy(subParts[partsCreated], min, pre_size);
+	    }
+	    char* current_c = (char*) (&current);
+	    for(uint i=0; i<diff_size; i++) {
+		subParts[partsCreated][pre_size+i] = current_c[diff_size-1-i];
+	    }
+	    current_d = current_d + diff;
+	    partsCreated++;
+	}
+	
+    }
+
+    return partsCreated;
 }
