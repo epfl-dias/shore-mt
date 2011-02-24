@@ -80,12 +80,14 @@ public:
     // NOTE: pin: lpid_t has comparison functions but they only work correctly if the compared lpid_t are of the
     //            same store, it's easy to change this so this note is also a TODO
 
-    typedef map< lpid_t, map< foo, uint, cmp_greater > >                 ranges_hist;
-    typedef map< lpid_t, map< foo, uint, cmp_greater > >::iterator       ranges_hist_iter;
-    typedef map< lpid_t, map< foo, uint, cmp_greater > >::const_iterator ranges_hist_citer;
-    typedef map< foo, uint, cmp_greater >::iterator                      sub_ranges_hist_iter;
-    typedef map< foo, uint, cmp_greater >::const_iterator                sub_ranges_hist_citer;  
-
+    typedef map< lpid_t, map< foo, vector<uint>, cmp_greater > >                 ranges_hist;
+    typedef map< lpid_t, map< foo, vector<uint>, cmp_greater > >::iterator       ranges_hist_iter;
+    typedef map< lpid_t, map< foo, vector<uint>, cmp_greater > >::const_iterator ranges_hist_citer;
+    typedef map< foo, vector<uint>, cmp_greater >::iterator                      sub_ranges_hist_iter;
+    typedef map< foo, vector<uint>, cmp_greater >::const_iterator                sub_ranges_hist_citer;
+    typedef vector<uint>::iterator                                               sub_ranges_hist_buckets_iter;
+    typedef vector<uint>::const_iterator                                         sub_ranges_hist_buckets_citer;  
+    
     //    typedef map< lpid_t, map< foo, occ_rwlock, cmp_greater > >                 ranges_locks;
     //    typedef map< lpid_t, map< foo, occ_rwlock, cmp_greater > >::iterator       ranges_locks_iter;
     //    typedef map< lpid_t, map< foo, occ_rwlock, cmp_greater > >::const_iterator ranges_locks_citer;
@@ -147,14 +149,27 @@ private:
     //			 sub_ranges_lock_iter& sub_lock_iter, bool is_write);
     //w_rc_t _release_lock(sub_ranges_lock_iter& sub_lock_iter, bool is_write);
 
+
+    //// aging ////
+    // @note: pin: later these can be made per sub range but right now I see no use of it so
+    //             let's make our lives easier for now
+
+    // index for the current age bucket
+    uint _index;
+
+    // specifies how many age-slots the histogram has
+    uint _ages;
+    
 public:
 
     //// Construction ////
     // Calls one of the initialization functions
     data_access_histogram();
-    data_access_histogram(key_ranges_map& krm, const int common_granularity, const bool is_local);
+    data_access_histogram(key_ranges_map& krm, const int common_granularity,
+			  const uint ages, const bool is_local);
     //data_access_histogram(const data_access_histogram& rhs);
-    void initialize(key_ranges_map& krm, const int common_granularity, const bool is_local);
+    void initialize(key_ranges_map& krm, const int common_granularity,
+		    const uint ages, const bool is_local);
 
     //// Destruction ////
     ~data_access_histogram();
@@ -174,6 +189,7 @@ public:
     w_rc_t delete_bucket(const lpid_t& root);
     w_rc_t delete_sub_bucket(const lpid_t& root, const Key& key);
     
+
     //// granularity map management  ////
 
     // Updates the statistics collection granularity of the subtree given with root
@@ -181,9 +197,12 @@ public:
     w_rc_t update_granularity(const lpid_t& root, int new_granularity);
 
 
-    // operator =
+    //// operator =
     data_access_histogram& operator=(const data_access_histogram& rhs);
     
+
+    //// aging ////
+    void inc_age();
 
     // TODOs:
     // add bucket / delete bucket functions

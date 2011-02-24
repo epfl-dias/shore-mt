@@ -51,7 +51,7 @@
  ******************************************************************/
 
 data_access_histogram::data_access_histogram()
-    : _is_local(false)
+    : _is_local(false), _index(0), _ages(1)
 {
     _foo_keys.clear();
 }
@@ -59,17 +59,21 @@ data_access_histogram::data_access_histogram()
 
 data_access_histogram::data_access_histogram(key_ranges_map& krm,
 					     const int common_granularity,
+					     const uint ages,
 					     const bool is_local)
 {
-    initialize(krm, common_granularity, is_local);
+    initialize(krm, common_granularity, ages, is_local);
 }
 
 
 void data_access_histogram::initialize(key_ranges_map& krm,
 				       const int common_granularity,
+				       const uint ages,
 				       const bool is_local)
 {
+    _index = 0;
     _is_local = is_local;
+    _ages = ages;
 	
     // TODO: pin: currently i don't know how to partition a range
     //            if i try to go over the bits i'll have the same
@@ -93,7 +97,9 @@ void data_access_histogram::initialize(key_ranges_map& krm,
     // initialize the maps
     for(uint i=0; i < subtrees.size(); i++) {
 	foo* newkv = new foo((char*) (&init), sizeof(int), true);
-	_range_accesses[subtrees[i]][*newkv] = 0;
+	for(uint j=0; j < _ages; j++) {
+	    _range_accesses[subtrees[i]][*newkv].push_back(0);
+	}
 	//_range_locks[subtrees[i]][*newkv] = occ_rwlock();
 	_foo_keys[subtrees[i]].push_back(newkv);
 	_granularities[subtrees[i]] = common_granularity;
@@ -119,6 +125,7 @@ data_access_histogram::~data_access_histogram()
 	//       careful to do it only once
     }
 
+    /*
     // pin: temp: write the values to a file to check now
     ofstream data_accesses("data_accesses.txt", ios::app);
     for(ranges_hist_iter ranges_iter = _range_accesses.begin();
@@ -132,6 +139,7 @@ data_access_histogram::~data_access_histogram()
 	    data_accesses << "\t" << (sub_ranges_iter->first)._m << " : " << sub_ranges_iter->second << endl;
 	}
     }
+    */
     
     
     for(key_values_iter keys_iter = _foo_keys.begin();
@@ -190,7 +198,7 @@ w_rc_t data_access_histogram::inc_access_count(const lpid_t& root, const Key& ke
 	if(sub_ranges_iter == (ranges_iter->second).end()) {
 	    r = RC(hist_RANGE_DOESNT_EXIST);
 	} else {
-	    atomic_inc(sub_ranges_iter->second);
+	    atomic_inc((sub_ranges_iter->second)[_index]);
 	}
     }
 
@@ -239,7 +247,7 @@ w_rc_t data_access_histogram::update_access_count(const lpid_t& root, const Key&
 	if(sub_ranges_iter == (ranges_iter->second).end()) {
 	    r = RC(hist_RANGE_DOESNT_EXIST);
 	} else {
-	    atomic_add_int(&(sub_ranges_iter->second), amount);
+	    atomic_add_int(&((sub_ranges_iter->second)[_index]), amount);
 	}
     }
 
@@ -430,4 +438,12 @@ data_access_histogram& data_access_histogram::operator=(const data_access_histog
     _histogram_lock.release_write();
     */    
     return *this;
+}
+
+
+
+
+//// aging ////
+void data_access_histogram::inc_age() {
+    _index = (_index+1) % _ages;  
 }
