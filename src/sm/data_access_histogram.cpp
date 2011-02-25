@@ -75,13 +75,6 @@ void data_access_histogram::initialize(key_ranges_map& krm,
     _is_local = is_local;
     _ages = ages;
 	
-    // TODO: pin: currently i don't know how to partition a range
-    //            if i try to go over the bits i'll have the same
-    //            msb/lsb related problems. think of a way to solve
-    //            this. otherwise, you're left with integers again
-    //            in the worst case
-    //            below is a not very nice temporary solution
-
     // TODO: pin: if no local ones are going to be used remove is_local also
     
     _foo_keys.clear();
@@ -95,14 +88,41 @@ void data_access_histogram::initialize(key_ranges_map& krm,
     }
 
     // initialize the maps
+    cvec_t start_key;
+    cvec_t end_key;
+    uint partsCreated;
+    uint numParts = 100/common_granularity;
+    uint size;
     for(uint i=0; i < subtrees.size(); i++) {
-	foo* newkv = new foo((char*) (&init), sizeof(int), true);
-	for(uint j=0; j < _ages; j++) {
-	    _range_accesses[subtrees[i]][*newkv].push_back(0);
+	// get min&max keys
+	krm.getBoundaries(subtrees[i], start_key, end_key);
+	char* minKey_c = (char*) malloc(start_key.size());
+	start_key.copy_to(minKey_c, start_key.size());
+	char* maxKey_c = (char*) malloc(end_key.size());
+	end_key.copy_to(maxKey_c, end_key.size());
+	char** subParts = (char**) malloc(numParts*sizeof(char*));
+	size = (start_key.size() < end_key.size()) ? start_key.size() : end_key.size();
+	// create subrange start keys
+	partsCreated = key_ranges_map::distributeSpace(minKey_c, start_key.size(),
+						       maxKey_c, end_key.size(),
+						       numParts, subParts);
+	// add subranges
+	for(uint j=0; j<partsCreated; j++) {
+	    foo* newkv = new foo(subParts[j], size, true);
+	    for(uint j=0; j < _ages; j++) {
+		_range_accesses[subtrees[i]][*newkv].push_back(0);
+	    }
+	    //_range_locks[subtrees[i]][*newkv] = occ_rwlock();
+	    _foo_keys[subtrees[i]].push_back(newkv);
 	}
-	//_range_locks[subtrees[i]][*newkv] = occ_rwlock();
-	_foo_keys[subtrees[i]].push_back(newkv);
 	_granularities[subtrees[i]] = common_granularity;
+	// delete malloced stuff
+	for(uint i=0; i<partsCreated; i++) {
+	    delete subParts[i];
+	}
+	delete subParts;
+	delete minKey_c;
+	delete maxKey_c;
     }
     
     if(!is_local) {
@@ -125,7 +145,8 @@ data_access_histogram::~data_access_histogram()
 	//       careful to do it only once
     }
 
-    /*
+
+    
     // pin: temp: write the values to a file to check now
     ofstream data_accesses("data_accesses.txt", ios::app);
     for(ranges_hist_iter ranges_iter = _range_accesses.begin();
@@ -136,10 +157,10 @@ data_access_histogram::~data_access_histogram()
 	for(sub_ranges_hist_iter sub_ranges_iter = (ranges_iter->second).begin();
 	    sub_ranges_iter != (ranges_iter->second).end();
 	    sub_ranges_iter++) {
-	    data_accesses << "\t" << (sub_ranges_iter->first)._m << " : " << sub_ranges_iter->second << endl;
+	    data_accesses << "\t" << (sub_ranges_iter->first)._m << " : " << (sub_ranges_iter->second)[0] << endl;
 	}
     }
-    */
+    
     
     
     for(key_values_iter keys_iter = _foo_keys.begin();
@@ -280,11 +301,13 @@ w_rc_t data_access_histogram::add_bucket(const lpid_t& root, int granularity)
 }
 
 
+// pin: i don't know how the below 5 functions need to be used now,
+//      these will be shaped as repartition manager needs them
 /****************************************************************** 
  *
  * @fn:      add_sub_bucket()
  *
- * @brief:   adds a new bucket for a new subroot
+ * @brief:   adds a new subbucket for a new subroot
  *
  * @param:   lpid_t root    - 
  *
@@ -302,7 +325,7 @@ w_rc_t data_access_histogram::add_sub_bucket(const lpid_t& root, const Key& key,
  *
  * @fn:      delete_bucket()
  *
- * @brief:   adds a new bucket for a new subroot
+ * @brief:   deletes a new bucket for a new subroot
  *
  * @param:   lpid_t root    - 
  *
@@ -320,7 +343,7 @@ w_rc_t data_access_histogram::delete_bucket(const lpid_t& root)
  *
  * @fn:      delete_sub_bucket()
  *
- * @brief:   adds a new bucket for a new subroot
+ * @brief:   deletes a new subbucket for a new subroot
  *
  * @param:   lpid_t root    - 
  *
@@ -368,9 +391,6 @@ w_rc_t data_access_histogram::update_granularity(const lpid_t& root, int new_gra
     } else {
 	gran_iter->second = new_granularity;
 	assert(0);
-	// TODO: update the subranges and distribute the numbers
-	//       right now have a problem with updating the subranges
-	//       see the non-default constructor for more expalantion
     }
 
     // 3. release the locks if necessary
@@ -392,51 +412,7 @@ data_access_histogram& data_access_histogram::operator=(const data_access_histog
     // pin: since now we think of a central data_access_histogram we don't need this
     
     DBG(<<"Copying the data access histogram: ");
-    /*    
-    ranges_hist_citer ranges_citer;
-    sub_ranges_hist_citer sub_ranges_citer;
-    //ranges_locks_citer locks_citer;
-    //sub_ranges_locks_citer sub_locks_citer;
-    key_values_citer keys_citer;
-    sub_key_values_citer sub_keys_citer;
-    
-    _histogram_lock.acquire_write();
-    //rhs._histogram_lock.acquire_read();
-    
-    _foo_keys.clear();
-    _range_accesses.clear();
-    //_range_locks.clear();
-    _granularities.clear();
-    
-    for(keys_citer = rhs._foo_keys.begin();
-	keys_citer != rhs._foo_keys.end();
-	keys_citer++) {
-	for(sub_keys_citer = (keys_citer->second).begin();
-	    sub_keys_citer != (keys_citer->second).end();
-	    sub_keys_citer++) {
-	    foo* newkv = new foo((*sub_keys_citer)->_m, (*sub_keys_citer)->_len, true);
-	    
-	    sub_ranges_citer = rhs._range_accesses[keys_citer->first].lower_bound(*(*sub_keys_citer));
-	    assert(sub_ranges_citer != rhs._range_accesses[keys_citer->first].end());
-	    _range_accesses[keys_citer->first][*newkv] = sub_ranges_citer->second;
-
-	    //sub_locks_citer = rhs._range_locks[keys_citer->first].lower_bound(*(*sub_keys_citer));
-	    //assert(sub_locks_citer != rhs._range_locks[keys_citer->first].end());
-	    //_range_locks[keys_citer->first][*newkv] = sub_locks_citer->second;
-
-	    _foo_keys[keys_citer->first].push_back(newkv);
-	}
-
-	_granularities[keys_citer->first] = rhs._granularities[keys_citer->first];
-	assert(_granularities[keys_citer->first] != 0);
-
-    }
-
-    _is_local = rhs._is_local;
-
-    //rhs._histogram_lock.release_read();
-    _histogram_lock.release_write();
-    */    
+    assert(0);
     return *this;
 }
 
