@@ -251,7 +251,7 @@ public:
 
 
     // Returns the range boundaries of a partition in start&end key
-    w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey, bool& last);
+    w_rc_t getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey);
 
 
     // Updates the root of the partition starting with key

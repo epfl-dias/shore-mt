@@ -908,7 +908,7 @@ btree_m::mr_bulk_load(
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey, last_root);
+			//partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);
@@ -1174,7 +1174,7 @@ btree_m::mr_bulk_load(
 	    // TODO: stats of the old root
 
 	    // change to new root
-	    partitions.getBoundaries(current_root, startKey, endKey, last_root);
+	    //partitions.getBoundaries(current_root, startKey, endKey, last_root);
 	    DBG(<< "index->sub_root =" << current_root 
 		<< "startKey =" << startKey
 		<< "endKey =" << endKey);
@@ -1345,7 +1345,7 @@ btree_m::mr_bulk_load_l(
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey, last_root);
+			//partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);

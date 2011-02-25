@@ -157,6 +157,50 @@ w_rc_t key_ranges_map::nophy_equal_partitions(const sinfo_s& sinfo,
                                               const cvec_t& maxKey,
                                               const uint numParts)
 {
+    assert(numParts);
+
+    // 1. scramble min&max keys
+    cvec_t* scrambled_key;
+    W_DO(btree_m::_scramble_key(scrambled_key, minKey, minKey.count(), sinfo.kc));
+    uint minKey_size = scrambled_key->size();
+    char* minKey_c = (char*) malloc(minKey_size);
+    scrambled_key->copy_to(minKey_c, minKey_size);
+    scrambled_key->reset();
+    W_DO(btree_m::_scramble_key(scrambled_key, maxKey, maxKey.count(), sinfo.kc));
+    uint maxKey_size = scrambled_key->size();
+    char* maxKey_c = (char*) malloc(maxKey_size);
+    scrambled_key->copy_to(maxKey_c, maxKey_size);
+
+    // 2. determine the partition start keys
+    char** subParts = (char**) malloc(numParts*sizeof(char*));
+    uint partsCreated = key_ranges_map::distributeSpace(minKey_c, minKey_size,
+							maxKey_c, maxKey_size,
+							numParts, subParts);
+
+    // 3. add partitions
+    _rwlock.acquire_write();
+    _keyRangesMap.clear();
+    _rwlock.release_write();    
+    uint size = (minKey_size < maxKey_size) ? minKey_size : maxKey_size;
+    stid_t astid;
+    lpid_t root(astid,0);
+    for(uint i=0; i<partsCreated; i++) {
+	scrambled_key->reset();
+	scrambled_key->put(subParts[i], size);
+	root.page = i;
+	W_DO(addPartition(*scrambled_key,root));
+    }
+
+    // 4. delete malloced stuff
+    for(uint i=0; i<partsCreated; i++) {
+	delete subParts[i];
+    }
+    delete subParts;
+    delete minKey_c;
+    delete maxKey_c;
+    
+    // FOR INTEGERS ONLY
+    /*
     assert (_minKey);
     assert (_maxKey);
     assert(numParts);
@@ -198,8 +242,10 @@ w_rc_t key_ranges_map::nophy_equal_partitions(const sinfo_s& sinfo,
 	d_current_key = d_current_key + diff;
         i++;
     }
+    */
 
-    //printPartitions();
+    //printPartitionsInBytes();  
+    
     return (RCOK);
 }
 
@@ -229,10 +275,6 @@ w_rc_t key_ranges_map::addPartition(const cvec_t& key, lpid_t& newRoot)
     if (iter==_keyRangesMap.end() ) {
         foo* newkv = new foo((char*)key._base[0].ptr,key._base[0].len,true);
         _keyRangesMap[*newkv] = newRoot;
-
-        //cvec_t* newkey = new cvec_t(key,0,key.size());
-        //_keyRangesMap[*newkey] = newRoot;
-        
         _numPartitions++;
         _fookeys.push_back(newkv);
     }
@@ -244,14 +286,6 @@ w_rc_t key_ranges_map::addPartition(const cvec_t& key, lpid_t& newRoot)
 
     return (r);
 }
-
-// w_rc_t key_ranges_map::addPartition(const Key& key, lpid_t& newRoot)
-// {
-//     char* keyS = (char*) malloc(key.size());
-//     key.copy_to(keyS);
-//     W_DO(_addPartition(keyS, newRoot));
-//     return (RCOK);
-// }
 
 
 /****************************************************************** 
@@ -494,7 +528,7 @@ w_rc_t key_ranges_map::getAllPartitions(vector<lpid_t>& pidVec)
  *
  ******************************************************************/
 
-w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey, bool& last) 
+w_rc_t key_ranges_map::getBoundaries(lpid_t pid, cvec_t& startKey, cvec_t& endKey) 
 {
     KRMapIt iter;
     bool bFound = false;

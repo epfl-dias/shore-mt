@@ -975,7 +975,6 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     cvec_t* key;
     cvec_t end_key;
     int value;
-    bool last = false;
     
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
@@ -989,7 +988,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	for(i = 0; i < pidVec.size(); i++) {
 	    cout << "Partition " << i << endl;
 	    bt->print(pidVec[i], k);
-	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key, last);
+	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key);
 	    if(start_key.size() != 0) {
 		W_DO(bt->_unscramble_key(key, start_key, sd->sinfo().nkc, sd->sinfo().kc));
 		key->copy_to(&value, sizeof(value));
@@ -1584,31 +1583,33 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     uint size = (minKey_size < maxKey_size) ? minKey_size : maxKey_size;
     lpid_t root;    
     // pin: lines commented out with "d" is for debugging
-    //d char* copy_char = (char*) malloc(size);
-    //d cvec_t* real_key2;
+    //char* copy_char = (char*) malloc(size); // d
+    //cvec_t* real_key2; // d
     for(uint i=0; i<partsCreated; i++) {
 	real_key->reset();
 	real_key->put(subParts[i], size);
-	//d W_DO(bt->_unscramble_key(real_key2, *real_key, maxKey.count(), sd->sinfo().kc, true));
-	//d real_key2->copy_to(copy_char, size);
-	//d cout << *(int*) copy_char << endl;
-	//d if(i != 0) {
+	// W_DO(bt->_unscramble_key(real_key2, *real_key, maxKey.count(), sd->sinfo().kc, true)); // d
+	// real_key2->copy_to(copy_char, size); // d
+	// cout << *(int*) copy_char << endl; // d
+	// if(i != 0) {
 	W_DO(bt->create(stid, root, isCompressed));
 	sd->partitions().addPartition(*real_key, root);
-	//d}
+	//} // d
     }
 
-    // 3. free subParts
+    // 3. free malloced stuff
     for(uint i=0; i<partsCreated; i++) {
 	delete subParts[i];
     }
     delete subParts;
+    delete minKey_c;
+    delete maxKey_c;
 
     // 4. print final partitions
     sd->partitions().printPartitionsInBytes();  
 
 
-    // pin: old hacked version that just works for integers
+    // pin: FOR INTEGERS ONLY
     /*
     vector<lpid_t> roots;
     for(uint i=0; i<numParts-1; i++) {
