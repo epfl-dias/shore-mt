@@ -863,7 +863,7 @@ uint key_ranges_map::distributeSpace(const char* min, const uint minSize,
 	
 	double current_d = min_i;
 	double max_d = max_i;
-	while(current_d < max_d) {
+	while(partsCreated < numParts && current_d < max_d) {
 	    uint current = current_d;
 	    subParts[partsCreated] = (char*)malloc(size);
 	    memset(subParts[partsCreated], 0, size);
