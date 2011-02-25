@@ -1585,7 +1585,7 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     // pin: lines commented out with "d" is for debugging
     //char* copy_char = (char*) malloc(size); // d
     //cvec_t* real_key2; // d
-    for(uint i=0; i<partsCreated; i++) {
+    for(uint i=1; i<partsCreated; i++) {
 	real_key->reset();
 	real_key->put(subParts[i], size);
 	// W_DO(bt->_unscramble_key(real_key2, *real_key, maxKey.count(), sd->sinfo().kc, true)); // d
