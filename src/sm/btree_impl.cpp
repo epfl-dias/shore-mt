@@ -3845,7 +3845,7 @@ again:
 		}
                 if(!sib.is_fixed()) {
                     W_DO(sib.fix(sib_pid, fix_latch));
-                } else if (sib.latch_mode() != fix_latch) {
+                } else if (!bIgnoreLatches && sib.latch_mode() != LATCH_EX) {
 #if COMMENT
                     // Took out because the buffer cleaner might
                     // have this page latched, but the buffer 
@@ -3855,7 +3855,7 @@ again:
                     W_DO(sib.upgrade_latch_if_not_block(would_block));
                     w_assert9(!would_block);
 #else
-                    sib.upgrade_latch(fix_latch);
+                    sib.upgrade_latch(LATCH_EX);
 #endif /* COMMENT */
                 }
             }
@@ -5105,11 +5105,7 @@ btree_impl::_propagate(
              * changed..
              */
             w_assert9(p[top].is_fixed());
-	    fix_latch = LATCH_EX;
-	    if(bIgnoreLatches) {
-		fix_latch = LATCH_NL;
-	    }
-            if(p[top].latch_mode() != fix_latch) {
+            if(!bIgnoreLatches && p[top].latch_mode() != LATCH_EX) {
                 // should not block because we've got the tree latched
 #if W_DEBUG_LEVEL > 3
                 bool would_block = false;
@@ -5119,7 +5115,7 @@ btree_impl::_propagate(
                     DBG(<<"BF-CLEANER? clash" );
                 }
 #endif 
-                p[top].upgrade_latch(fix_latch);
+                p[top].upgrade_latch(LATCH_EX);
             }
 
             if(isdelete) {
