@@ -225,8 +225,7 @@ t_cc_file  | error     | error       | error     | error     | SH/none
         const cvec_t&             bound2,
         bool                      include_nulls = false,
         concurrency_t             cc = t_cc_kvl,
-        lock_mode_t               mode = SH,
-        const bool                bIgnoreLatches = false
+        lock_mode_t               mode = SH
         );
 
 
@@ -285,7 +284,6 @@ private:
     bool                 _skip_nulls;
     concurrency_t        _cc;
     lock_mode_t          _mode;
-    bool                 _bIgnoreLatches;
 
     rc_t            _fetch(
         vec_t*                key, 
@@ -299,8 +297,7 @@ private:
         const cvec_t&         bound,
         cmp_t                 c2,
         const cvec_t&         b2,
-        lock_mode_t           mode = SH,
-        const bool            bIgnoreLatches = false);
+        lock_mode_t           mode = SH);
 
     void            xct_state_changed(
         xct_state_t            old_state,
@@ -464,8 +461,7 @@ public:
         const rid_t&             start,
         concurrency_t            cc = t_cc_file,
         bool                     prefetch=false,
-        lock_mode_t              ignored = SH,
-        const bool               bIgnoreLatches = false);
+        lock_mode_t              ignored = SH);
 
     /**\brief Construct an iterator over the given store (file).
      *
@@ -492,8 +488,7 @@ public:
         const stid_t&            stid,
         concurrency_t            cc = t_cc_file,
         bool                     prefetch=false,
-        lock_mode_t              ignored = SH,
-        const bool               bIgnoreLatches = false);
+        lock_mode_t              ignored = SH);
 
     NORET            ~scan_file_i();
     
@@ -563,9 +558,6 @@ protected:
     concurrency_t    _cc;  // concurrency control
     lock_mode_t      _page_lock_mode;
     lock_mode_t      _rec_lock_mode;
-
-    bool             _bIgnoreLatches;
-
 
     rc_t             _init(bool for_append=false);
 

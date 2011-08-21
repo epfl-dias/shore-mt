@@ -171,10 +171,6 @@ static char const* page_tag_to_str(int page_tag) {
         return "t_rtree_p";
     case page_p::t_file_p:
         return "t_file_p";
-    case page_p::t_ranges_p:
-        return "t_ranges_p";
-    case page_p::t_file_mrbt_p:
-        return "t_file_mrbt_p";
     default:
         return "<garbage>";
     }

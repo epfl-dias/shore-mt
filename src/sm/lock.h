@@ -109,9 +109,6 @@ public:
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
         lockid_t**                  nameInLockHead = 0
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
         );
      
 	/* force the core to acquire a lock, regardless of 
@@ -125,9 +122,6 @@ public:
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
         lockid_t**                  nameInLockHead = 0
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
         );
 
     rc_t                        unlock(const lockid_t& n);
@@ -176,9 +170,6 @@ private:
         timeout_in_ms                timeout,
         bool                         force,
         lockid_t**                   nameInLockHead
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
         );
 
     rc_t                        _query_implicit(

@@ -2003,9 +2003,9 @@ bf_m::_clean_segment(
                     w_assert2(bp->latch.held_by_me() == true); 
 
                     if(_core->_in_htab(bp) && bp->dirty()) {
-                        // ... copy the whole page // pin: temp comment out for the below two lines
-                        //w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
-                        //w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
+                        // ... copy the whole page
+                        w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
+                        w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
                         w_assert1(consecutive < smlevel_0::max_many_pages);
                         pbuf[consecutive] = *bp->frame();
                         bparray[consecutive] = bp;
@@ -2151,7 +2151,7 @@ bf_m::_clean_segment(
                         // w_assert0(ps->pid == bp->pid());
                         w_assert0(ps->pid.page == bp->pid().page);
 
-                        //w_assert0(bp->old_rec_lsn().valid()); // pin: temp comment out for this line
+                        w_assert0(bp->old_rec_lsn().valid());
 
                         // mark the page as no longer being written out
                         bp->clr_old_rec_lsn();

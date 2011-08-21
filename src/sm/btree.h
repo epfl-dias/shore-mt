@@ -97,8 +97,7 @@ public:
     static rc_t                        create(
         const stid_t &              stid,
         lpid_t&                     root,
-        bool                        compressed,
-	const bool                  bIgnoreLatches = false
+        bool                        compressed
         );
     static rc_t                        bulk_load(
         const lpid_t&                     root,
@@ -120,137 +119,6 @@ public:
         bool                              unique,
         concurrency_t                      cc,
         btree_stats_t&                    stats);
-    
-    static rc_t                        mr_bulk_load(
-        key_ranges_map&                   partitions,
-        int                               nsrcs,
-        const stid_t*                     src,
-        int                               nkc,
-        const key_type_s*                 kc,
-        bool                              unique,
-        concurrency_t                     cc,
-        btree_stats_t&                    stats,
-        bool                              sort_duplicates = true,
-        bool                              lexify_keys   = true,
-	const bool                        bIgnoreLatches = false
-        );
-    static rc_t                        mr_bulk_load(
-        key_ranges_map&                   partitions,
-        sort_stream_i&                    sorted_stream,
-        int                               nkc,
-        const key_type_s*                 kc,
-        bool                              unique,
-        concurrency_t                      cc,
-        btree_stats_t&                    stats);
-    static rc_t                        mr_bulk_load_l(
-        key_ranges_map&                   partitions,
-        int                               nsrcs,
-        const stid_t*                     src,
-        int                               nkc,
-        const key_type_s*                 kc,
-        bool                              unique,
-        concurrency_t                     cc,
-        btree_stats_t&                    stats,
-        bool                              sort_duplicates = true,
-        bool                              lexify_keys   = true,
-	const bool                        bIgnoreLatches = false
-        );
-    static rc_t                        mr_bulk_load_l(
-        key_ranges_map&                   partitions,
-        sort_stream_i&                    sorted_stream,
-        int                               nkc,
-        const key_type_s*                 kc,
-        bool                              unique,
-        concurrency_t                      cc,
-        btree_stats_t&                    stats);
-    static rc_t                        split_tree(
-        const lpid_t&                     root_old,
-	const lpid_t&                     root_new,
-        const cvec_t&                     key,
-	lpid_t&                           leaf_old,
-	lpid_t&                           leaf_new,
-	const bool                        bIgnoreLatches);
-    static rc_t                        relocate_recs_l(
-        lpid_t&                   leaf_old,
-        const lpid_t&                   leaf_new,
-	const bool bIgnoreLatches = false,
-	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
-    static rc_t                        relocate_recs_p(
-        const lpid_t&                   root_old,
-        const lpid_t&                   root_new,
-	const bool bIgnoreLatches = false,
-	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
-    static rc_t                        merge_trees(
-        lpid_t&                           root,
-        const lpid_t&                     root1,
-	const lpid_t&                     root2,
-        cvec_t&                           startKey2,
-	const bool                        update_owner = false,
-	const bool                        bIgnoreLatches = false);
-    static rc_t                    mr_insert(
-        const lpid_t&                     root,
-	bool                              unique,
-        concurrency_t                     cc,
-        const cvec_t&                     key,
-        const cvec_t&                     elem,
-        int                               split_factor = 50,
-	const bool                        bIgnoreLatches = false);
-   static rc_t                    mr_insert_l(
-        const lpid_t&                     root,
-	bool                              unique,
-        concurrency_t                     cc,
-        const cvec_t&                     key,
-        //rc_t (*fill_el)(vec_t&, const lpid_t&), 
-	el_filler*                       ef,
-	size_t el_size,
-        int                               split_factor = 50,
-	const bool                        bIgnoreLatches = false,
-	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
-    static rc_t                    mr_insert_p(
-        const lpid_t&                     root,
-	bool                              unique,
-        concurrency_t                     cc,
-        const cvec_t&                     key,
-	//rc_t (*fill_el)(vec_t&, const lpid_t&),
-	el_filler*                       ef,
-	size_t el_size,
-        int                               split_factor = 50,
-	const bool                        bIgnoreLatches = false);
-    static rc_t                        mr_remove(
-        const lpid_t&                    root,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                    key,
-        const cvec_t&                    elem,
-	const bool                        bIgnoreLatches);
-    static rc_t                        mr_remove_key(
-        const lpid_t&                    root,
-        int                              nkc,
-        const key_type_s*                kc,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                    key,
-        int&                             num_removed,
-	const bool                       bIgnoreLatches);
-    static rc_t                        mr_lookup(
-        const lpid_t&                    root, 
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                    key_to_find, 
-        void*                            el, 
-        smsize_t&                        elen,
-        bool&                            found,
-	const bool                       bIgnoreLatches);
-    static rc_t                        mr_update(
-        const lpid_t&                    root, 
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                    key_to_find, 
-        const cvec_t&                    old_el, 
-	const cvec_t&                    new_el,
-        bool&                            found,
-	const bool                       bIgnoreLatches);
-
     static rc_t                        insert(
         const lpid_t&                     root,
         int                               nkc,
@@ -290,8 +158,7 @@ public:
         const cvec_t&                     key_to_find, 
         void*                            el, 
         smsize_t&                     elen,
-        bool&                     found,
-	bool                         use_dirbuf = false);
+        bool&                     found);
 
     /* for lid service only */
     static rc_t                        lookup_prev(
@@ -316,30 +183,12 @@ public:
         cmp_t                            cond1,
         cmp_t                           cond2,
         const cvec_t&                    bound2,
-        lock_mode_t                    mode = SH,
-	const bool bIgnoreLatches = false);
-
-        static rc_t                        mr_fetch_init(
-        cursor_t&                     cursor, 
-        vector<lpid_t>&                     roots,
-        int                            nkc,
-        const key_type_s*            kc,
-        bool                             unique, 
-        concurrency_t                    cc,
-        const cvec_t&                     key, 
-        const cvec_t&                     elem,
-        cmp_t                            cond1,
-        cmp_t                           cond2,
-        const cvec_t&                    bound2,
-        lock_mode_t                    mode = SH,
-	const bool bIgnoreLatches = false);
-
-    static rc_t                        fetch_reinit(cursor_t& cursor, const bool bIgnoreLatches = false); 
-    static rc_t                        fetch(cursor_t& cursor,
-					     const bool bIgnoreLatches = false);
-    static rc_t                        is_empty(const lpid_t& root, bool& ret, const bool bIgnoreLatches = false);
+        lock_mode_t                    mode = SH);
+    static rc_t                        fetch_reinit(cursor_t& cursor); 
+    static rc_t                        fetch(cursor_t& cursor);
+    static rc_t                        is_empty(const lpid_t& root, bool& ret);
     static rc_t                        purge(const lpid_t& root, bool check_empty, 
-					     bool forward_processing, const bool bIgnoreLatches = false);
+					     bool forward_processing);
     static rc_t                 get_du_statistics(
         const lpid_t&                    root, 
         btree_stats_t&                btree_stats,
@@ -350,17 +199,14 @@ public:
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*            kc,
-	bool                        use_dirbuf = false);
+        const key_type_s*            kc);
 
     static rc_t                        _unscramble_key(
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*             kc,
-	bool                        use_dirbuf = false);
+        const key_type_s*             kc);
 
-    // pin: to debug (protected shoudl be moved up later
 protected:
     /* 
      * for use by logrecs for undo, redo

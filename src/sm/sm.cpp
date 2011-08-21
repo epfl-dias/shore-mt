@@ -57,10 +57,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #define SM_SOURCE
 #define SM_C
 
-#ifdef SM_DORA
-#warning DORA-related code paths enabled
-#endif
-
 #ifdef __GNUG__
 class prologue_rc_t;
 #pragma implementation "sm.h"
@@ -222,7 +218,6 @@ chkpt_m* smlevel_1::chkpt = 0;
 btree_m* smlevel_2::bt = 0;
 file_m* smlevel_2::fi = 0;
 rtree_m* smlevel_2::rt = 0;
-ranges_m* smlevel_2::ra = 0;
 
 
 
@@ -875,12 +870,6 @@ ss_m::_construct_once(
         W_FATAL(eOUTOFMEMORY);
     }
 
-    ra = new ranges_m;
-    if (! ra) {
-        W_FATAL(eOUTOFMEMORY);
-    }
-
-    
     DBG(<<"Level 3");
     /*
      *  Level 3
@@ -1119,10 +1108,6 @@ ss_m::_destruct_once()
 
     lm->assert_empty(); // no locks should be left
 
-#ifdef SM_HISTOGRAM
-    W_COERCE( destroy_all_histograms() );
-#endif
-    
     /*
      *  Level 4
      */
@@ -1138,7 +1123,6 @@ ss_m::_destruct_once()
     /*
      *  Level 2
      */
-    delete ra; ra = 0; // partitions manager
     delete rt; rt = 0; // rtree manager
     delete fi; fi = 0; // file manager : log is still running
     delete bt; bt = 0; // btree manager
@@ -1779,7 +1763,6 @@ ss_m::config_info(sm_config_info_t& info)
 
         std::cerr << " sizeof rectag_t " << sizeof(rectag_t) << std::endl;
         std::cerr << " file_p::data_sz " << file_p::data_sz << std::endl;
-	std::cerr << " file_mrbt_p::data_sz " << file_mrbt_p::data_sz << std::endl;
         std::cerr << " sizeof file_p_hdr_t " << sizeof(file_p_hdr_t) << std::endl;
     }
 #endif
@@ -2907,19 +2890,7 @@ ss_m::_get_du_statistics( const stid_t& stpgid, sm_du_stats_t& du, bool audit)
             DBG(<<"t_btree");
         case t_uni_btree:
             DBG(<<"t_uni_btree");
-	case t_mrbtree:
-	    DBG(<<"t_mrbtree");
-	case t_uni_mrbtree:
-	    DBG(<<"t_uni_mrbtree");
-	case t_mrbtree_l:
-	    DBG(<<"t_mrbtree_l");
-	case t_uni_mrbtree_l:
-	    DBG(<<"t_uni_mrbtree_l");
-	case t_mrbtree_p:
-	    DBG(<<"t_mrbtree_p");
-	case t_uni_mrbtree_p:
-	    DBG(<<"t_uni_mrbtree_p");
-	{
+	    {
                 btree_stats_t btree_stats;
                 W_DO( bt->get_du_statistics(sd->root(), btree_stats, audit));
                 if (audit) {
@@ -3344,9 +3315,7 @@ ss_m::gather_xct_stats(sm_stats_info_t& _stats, bool reset)
 
                 "t_lgdata_p",
                 "t_lgindex_p",
-		"t_ranges_p",
 
-		"t_file_mrbt_p",
                 "t_any_p",
                 "none"
                 };

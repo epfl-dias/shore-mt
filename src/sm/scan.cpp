@@ -121,8 +121,7 @@ scan_index_i::scan_index_i(
     const cvec_t&         bound2_, 
     bool                  include_nulls,
     concurrency_t         cc,
-    lock_mode_t           mode,
-    const bool            bIgnoreLatches
+    lock_mode_t           mode
     ) 
 : xct_dependent_t(xct()),
   _stid(stid_),
@@ -131,12 +130,11 @@ scan_index_i::scan_index_i(
   _error_occurred(),
   _btcursor(0),
   _skip_nulls( ! include_nulls ),
-  _cc(cc),
-  _bIgnoreLatches(bIgnoreLatches)
+  _cc(cc)
 {
     INIT_SCAN_PROLOGUE_RC(scan_index_i::scan_index_i, prologue_rc_t::read_only, 1);
 
-    _init(c1, bound1_, c2, bound2_, mode, bIgnoreLatches);
+    _init(c1, bound1_, c2, bound2_, mode);
     register_me();
 }
 
@@ -162,8 +160,7 @@ scan_index_i::_init(
     const cvec_t&         bound,
     cmp_t                 c2, 
     const cvec_t&         b2,
-    lock_mode_t           mode,
-    const bool            bIgnoreLatches)
+    lock_mode_t           mode)
 {
     _finished = false;
 
@@ -297,60 +294,6 @@ scan_index_i::_init(
             }
         }
         break;
-    case t_mrbtree:
-    case t_uni_mrbtree:
-    case t_mrbtree_l:
-    case t_uni_mrbtree_l:
-    case t_mrbtree_p:
-    case t_uni_mrbtree_p:
-        {
-            _btcursor = new bt_cursor_t(!_skip_nulls);
-            if (! _btcursor) {
-                _error_occurred = RC(eOUTOFMEMORY);
-                return;
-            }
-            bool inclusive = (cond == eq || cond == ge || cond == le);
-
-            cvec_t* elem = 0;
-
-            elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
-
-	    // traverse all the subtrees that covers the region [bound,b2]
-	    vector<lpid_t> roots;
-	    cvec_t* bound_key;
-	    cvec_t* b2_key;
-	    _error_occurred = bt->_scramble_key(bound_key, bound, sd->sinfo().nkc, sd->sinfo().kc);
-	    char* bound_sc = (char*) malloc((*bound_key).size());
-	    (*bound_key).copy_to(bound_sc, (*bound_key).size());
-	    cvec_t b1(bound_sc, (*bound_key).size());
-	    _error_occurred = bt->_scramble_key(b2_key, b2, sd->sinfo().nkc, sd->sinfo().kc);
-
-	    if(&bound == &vec_t::neg_inf && &b2 == &vec_t::pos_inf) {
-		_error_occurred = sd->partitions().getAllPartitions(roots);
-	    } else {
-		_error_occurred = sd->partitions().getPartitions(b1, inclusive, *b2_key,
-								 c2 == eq || c2 == ge || c2 == le, roots);
-	    }
-	    _error_occurred = bt->mr_fetch_init(*_btcursor, roots, 
-						sd->sinfo().nkc, sd->sinfo().kc,
-						ntype == t_uni_btree,
-						key_lock_level,
-						b1, *elem, 
-						cond, c2, *b2_key, mode,
-                                                bIgnoreLatches);
-	    free(bound_sc);
-	    
-	    if (_error_occurred.is_error())  {
-                return;
-            }
-            if(_btcursor->is_backward()) {
-                // Not fully supported
-                _error_occurred = RC(eNOTIMPLEMENTED);
-                return;
-            }
-        }
-        break;
-
     default:
         W_FATAL(eINTERNAL);
    }
@@ -394,12 +337,6 @@ scan_index_i::finish()
     switch (ntype)  {
     case t_btree:
     case t_uni_btree:
-    case t_mrbtree:
-    case t_uni_mrbtree:
-    case t_mrbtree_l:
-    case t_uni_mrbtree_l:
-    case t_mrbtree_p:
-    case t_uni_mrbtree_p:
         if (_btcursor)  {
             delete _btcursor;
             _btcursor = 0;
@@ -454,19 +391,13 @@ scan_index_i::_fetch(
     switch (ntype)  {
     case t_btree:
     case t_uni_btree:
-    case t_mrbtree:
-    case t_uni_mrbtree:
-    case t_mrbtree_l:
-    case t_uni_mrbtree_l:
-    case t_mrbtree_p:
-    case t_uni_mrbtree_p:
         if (skip) {
             /*
              *  Advance cursor.
              */
             do {
                 DBG(<<"");
-                W_DO( bt->fetch(*_btcursor, _bIgnoreLatches) );
+                W_DO( bt->fetch(*_btcursor) );
                 if(_btcursor->eof()) break;
             } while (_skip_nulls && (_btcursor->klen() == 0));
         }
@@ -653,15 +584,13 @@ scan_rt_i::xct_state_changed(
 
 scan_file_i::scan_file_i(
         const stid_t& stid_, const rid_t& start,
-        concurrency_t cc, bool pre, 
-        lock_mode_t, /*mode TODO: remove.  is documented as ignored*/
-        const bool bIgnoreLatches) 
+         concurrency_t cc, bool pre, 
+         lock_mode_t /*mode TODO: remove.  is documented as ignored*/) 
 : xct_dependent_t(xct()),
   stid(stid_),
   curr_rid(start),
   _eof(false),
   _cc(cc), 
-  _bIgnoreLatches(bIgnoreLatches),
   _do_prefetch(pre),
   _prefetch(0)
 {
@@ -679,14 +608,11 @@ scan_file_i::scan_file_i(
 }
 
 scan_file_i::scan_file_i(const stid_t& stid_, concurrency_t cc, 
-                         bool pre, 
-                         lock_mode_t, /*mode TODO: remove. this documented as ignored*/ 
-                         const bool bIgnoreLatches)
+   bool pre, lock_mode_t /*mode TODO: remove. this documented as ignored*/) 
 : xct_dependent_t(xct()),
   stid(stid_),
   _eof(false),
   _cc(cc),
-  _bIgnoreLatches(bIgnoreLatches),
   _do_prefetch(pre),
   _prefetch(0)
 {

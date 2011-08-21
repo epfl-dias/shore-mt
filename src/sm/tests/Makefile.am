@@ -31,12 +31,12 @@ check_PROGRAMS     = file_scan$(EXEEXT) \
 		    create_rec$(EXEEXT) \
 		    sort_stream$(EXEEXT) \
 		    file_scan_many$(EXEEXT) \
+		    log_exceed$(EXEEXT) \
 		    lockid_test$(EXEEXT) \
 		    lock_cache_test$(EXEEXT) \
 		    vtable_example$(EXEEXT) \
 		    rtree_example$(EXEEXT) \
-		    htab$(EXEEXT) \
-                    mrbtrees_test$(EXEEXT)	
+		    htab$(EXEEXT) 
 
 TESTS = testall
 
@@ -47,9 +47,10 @@ file_scan_SOURCES      = file_scan.cpp init_config_options.cpp
 file_scan_many_SOURCES      = file_scan_many.cpp init_config_options.cpp 
 create_rec_SOURCES      = create_rec.cpp init_config_options.cpp 
 sort_stream_SOURCES      = sort_stream.cpp init_config_options.cpp 
+log_exceed_SOURCES      = log_exceed.cpp init_config_options.cpp 
 vtable_example_SOURCES      = vtable_example.cpp init_config_options.cpp 
 rtree_example_SOURCES      = rtree_example.cpp init_config_options.cpp 
-mrbtrees_test_SOURCES      = mrbtrees_test.cpp init_config_options.cpp
+
 htab_SOURCES      = htab.cpp
 
 LDADD      = \

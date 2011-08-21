@@ -73,7 +73,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "opt_error_def_gen.h"
 #endif
 
-#include <vector>
 
 class ErrLog;
 class sm_stats_info_t;
@@ -89,9 +88,6 @@ class lock_m;
 
 class tid_t;
 class option_t;
-
-class stid_t;
-class rid_t;
 
 #ifndef        SM_EXTENTSIZE
 #define        SM_EXTENTSIZE        8
@@ -178,7 +174,7 @@ struct check_compensated_op_nesting {
 
 /**\cond skip */
 
-/**\brief Encapsulates a few types used in the API */
+/**\brief Encapsulates a few types uses in the API */
 class smlevel_0 : public w_base_t {
 public:
     enum { eNOERROR = 0, eFAILURE = -1 };
@@ -310,11 +306,6 @@ public:
             partition_number_t num
         );
 
-    typedef w_rc_t (*RELOCATE_RECORD_CALLBACK_FUNC) (
-	   vector<rid_t>&    old_rids, 
-           vector<rid_t>&    new_rids
-       );
-
 /**\cond skip */
     enum switch_t {
         ON = 1,
@@ -358,13 +349,7 @@ public:
         t_bad_ndx_t,             // illegal value
         t_btree,                 // B+tree with duplicates
         t_uni_btree,             // Unique-key btree
-        t_rtree,                 // R*tree
-	t_mrbtree,       // Multi-rooted B+tree with regular heap files   
-	t_uni_mrbtree,          
-	t_mrbtree_l,          // Multi-rooted B+tree where a heap file is pointed by only one leaf page 
-	t_uni_mrbtree_l,               
-	t_mrbtree_p,     // Multi-rooted B+tree where a heap file belongs to only one partition
-	t_uni_mrbtree_p
+        t_rtree                  // R*tree
     };
 
     /**\enum concurrency_t 
@@ -433,7 +418,7 @@ public:
     static LOG_ARCHIVED_CALLBACK_FUNC log_archived_callback;
     static fileoff_t              log_warn_trigger; 
     static int                    log_warn_exceed_percent; 
-    
+
     static int    dcommit_timeout; // to convey option to coordinator,
                                    // if it is created by VAS
 
@@ -546,18 +531,6 @@ public:
             t_store_freeing_exts, 
             t_unknown_deleting};
 /**\endcond  skip */
-
-#if SM_PLP_TRACING
-    static uint     _ptrace_level;
-    static mcs_lock _ptrace_lock;
-    static ofstream _ptrace_out;
-    enum plp_tracing_level_t { 
-        PLP_TRACE_NONE  = 0x0, 
-        PLP_TRACE_PAGE  = 0x01,
-        PLP_TRACE_CS    = 0x02
-    };
-#endif
-
 };
 
 /**\cond  skip */

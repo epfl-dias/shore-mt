@@ -226,8 +226,7 @@ public:
     rc_t        pin(
         const rid_t &          rid,
         smsize_t               start,
-        lock_mode_t            lmode = SH,
-        const bool             bIgnoreLatches = false);
+        lock_mode_t            lmode = SH);
 
     /**\brief Pin a portion of the record starting at a given location. 
      * \details
@@ -347,14 +346,7 @@ public:
      * be pinned before this is called.
      */
     rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0
-#ifdef SM_DORA
-                       , const bool bIgnoreLocks = false
-#endif
                        );
-
-    rc_t    update_mrbt_rec(smsize_t start, const vec_t& data, int* old_value = 0,
-			    const bool bIgnoreLocks = false,
-			    const bool bIgnoreLatches = false);
 
     /**\brief Update the pinned record's header.
      * \details
@@ -364,9 +356,6 @@ public:
      * at location \a start.
      */
     rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr
-#ifdef SM_DORA
-                           , const bool bIgnoreLocks = false
-#endif 
                            );
 
     /**\brief Append to a pinned record.
@@ -377,10 +366,6 @@ public:
      */
     rc_t    append_rec(const vec_t& data);
 
-    rc_t    append_mrbt_rec(const vec_t& data,
-			    const bool bIgnoreLocks = false,
-			    const bool bIgnoreLatches = false);
-    
     /**\brief Shorten a record.
      * \details
      * @param[in] amount Number of bytes to chop off the end of the 
@@ -422,13 +407,9 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m, 
                     latch_mode_t l);
 
-    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m,
-                     const bool bIgnoreLatches = false);
+    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m);
 
     rc_t        _repin(lock_mode_t lmode, int* old_value = 0
-#ifdef SM_DORA
-                       , const bool bIgnoreLocks = false
-#endif
                        );
 
     file_p*     _get_hdr_page_no_lsn_check() const {

@@ -230,9 +230,6 @@ public:
                     pginfo_t&    info, 
                     file_p*      pagep,
                     slotid_t&    idx    // output iff found
-#ifdef SM_DORA
-                    , const bool bIgnoreParents = false
-#endif
             ) const;
     w_rc_t        latch_lock_get_slot(
                     shpid_t&    shpid,
@@ -241,9 +238,6 @@ public:
                     bool        append_only,
                     bool&       success, // output
                     slotid_t&   idx // output
-#ifdef SM_DORA
-                    , const bool bIgnoreParents = false
-#endif
             ) const;
 
     ostream            &print(ostream &) const;

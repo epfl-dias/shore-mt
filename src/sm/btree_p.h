@@ -140,9 +140,6 @@ public:
     int                    level,
     shpid_t                pid0,
     uint2_t                flags);
-    
-    rc_t             set_root(shpid_t root);
-
     rc_t             set_pid0(shpid_t pid);
 
     rc_t             set_delete();
@@ -158,8 +155,8 @@ public:
                         const cvec_t&     elem,
                         btree_p&        rsib,
                         lpid_t&        parent_pid,
-                        const lpid_t&    root_pid,
-			const bool bIgnoreLatches = false);
+                        const lpid_t&    root_pid
+                    );
     rc_t             cut_page(lpid_t &child, slotid_t slot);
     
     rc_t            distribute(
@@ -167,19 +164,13 @@ public:
     bool&                 left_heavy,
     slotid_t&             snum,
     smsize_t              addition, 
-    int                   factor,
-    const bool            bIgnoreLatches);
+    int                   factor);
 
     void             print(sortorder::keytype kt = sortorder::kt_b,
                             bool print_elem=false);
     
     rc_t            shift(
     slotid_t             snum,
-    btree_p&             rsib);
-
-    rc_t            shift(
-    slotid_t             snum,
-    slotid_t             snum_dest,
     btree_p&             rsib);
 
     shpid_t         child(slotid_t idx) const;
@@ -211,7 +202,7 @@ public:
     static smsize_t         overhead_requirement_per_entry;
 
 private:
-    rc_t            _unlink(btree_p &, const bool bIgnoreLatches = false);
+    rc_t            _unlink(btree_p &);
     rc_t            _clr_flag(flag_t, bool compensate=false);
     rc_t            _set_flag(flag_t, bool compensate=false);
     rc_t            _set_hdr(const btctrl_t& new_hdr);
@@ -317,18 +308,6 @@ btree_p::shift(
     w_assert9(level() == rsib.level());
     return zkeyed_p::shift(snum, &rsib, is_compressed());
 }
-
-
-inline rc_t
-btree_p::shift(
-    slotid_t         snum,
-    slotid_t         snum_dest,
-    btree_p&         rsib)  
-{
-    w_assert9(level() == rsib.level());
-    return zkeyed_p::shift(snum, snum_dest, &rsib, is_compressed());
-}
-
 
 inline int
 btree_p::rec_size(slotid_t idx) const

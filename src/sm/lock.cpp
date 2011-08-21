@@ -411,9 +411,6 @@ lock_m::_lock(
     timeout_in_ms           timeout, 
     bool                    force,
     lockid_t**              nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
     )
 {
     FUNC(lock_m::_lock);
@@ -519,9 +516,6 @@ lock_m::_lock(
         // of the ancestors.
         int i = 1;
 
-#ifdef SM_DORA
-        if (!bIgnoreParents) {
-#endif
 
         if (xd->lock_cache_enabled() && !n.is_user_lock()) {
             for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
@@ -601,9 +595,6 @@ lock_m::_lock(
             }
         }
 
-#ifdef SM_DORA
-        }
-#endif
         DBGTHRD(<< "  i" << i << " is closest correctly-held ancestor :" << h[i]);
         DBGTHRD(<< "Entire array:");
         for(int ii=0;  ii < lockid_t::NUMLEVELS; ii++ ) {
@@ -962,9 +953,6 @@ lock_m::lock(
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
     lockid_t**           nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
     )
 {
 #if W_DEBUG_LEVEL > 2
@@ -975,9 +963,6 @@ lock_m::lock(
     lmode_t _prev_pgmode;
 
     rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, false, nameInLockHead
-#ifdef SM_DORA
-                    , bIgnoreParents
-#endif
                     );
 
     if (prev_mode != 0)
@@ -996,18 +981,12 @@ lock_m::lock_force(
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
     lockid_t**           nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
     )
 {
     lmode_t _prev_mode;
     lmode_t _prev_pgmode;
 
     rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, true, nameInLockHead
-#ifdef SM_DORA
-                    , bIgnoreParents
-#endif
                     );
 
     if (prev_mode != 0)

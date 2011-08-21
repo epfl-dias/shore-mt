@@ -72,8 +72,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_p.h"  
 #include "btcursor.h"  
 
-#include "ranges_p.h"
-
 #ifdef EXPLICIT_TEMPLATE
 // template class w_auto_delete_array_t<snum_t>;
 template class w_auto_delete_array_t<sinfo_s>;
@@ -381,7 +379,7 @@ dir_vol_m::_access(const stid_t& stid, sinfo_s& si)
     smsize_t len = sizeof(si);
     W_DO( bt->lookup(_root[i], 1, &dir_key_type,
                      true, t_cc_none,
-                     key, &si, len, found, true) );
+                     key, &si, len, found) );
     if (!found)        {
         DBG(<<"_access: BADSTID " << stid.store);
         return RC(eBADSTID);
@@ -899,40 +897,5 @@ sdesc_t::operator=(const sdesc_t& other)
         DBGTHRD(<<"copying sdesc_t");
         add_store_utilization(other._histoid->copy());
     }
-
-    _partitions = other._partitions;
-    _partitions_filled = other._partitions_filled;
-    _pages_with_space = other._pages_with_space;
-
     return *this;
 } 
-
-key_ranges_map& sdesc_t::partitions()
-{
-    if(!_partitions_filled) {
-	fill_partitions_map();
-	_partitions_filled = true;
-    }
-    return _partitions;
-}
-
-key_ranges_map* sdesc_t::get_partitions_p()
-{
-    if(!_partitions_filled) {
-	fill_partitions_map();
-	_partitions_filled = true;
-    }
-    return (&_partitions);
-}
-
-rc_t sdesc_t::fill_partitions_map() 
-{
-    W_DO( ranges_m::fill_ranges_map(root(), _partitions) );
-    return RCOK;
-}
-
-rc_t sdesc_t::store_partitions()
-{
-    W_DO( ranges_m::fill_page(root(), _partitions) );
-    return RCOK;
-}

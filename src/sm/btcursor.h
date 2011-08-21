@@ -61,6 +61,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
+
 class btree_p;
 class btrec_t;
 
@@ -87,13 +88,6 @@ public:
     const cvec_t&            bound1
     );
 
-    // for mrbt index scan
-    void            set_roots(vector<lpid_t>& roots);
-    bool            get_next_root();
-    bool is_mrbt;
-    void            set_slot(int slot) { _slot = slot; }
-    void            set_pid(const lpid_t& pid) { _pid = pid; }
-    
     lpid_t            root()     const { return _root; }
     const lpid_t&        pid()     const { return _pid; }
     const lsn_t&        lsn()     const { return _lsn; }
@@ -134,11 +128,6 @@ public:
 
 private:
     lpid_t            _root;
-
-    // for mrbt index scan
-    vector<lpid_t> _roots;
-    int _next_root;
-    
     bool            _unique;
     smlevel_0::concurrency_t    _cc;
     int                _nkc;
@@ -170,7 +159,7 @@ private:
 
 inline NORET
 bt_cursor_t::bt_cursor_t(bool include_nulls)
-    : is_mrbt(false), first_time(false), keep_going(true), _slot(-1), 
+    : first_time(false), keep_going(true), _slot(-1), 
       _space(0), _splen(0), _klen(0), _elen(0), 
       _bound1_buf(0), _bound2_buf(0), _backward(false), _eof(false),
       _include_nulls(include_nulls)

@@ -75,22 +75,14 @@ typedef uint1_t        space_bucket_t;
 class page_p : public smlevel_0 
 {
 
-    friend class dir_vol_m;  // for access to page_p::splice();
-    
-    friend class btree_impl;
-    
+friend class dir_vol_m;  // for access to page_p::splice();
+
 protected:
     typedef page_s::slot_t slot_t;
     typedef page_s::slot_offset_t slot_offset_t;
     typedef page_s::slot_length_t slot_length_t;
 
 public:
-    // -- for page tracing
-    //static pthread_mutex_t _glmutex;
-    //static ofstream _accesses;
-    //static timeval curr_time;
-    // --
-    
     enum {
         data_sz = page_s::data_sz,
         max_slot = data_sz / sizeof(slot_t) + 2
@@ -113,11 +105,9 @@ public:
         t_file_p           = 6,        // file page
         t_rtree_base_p     = 7,        // rtree base class page
         t_rtree_p          = 8,        // rtree page
-        t_lgdata_p         = 9,        // large record data page
+        t_lgdata_p         = 9,       // large record data page
         t_lgindex_p        = 10,       // large record index page
-	t_ranges_p         = 11,       // key-ranges info page
-	t_file_mrbt_p      = 12,       // file page that has an owner
-        t_any_p            = 13        // indifferent
+        t_any_p            = 11        // indifferent
     };
     enum page_flag_t {
         t_virgin        = 0x02,        // newly allocated page
@@ -191,9 +181,6 @@ public:
     bool                         pinned_by_me() const;
 
     slotid_t                     nslots() const;
- 
-    slotid_t                     nvacant() const;
- 
     smsize_t                     tuple_size(slotid_t idx) const;
     void*                        tuple_addr(slotid_t idx) const;
     bool                         is_tuple_valid(slotid_t idx) const;
@@ -661,15 +648,6 @@ page_p::nslots() const
 }
 
 /*--------------------------------------------------------------*
- *  page_p::nvacant()                                           *
- *--------------------------------------------------------------*/
-inline slotid_t
-page_p::nvacant() const
-{
-    return _pp->nvacant;
-}
-
-/*--------------------------------------------------------------*
  *  page_p::lsn()                                                *
  *--------------------------------------------------------------*/
 inline const lsn_t& 
@@ -740,7 +718,7 @@ page_p::discard()
 inline bool
 page_p::rsvd_mode(tag_t t) 
 {
-    if (t == t_file_p || t == t_file_mrbt_p || t == t_ranges_p) {
+    if (t == t_file_p) {
         return true;
     }
     return false;

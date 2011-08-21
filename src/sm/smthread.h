@@ -288,10 +288,6 @@ class smthread_t : public sthread_t {
         cvec_t  _kc_vec;
         // Used by page.cpp check()
         char    _page_check_map[SM_PAGESIZE]; // a little bigger than needed
-	// for scramble/unscramble requests coming from dir_m
-	double  _kc_buf_double_d[smlevel_0::page_sz/sizeof(double)]; // not initialized
-        cvec_t  _kc_vec_d;
-	
 
         void    create_TL_stats();
         void    clear_TL_stats();
@@ -573,11 +569,6 @@ public:
     inline
     sdesc_cache_t *  sdesc_cache() { return tcb()._sdesc_cache; }
 
-#ifdef SM_DORA
-    void	     alloc_sdesc_cache();
-    void	     free_sdesc_cache();
-#endif
-
     virtual void     _dump(ostream &) const; // to be over-ridden
     static int       collect(vtable_t&, bool names_too);
     virtual void     vtable_collect(vtable_row_t& t);
@@ -629,20 +620,8 @@ public:
                                                return tcb().__metarecs; }
     int&                           get___metarecs_in() { 
                                                return tcb().__metarecs_in; }
-    char *                         get_kc_buf(bool use_dirbuf = false)  {
-	if(use_dirbuf) {
-	    return (char *)&(tcb()._kc_buf_double_d[0]);
-	} else {
-	    return (char *)&(tcb()._kc_buf_double[0]);
-	}
-    }
-    cvec_t*                        get_kc_vec(bool use_dirbuf = false)  {
-	if(use_dirbuf) {
-	    return &(tcb()._kc_vec_d);
-	} else {
-	    return &(tcb()._kc_vec);
-	}
-    }
+    char *                         get_kc_buf()  { return (char *)&(tcb()._kc_buf_double[0]); }
+    cvec_t*                        get_kc_vec()  { return &(tcb()._kc_vec); }
     char *                         get_page_check_map() {
                                          return &(tcb()._page_check_map[0]);  }
 private:

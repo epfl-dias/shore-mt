@@ -2355,7 +2355,7 @@ public:
                     const cvec_t* vec) : 
            _init(tag, page_flag, store_flag) 
        {
-           w_assert3(tag != page_p::t_file_p && tag != page_p::t_file_mrbt_p);
+           w_assert3(tag != page_p::t_file_p);
            w_assert2(cnt == 1);
            new (data) page_insert_t(idx, cnt, vec);
        }
@@ -2368,15 +2368,15 @@ public:
                     const cvec_t* vec) : 
            _init(tag, page_flag, store_flag) 
        {
-           w_assert3(tag == page_p::t_file_p || tag == page_p::t_file_mrbt_p);
+           w_assert3(tag == page_p::t_file_p);
            zvec_t zv;
            if(vec==0) vec = &zv;
            new (data) page_reclaim_t(idx, *vec);
        }
 
     int size()  { return _init.size() + 
-        ((_init.page_tag() == page_p::t_file_p ||
-	  _init.page_tag() == page_p::t_file_mrbt_p) ? reclaim()->size() : insert()->size());
+        ((_init.page_tag() == 
+          page_p::t_file_p)? reclaim()->size() : insert()->size());
         }
 };
 
@@ -2406,14 +2406,12 @@ page_format_log::page_format_log(const page_p& p,
                 ||
                 p.tag() == page_p::t_btree_p 
                 ||
-                p.tag() == page_p::t_file_p
-		||
-                p.tag() == page_p::t_file_mrbt_p 
+                p.tag() == page_p::t_file_p 
                 );
 
     } 
 #endif
-    if (p.tag() == page_p::t_file_p || p.tag() == page_p::t_file_mrbt_p)  {
+    if (p.tag() == page_p::t_file_p) {
         // the 2nd part is a page_reclaim_t
         // only available to file_p
         w_assert2(cnt==0);
@@ -2456,7 +2454,7 @@ page_format_log::redo(page_p* page)
 {
     page_format_t* df = (page_format_t*) _data;
     df->init()->redo_init(page, pid());
-    if(page->tag() == page_p::t_file_p  || page->tag() == page_p::t_file_mrbt_p) {
+    if(page->tag() == page_p::t_file_p) {
         // reclaim is reverse of page_mark,
         // and reclaim() is really a page_mark_t *
         df->reclaim()->undo(page);
@@ -2471,7 +2469,7 @@ page_format_log::undo(page_p* page)
     page_format_t* df = (page_format_t*) _data;
 
     // There is no undo for page_init.
-    if(page->tag() == page_p::t_file_p || page->tag() == page_p::t_file_mrbt_p) {
+    if(page->tag() == page_p::t_file_p) {
         // reclaim is reverse of page_mark,
         // and reclaim() is really a page_mark_t *
         df->reclaim()->redo(page);
