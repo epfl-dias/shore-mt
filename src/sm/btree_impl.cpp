@@ -3917,6 +3917,7 @@ btree_impl::_lookup(
         tree_latch   tree_root(root, bIgnoreLatches); // for latching the whole tree
         lpid_t       search_start_pid = root;
         lsn_t        search_start_lsn = lsn_t::null;
+	bool         first_restart = true;
 
 	// latch modes
 	latch_mode_t traverse_latch;
@@ -3946,7 +3947,7 @@ btree_impl::_lookup(
         lockid_t               kvl;
 
         found = false;
-
+	
         /*
          *  Walk down the tree.  Traverse doesn't
          *  search the leaf page; it's our responsibility
@@ -3977,12 +3978,19 @@ btree_impl::_lookup(
 
 
         /* 
-         * if we re-start a traversal, we'll start with the parent
-         * in most or all cases:
+         * if we re-start a traversal,
+	 * we'll start with the parent for the first retraversal
+	 * then if that does not work we'll restart from the root
          */
-        search_start_pid = parent.pid();
-        search_start_lsn = parent.lsn();
-
+	if(first_restart) {
+	    search_start_pid = parent.pid();
+	    search_start_lsn = parent.lsn();
+	    first_restart = false;
+	} else {
+	    search_start_pid = root;
+	    search_start_lsn = lsn_t::null;
+	}
+	
         /*
          * verify that we're at correct page: search for smallest
          * satisfying key, or if not found, the next key.
