@@ -1563,7 +1563,9 @@ xct_t::~xct_t()
     delete _log_buf;
 #endif
 
-    delete __saved_sdesc_cache_t;
+    if(__saved_sdesc_cache_t) {
+	delete __saved_sdesc_cache_t;
+    }
     
     // caller deletes core...
 }
@@ -1601,7 +1603,8 @@ xct_t::reset() {
 	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
     }
     if(__saved_sdesc_cache_t) {
-	__saved_sdesc_cache_t->remove_all();
+	delete __saved_sdesc_cache_t;
+	__saved_sdesc_cache_t=0;
     }
 }
 
