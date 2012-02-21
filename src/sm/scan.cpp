@@ -276,10 +276,14 @@ scan_index_i::_init(
                 return;
             }
             bool inclusive = (cond == eq || cond == ge || cond == le);
-
+	    
             cvec_t* elem = 0;
 
-            elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
+	    if(_btcursor->is_backward()) {
+		elem = &(inclusive ? cvec_t::pos_inf : cvec_t::neg_inf);
+	    } else {
+		elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
+	    }
 
             _error_occurred = bt->fetch_init(*_btcursor, sd->root(), 
                                             sd->sinfo().nkc, sd->sinfo().kc,
@@ -290,11 +294,13 @@ scan_index_i::_init(
             if (_error_occurred.is_error())  {
                 return;
             }
+	    /*
             if(_btcursor->is_backward()) {
                 // Not fully supported
                 _error_occurred = RC(eNOTIMPLEMENTED);
                 return;
             }
+	    */
         }
         break;
     case t_mrbtree:
@@ -313,7 +319,11 @@ scan_index_i::_init(
 
             cvec_t* elem = 0;
 
-            elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
+	    if(_btcursor->is_backward()) {
+		elem = &(inclusive ? cvec_t::pos_inf : cvec_t::neg_inf);
+	    } else {
+		elem = &(inclusive ? cvec_t::neg_inf : cvec_t::pos_inf);
+	    }
 
 	    // traverse all the subtrees that covers the region [bound,b2]
 	    vector<lpid_t> roots;
@@ -343,11 +353,13 @@ scan_index_i::_init(
 	    if (_error_occurred.is_error())  {
                 return;
             }
+	    /*
             if(_btcursor->is_backward()) {
                 // Not fully supported
                 _error_occurred = RC(eNOTIMPLEMENTED);
                 return;
             }
+	    */
         }
         break;
 

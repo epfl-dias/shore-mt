@@ -1325,7 +1325,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
 
 
             if(__eof) {
-                w_assert3(slot >= child->nrecs());
+                w_assert3(slot >= child->nrecs() || (cursor.is_backward()));
                 cursor.free_rec();
 
             } else if(!__found ) {
@@ -1381,7 +1381,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
             w_assert3(child->is_fixed());
             w_assert3(child->is_leaf());
             if(__eof) {
-                w_assert3(slot >= child->nrecs());
+                w_assert3(slot >= child->nrecs() || (cursor.is_backward()));
             } else {
                 w_assert3(slot < child->nrecs());
                 w_assert3(slot >= 0);
