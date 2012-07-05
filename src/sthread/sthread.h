@@ -109,6 +109,8 @@ class smthread_t;
 #include <sdisk.h>
 #endif
 
+#define LOCKHACK
+
 class vtable_row_t;
 class vtable_t;
 
@@ -616,7 +618,13 @@ private:
     pthread_cond_t _write_cond; // paired w/ _read_write_mutex
 };
 
-typedef w_list_t<sthread_t, queue_based_lock_t>        sthread_list_t;
+#ifdef LOCKHACK
+typedef w_list_t<sthread_t, pthread_mutex_t> sthread_list_t;
+typedef w_list_i<sthread_t, pthread_mutex_t> sthread_list_i;
+#else
+typedef w_list_t<sthread_t, queue_based_lock_t> sthread_list_t;
+typedef w_list_i<sthread_t, queue_based_lock_t> sthread_list_i;
+#endif
 
 
 /**\brief Thread class for all threads that use the Shore Storage Manager.
@@ -900,10 +908,14 @@ private:
     w_link_t                    _link;        // protected by _wait_lock
 
     w_link_t                    _class_link;    // used in _class_list,
-                                 // protected by _class_list_lock
-    static sthread_list_t*      _class_list;
-    static queue_based_lock_t   _class_list_lock; // for protecting _class_list
+	// protected by _class_list_lock
+    static sthread_list_t* _class_list;
 
+#ifdef LOCKHACK
+    static pthread_mutex_t _class_list_lock; // for protecting _class_list
+#else
+    static queue_based_lock_t _class_list_lock; // for protecting _class_list
+#endif
 
     /* XXX alignment probs in derived thread classes.  Sigh */
     // fill4                       _ex_fill;

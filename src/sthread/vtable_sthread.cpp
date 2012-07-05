@@ -65,12 +65,12 @@ int
 sthread_t::collect(vtable_t &v, bool names_too)
 {
 
-    CRITICAL_SECTION(cs, _class_list_lock);
+    pthread_mutex_lock(&_class_list_lock);
 
     // Traverse once to count the number of entries. Grot.
     int nt=0;
     {
-        w_list_i<sthread_t,queue_based_lock_t> i(*_class_list);
+        sthread_list_i i(*_class_list);
         while (i.next())  { nt++; }
     }
 
@@ -90,7 +90,7 @@ sthread_t::collect(vtable_t &v, bool names_too)
 // TODO: REMOVE
 // cerr << "collect " << __LINE__ << " " << __FILE__; v.operator<<(cerr); cerr << endl;
     {
-        w_list_i<sthread_t,queue_based_lock_t> i(*_class_list);
+        sthread_list_i i(*_class_list);
         while (i.next())  {
             // Call the function f to fill a row of the table. 
             f(*i.curr());
@@ -98,7 +98,7 @@ sthread_t::collect(vtable_t &v, bool names_too)
 // cerr << "collect " << __LINE__ << " " << __FILE__; v.operator<<(cerr); cerr << endl;
         }
     }
-    // TODO: unlock the list
+    pthread_mutex_unlock(&_class_list_lock);
 
     return 0; // no error
 }
