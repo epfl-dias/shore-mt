@@ -53,10 +53,7 @@ Slackware 32-bit:
 *****************************************************************************
 *****************************************************************************
 
-You must pick up the documentation release and un-tar it anywhere. The
-root page of the documentation is in the file
- index.html
-in the root of the directory tree.
+See the on-line wiki at https://bitbucket.org/shoremt/shore-kits/wiki/Home.
 
 *****************************************************************************
 *****************************************************************************
@@ -66,4 +63,7 @@ in the root of the directory tree.
 *****************************************************************************
 *****************************************************************************
 
-See the on-line documentation for instructions.
+cd shore-storage-manager
+./bootstrap
+./configure --enable-dora --enable-dbgsymbols(optional) [in SPARC/Solaris: CXX=CC ./configure ...]
+make -j
