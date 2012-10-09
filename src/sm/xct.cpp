@@ -79,7 +79,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include <sm.h>
 #include "tls.h"
-#include "chkpt_serial.h"
 #include <sstream>
 #include "crash.h"
 #include "chkpt.h"
@@ -3666,6 +3665,7 @@ xct_t::one_thread_attached() const
 #endif
             return false;
         }
+	chkpt_serial_m::trx_release();
     }
     return true;
 }
