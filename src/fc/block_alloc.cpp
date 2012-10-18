@@ -32,8 +32,12 @@ dynpool::dynpool(size_t chip_size, size_t chip_count, size_t log2_block_size, si
     , _arr_end(0)
 {
     pthread_mutex_init(&_lock, 0);
-    int err = _arr.init(max_bytes, size_t(1) << _log2_block_size);
-    if(err) throw std::bad_alloc();
+    int initError = _arr.init(max_bytes, size_t(1) << _log2_block_size);
+    if (initError!=0) 
+    {
+        fprintf(stderr, "Error in dynpool initialization: %d\n", initError);
+        throw std::bad_alloc();        
+    }
 }
     
 dynpool::~dynpool() {

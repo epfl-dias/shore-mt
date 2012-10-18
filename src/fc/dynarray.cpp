@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <cstring>
+#include <cstdio>
 
 // no system I know of *requires* larger pages than this
 static size_t const MM_PAGE_SIZE = 8192;
@@ -50,11 +51,21 @@ int dynarray::init(size_t max_size, size_t align) {
     
     // validate inputs
     if(max_size > MM_MAX_CAPACITY)
+    {
+        std::fprintf(stderr, "dynarray::init EFBIG\n");
 	return EFBIG;
+    }
     if(MM_PAGE_SIZE > max_size)
+    {
+        std::fprintf(stderr, "dynarray::init EINVAL\n");
 	return EINVAL;
+    }
+
     if((align & -align) != align)
+    {
+        std::fprintf(stderr, "dynarray::init EINVAL\n");
 	return EINVAL;
+    }
 
     /*
       The magical incantation below tells mmap to reserve address
@@ -88,7 +99,10 @@ int dynarray::init(size_t max_size, size_t align) {
     	u={mmap(align_arg, max_size+align_extra, PROTS, flags, -1, 0)};
 
     if(u.v == MAP_FAILED)
+    {
+        fprintf(stderr, "dynarray::init MAP_FAILED %d\n", errno);        
 	return errno;
+    }
 
 #if !USE_MAP_ALIGN
     /* Verify alignment...
@@ -130,7 +144,7 @@ int dynarray::init(size_t max_size, size_t align) {
     _base = u.c;
     _capacity = max_size;
     _size = 0;
-    return 0;
+    return ( 0 );
 }
 
 int dynarray::init(dynarray const &to_copy, size_t max_size) {

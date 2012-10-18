@@ -135,9 +135,10 @@ struct block_pool
     // gets old typing this over and over...
 #define TEMPLATE_ARGS chip_size(), chip_count(), block_size()
 
+    // Default 64MB per pool per thread
     static Pool* get_pool() {
 	static Pool p(chip_size(), chip_count(), BlockSize::LOG2,
-		      MaxBytes? MaxBytes : 1024*1024*1024);
+		      MaxBytes? MaxBytes : 64*1024*1024); 
 	return &p;
     }
   
