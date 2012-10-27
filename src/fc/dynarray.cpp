@@ -21,12 +21,12 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
+#include "w_defines.h"
+
 #include "dynarray.h"
 #include "shore-config.h"
-#include <errno.h>
 #include <sys/mman.h>
 #include <algorithm>
-#include <cstdlib>
 #include <cassert>
 #include <cstring>
 #include <cstdio>
