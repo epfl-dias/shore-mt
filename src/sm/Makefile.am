@@ -53,10 +53,12 @@ LOGDEF_GENFILES_CPP = \
 	logstub_gen.cpp
 
 GENFILES_CPP = $(SM_STATS_GENFILES_CPP) \
+	       $(BF_HTAB_STATS_GENFILES_CPP) \
 	       $(LOGDEF_GENFILES_CPP)
 
 GENFILES_H = $(E_ERROR_GENFILES_H) \
 	   $(SM_STATS_GENFILES_H) \
+	   $(BF_HTAB_STATS_GENFILES_H) \
 	   $(LOGDEF_GENFILES_H)
 
  
@@ -149,7 +151,7 @@ $(E_ERROR_GENFILES_H): e_error.dat
 	$(PERL) $(top_srcdir)/tools/errors.pl --d --e $?
 
 bf.$(OBJEXT): $(BF_HTAB_STATS_GENFILES_H)
-sm.$(OBJEXT): $(BF_STATS_GENFILES_CPP)
+sm.$(OBJEXT): $(BF_HTAB_STATS_GENFILES_CPP)
 $(BF_HTAB_STATS_GENFILES_CPP) $(BF_HTAB_STATS_GENFILES_H): bf_htab_stats.dat
 	$(PERL) $(top_srcdir)/tools/stats.pl $?
 
