@@ -768,7 +768,6 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
 #endif
                    )
 {
-    w_error_t*   err=0;        // must use rather than rc_t due to HP_CC_BUG_2
     rc_t         rc;
 
     w_assert3(lmode == SH || lmode == UD || lmode == EX);
@@ -865,7 +864,7 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/
         W_DO_GOTO(rc, _hdr_page().get_rec(_rid.slot, _rec) );
         w_assert3(_rec);
         if (_start > 0 && _start >= _rec->body_size()) {
-            err = RC(eBADSTART).delegate();
+            rc = RC(eBADSTART);
             goto failure;
         }
         _flags = pin_rec_pinned;

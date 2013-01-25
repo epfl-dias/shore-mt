@@ -122,7 +122,7 @@ public:
             int bytes = sizeof(_entry[0]) * additional;
 
             // move the data. args: dest, src, amt
-            memmove((void *)&_list[additional], (void *)_list[0], bytes);
+            memmove((void *)&_list[additional], (void *)&_list[0], bytes);
             for(int i=N; i < n; i++) {
                 _entry[i] = 0;
             }
