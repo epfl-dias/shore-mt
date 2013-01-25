@@ -192,14 +192,18 @@ public:
     w_base_t::uint4_t    page_flags;        // page_p::page_flag_t
     /* 4 bytes: offset 64 */
     /* MUST BE 8-BYTE ALIGNED HERE */
-    char     data[data_sz];        // must be aligned
+    enum { MAX_SLOT = 2+data_sz/sizeof(slot_t) }; 
+    union slot_array {
+	char     data[data_sz];
+	slot_t   slot[MAX_SLOT];
+    } _slots;
 
-    /* offset 8176 */
-    slot_t    reserved_slot[1];     // 2nd slot (declared to align
-                                    // end of _data)
-    /* offset 8180 */
-    slot_t    slot[1];        // 1st slot
-
+    slot_t &slot(slotid_t idx) { return _slots.slot[MAX_SLOT-idx-1]; }
+    char *data() { return _slots.data; }
+    
+    slot_t const &slot(slotid_t idx) const { return _slots.slot[MAX_SLOT-idx-1]; }
+    char const *data() const { return _slots.data; }
+    
     /* offset 8184 */
     /* NOTE: lsn_t now requires 8-byte alignment! */
     lsn_t    lsn2;

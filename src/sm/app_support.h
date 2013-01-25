@@ -49,8 +49,8 @@ public:
     int slot_count() const { return nslots; }
 
     record_t* rec_addr(int idx) const {
-    return ((idx > 0 && idx < nslots && slot[-idx].offset >=0) ? 
-            (record_t*) (data + slot[-idx].offset) : 
+	return ((idx > 0 && idx < nslots && slot(idx).offset >=0) ? 
+		(record_t*) (data() + slot(idx).offset) : 
         0);
     }
 };

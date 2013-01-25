@@ -563,14 +563,14 @@ inline smsize_t
 page_p::tuple_size(slotid_t idx) const
 {
     w_assert3(idx >= 0 && idx < _pp->nslots);
-    return _pp->slot[-idx].length;
+    return _pp->slot(idx).length;
 }
 
 inline void*
 page_p::tuple_addr(slotid_t idx) const
 {
     w_assert3(idx >= 0 && idx < _pp->nslots);
-    return (void*) (_pp->data + _pp->slot[-idx].offset);
+    return (void*) (_pp->data() + _pp->slot(idx).offset);
 }
 
 inline bool
@@ -578,7 +578,7 @@ page_p::is_tuple_valid(slotid_t idx) const
 {
     return (idx >= 0) && 
         (idx < _pp->nslots) && 
-        (_pp->slot[-idx].offset >=0);
+        (_pp->slot(idx).offset >=0);
 }
 
 inline w_base_t::w_base_t::uint4_t
@@ -694,7 +694,7 @@ page_p::set_lsns(const lsn_t& lsn)
 inline smsize_t
 page_p::contig_space()        
 { 
-    return ((char*) &_pp->slot[-(_pp->nslots-1)]) - (_pp->data + _pp->end); 
+    return ((char*) &_pp->slot(_pp->nslots-1)) - (_pp->data() + _pp->end); 
 }
 
 /*--------------------------------------------------------------*

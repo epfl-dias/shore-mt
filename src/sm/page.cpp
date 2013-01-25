@@ -678,9 +678,9 @@ page_p::_format(const lpid_t& pid, tag_t tag,
      *  Check alignments
      */
     w_assert3(is_aligned(data_sz));
-    w_assert3(is_aligned(_pp->data - (char*) _pp));
+    w_assert3(is_aligned(_pp->data() - (char*) _pp));
     w_assert3(sizeof(page_s) == page_sz);
-    w_assert3(is_aligned(_pp->data));
+    w_assert3(is_aligned(_pp->data()));
 
     /*
      *  Do the formatting...
@@ -1104,9 +1104,9 @@ page_p::mark_free(slotid_t idx)
      *  We do not release the space for the slot table entry. The
      *  slot table is never shrunk on reserved-space pages.
      */
-    _pp->space.release(int(align(_pp->slot[-idx].length)), xct());
-    _pp->slot[-idx].length = 0;
-    _pp->slot[-idx].offset = -1;
+    _pp->space.release(int(align(_pp->slot(idx).length)), xct());
+    _pp->slot(idx).length = 0;
+    _pp->slot(idx).offset = -1;
     ++_pp->nvacant;
 
     return RCOK;
@@ -1209,7 +1209,7 @@ page_p::reclaim(slotid_t idx, const cvec_t& vec, bool log_it)
     }
     w_assert1(contig_space() >= need + need_slots);
     
-    slot_t& s = _pp->slot[-idx];
+    slot_t& s = _pp->slot(idx);
     if (idx == _pp->nslots)  {
         /*
          *  Add a new slot
@@ -1229,7 +1229,7 @@ page_p::reclaim(slotid_t idx, const cvec_t& vec, bool log_it)
      *  Copy data to page
      */
     // make sure the slot table isn't getting overrun
-    char* target = _pp->data + (s.offset = _pp->end);
+    char* target = _pp->data() + (s.offset = _pp->end);
     w_assert3((caddr_t)(target + vec.size()) <= 
               (caddr_t)&_pp->slot[-(_pp->nslots-1)]);
     vec.copy_to(target);
@@ -1307,8 +1307,8 @@ page_p::find_slot(uint4_t space_needed,
     slotid_t idx = _pp->nslots;
     if (_pp->nvacant) {
         for (slotid_t i = start_search; i < _pp->nslots; ++i) {
-            if (_pp->slot[-i].offset == -1)  {
-                w_assert3(_pp->slot[-i].length == 0);
+            if (_pp->slot(i).offset == -1)  {
+                w_assert3(_pp->slot(i).length == 0);
                 idx = i;
                 break;
             }
@@ -1367,8 +1367,8 @@ page_p::next_slot(
         // search backwards, stop at first non-vacant
         // slot, and return lowest vacant slot above that
         for (int i = _pp->nslots-1; i>=0;  i--) {
-            if (_pp->slot[-i].offset == -1)  {
-                w_assert3(_pp->slot[-i].length == 0);
+            if (_pp->slot(i).offset == -1)  {
+                w_assert3(_pp->slot(i).length == 0);
             } else {
                 idx = i+1;
                 break;
@@ -1476,18 +1476,18 @@ page_p::insert_expand(slotid_t idx, int cnt, const cvec_t *vec,
         /*
          *  Shift left neighbor slots further to the left
          */
-        memmove(&_pp->slot[-(_pp->nslots + cnt - 1)],
-                &_pp->slot[-(_pp->nslots - 1)], 
+        memmove(&_pp->slot(_pp->nslots + cnt - 1),
+                &_pp->slot(_pp->nslots - 1), 
                 (_pp->nslots - idx) * sizeof(slot_t));
     }
 
     /*
      *  Fill up the slots and data
      */
-    register slot_t* p = &_pp->slot[-idx];
+    register slot_t* p = &_pp->slot(idx);
     for (i = 0; i < cnt; i++, p--)  {
         p->offset = _pp->end;
-        p->length = vec[i].copy_to(_pp->data + p->offset);
+        p->length = vec[i].copy_to(_pp->data() + p->offset);
         _pp->end += int(align(p->length));
     }
 
@@ -1531,8 +1531,8 @@ page_p::remove_compress(slotid_t idx, int cnt)
     /*
      *        Compute space space occupied by tuples
      */
-    register slot_t* p = &_pp->slot[-idx];
-    register slot_t* q = &_pp->slot[-(idx + cnt)];
+    register slot_t* p = &_pp->slot(idx);
+    register slot_t* q = &_pp->slot(idx + cnt);
     int amt_freed = 0;
     for ( ; p != q; p--)  {
         w_assert3(p->length < page_s::data_sz+1);
@@ -1542,9 +1542,9 @@ page_p::remove_compress(slotid_t idx, int cnt)
     /*
      *        Compress slot array
      */
-    p = &_pp->slot[-idx];
-    q = &_pp->slot[-(idx + cnt)];
-    for (slot_t* e = &_pp->slot[-_pp->nslots]; q != e; p--, q--) *p = *q;
+    p = &_pp->slot(idx);
+    q = &_pp->slot(idx + cnt);
+    for (slot_t* e = &_pp->slot(_pp->nslots); q != e; p--, q--) *p = *q;
     _pp->nslots -= cnt;
 
     /*
@@ -1672,7 +1672,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
 			DBGTHRD(<< "count " << count);
 	}
 
-    slot_t& s = _pp->slot[-idx];                // slot in question
+    slot_t& s = _pp->slot(idx);                // slot in question
 
     // Integrity check: the range start -> start+len must be in the
     // existing slot.
@@ -1807,7 +1807,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
         w_assert3(need > 0);
         if (contig_space() < (uint)adjustment)  {
             /*
-             *  Compress and bring tuple of slot[-idx] to the end.
+             *  Compress and bring tuple of slot(idx) to the end.
              */
             _compress(idx);
             w_assert1(contig_space() >= (uint)adjustment);
@@ -1824,14 +1824,14 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
                 /*
                  *  copy this record to the end and expand from there
                  */
-                memcpy(_pp->data + _pp->end,
-                       _pp->data + s.offset, s.length);
+                memcpy(_pp->data() + _pp->end,
+                       _pp->data() + s.offset, s.length);
                 s.offset = _pp->end;
                 _pp->end += int(align(s.length));
             } else {
                 /*
                  *  No other choices. 
-                 *  Compress and bring tuple of slot[-idx] to the end.
+                 *  Compress and bring tuple of slot(idx) to the end.
                  */
                 _compress(idx);
             }
@@ -1843,7 +1843,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
     /*
      *  Put data into the slot
      */
-    char* p = _pp->data + s.offset;
+    char* p = _pp->data() + s.offset;
     if (need && (s.length != start + len))  {
         /*
          *  slide tail forward or backward
@@ -1902,7 +1902,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
                 
         vec.copy_to(p + start);
     }
-    _pp->slot[-idx].length += need;
+    _pp->slot(idx).length += need;
 
 
 #if W_DEBUG_LEVEL > 2
@@ -1943,7 +1943,7 @@ page_p::merge_slots(slotid_t idx, slot_offset_t off1, slot_offset_t off2)
      */
     rc_t rc;
     {
-        slot_t& s = _pp->slot[-(idx)];
+        slot_t& s = _pp->slot(idx);
 
         /* 
          * cut out out the end of idx
@@ -1962,8 +1962,8 @@ page_p::merge_slots(slotid_t idx, slot_offset_t off1, slot_offset_t off2)
 
         W_DO(cut(idx2, 0, off2));
     }
-    slot_t& s = _pp->slot[-(idx)];
-    slot_t& t = _pp->slot[-(idx2)];
+    slot_t& s = _pp->slot(idx);
+    slot_t& t = _pp->slot(idx2);
 
     DBG(<<"shift " << idx2 << "," << 0 << ","
             << t.length << "," << idx << "," << s.length);
@@ -2042,8 +2042,8 @@ page_p::split_slot(slotid_t idx, slot_offset_t off, const cvec_t& v1,
     w_assert1(idx >= 0 && idx < _pp->nslots);
     w_assert1(idx2 >= 0 && idx2 < _pp->nslots);
 
-    slot_t& s = _pp->slot[-(idx)];
-    slot_t& t = _pp->slot[-(idx2)];
+    slot_t& s = _pp->slot(idx);
+    slot_t& t = _pp->slot(idx2);
 
     DBG(<<"shift " << idx2 << "," << 0 << ","
             << t.length << "," << idx << "," << s.length);
@@ -2112,8 +2112,8 @@ page_p::shift(
      *  We need less space -- compute adjustment for alignment
      */
     {
-        slot_t& t = _pp->slot[-idx1]; // to
-        slot_t& s = _pp->slot[-idx2]; // from
+        slot_t& t = _pp->slot(idx1); // to
+        slot_t& s = _pp->slot(idx2); // from
 
         int adjustment = 
             (        // amount needed after
@@ -2174,7 +2174,7 @@ page_p::_shift_compress(slotid_t from,
      *  Scratch area and mutex to protect it.
      */
     static queue_based_block_lock_t page_shift_compress_mutex;
-    static char shift_scratch[sizeof(_pp->data)];
+    static char shift_scratch[sizeof(_pp->_slots.data)];
 
     /*
      *  Grab the mutex
@@ -2187,21 +2187,21 @@ page_p::_shift_compress(slotid_t from,
     /*
      *  Copy data area over to scratch
      */
-    memcpy(&shift_scratch, _pp->data, sizeof(_pp->data));
+    memcpy(&shift_scratch, _pp->data(), sizeof(shift_scratch));
 
     /*
      *  Move data back without leaving holes
      */
-    register char* p = _pp->data;
+    register char* p = _pp->data();
     slotid_t  nslots = _pp->nslots;
     for (slotid_t  i = 0; i < nslots; i++) {
         if (i == from)  continue;         // ignore this slot for now
         if (i == to)  continue;         // ignore this slot, too
-        slot_t& s = _pp->slot[-i];
+        slot_t& s = _pp->slot(i);
         if (s.offset != -1)  {                 // it's in use
             w_assert3(s.offset >= 0);
             memcpy(p, shift_scratch+s.offset, s.length);
-            s.offset = p - _pp->data;
+            s.offset = p - _pp->data();
             p += align(s.length);
         }
     }
@@ -2220,7 +2220,7 @@ page_p::_shift_compress(slotid_t from,
         slot_offset_t        s_old_offset;
 
         /************** from **********************/
-        slot_t& s = _pp->slot[-from];
+        slot_t& s = _pp->slot(from);
         DBG(<<" copy from slot " << from
                 << " with tuple size " << tuple_size(from)
                 << " offset " << s.offset
@@ -2261,11 +2261,11 @@ page_p::_shift_compress(slotid_t from,
 
         s.length -= middlelen;                // XXXX
         s_old_offset = s.offset;
-        s.offset = base_p - _pp->data;
+        s.offset = base_p - _pp->data();
         p = base_p + align(s.length);
 
         /************** to **********************/
-        slot_t& t = _pp->slot[-to];
+        slot_t& t = _pp->slot(to);
         DBG(<<" copy into slot " << to
                 << " with tuple size " << tuple_size(to)
                 << " offset " << t.offset
@@ -2315,11 +2315,11 @@ page_p::_shift_compress(slotid_t from,
             p += secondpartlen;
         }
 
-        t.offset = base_p - _pp->data;
+        t.offset = base_p - _pp->data();
         t.length += middlelen;                // XXXX
         p = base_p + align(t.length);
     }
-    _pp->end = p - _pp->data;
+    _pp->end = p - _pp->data();
     DBG(<<"end after " << _pp->end);
 
     /*
@@ -2346,7 +2346,7 @@ page_p::_compress(slotid_t idx)
      *  Scratch area and mutex to protect it.
      */
     static queue_based_block_lock_t page_compress_mutex;
-    static char scratch[sizeof(_pp->data)];
+    static char scratch[sizeof(_pp->_slots.data)];
 
     /*
      *  Grab the mutex
@@ -2358,20 +2358,20 @@ page_p::_compress(slotid_t idx)
     /*
      *  Copy data area over to scratch
      */
-    memcpy(&scratch, _pp->data, sizeof(_pp->data));
+    memcpy(&scratch, _pp->data(), sizeof(scratch));
 
     /*
      *  Move data back without leaving holes
      */
-    register char* p = _pp->data;
+    register char* p = _pp->data();
     slotid_t nslots = _pp->nslots;
     for (slotid_t i = 0; i < nslots; i++) {
         if (i == idx)  continue;         // ignore this slot for now
-        slot_t& s = _pp->slot[-i];
+        slot_t& s = _pp->slot(i);
         if (s.offset != -1)  {
             w_assert3(s.offset >= 0);
             memcpy(p, scratch+s.offset, s.length);
-            s.offset = p - _pp->data;
+            s.offset = p - _pp->data();
             p += align(s.length);
         }
     }
@@ -2380,16 +2380,16 @@ page_p::_compress(slotid_t idx)
      *  Move specified slot
      */
     if (idx >= 0)  {
-        slot_t& s = _pp->slot[-idx];
+        slot_t& s = _pp->slot(idx);
         if (s.offset != -1) {
             w_assert3(s.offset >= 0);
             memcpy(p, scratch + s.offset, s.length);
-            s.offset = p - _pp->data;
+            s.offset = p - _pp->data();
             p += align(s.length);
         }
     }
 
-    _pp->end = p - _pp->data;
+    _pp->end = p - _pp->data();
 
     /*
      *  Page is now compressed with a hole after _pp->end.
@@ -2446,7 +2446,7 @@ page_p::check()
     int END = 0;
     int NFREE = data_sz + 2 * sizeof(slot_t);
 
-    slot_t* p = _pp->slot;
+    slot_t* p = &_pp->slot(0);
     for (int i = 0; i < _pp->nslots; i++, p--)  {
         int len = int(align(p->length));
         int j;
@@ -2611,10 +2611,10 @@ page_p::page_usage(int& data_size, int& header_size, int& unused,
     // calculate space wasted in data alignment
     for (int i=0 ; i<_pp->nslots; i++) {
         // if slot is not vacant
-        if ( _pp->slot[-i].offset != -1 ) {
-            data_size += _pp->slot[-i].length;
-            alignment += int(align(_pp->slot[-i].length) -
-                             _pp->slot[-i].length);
+        if ( _pp->slot(i).offset != -1 ) {
+            data_size += _pp->slot(i).length;
+            alignment += int(align(_pp->slot(i).length) -
+                             _pp->slot(i).length);
         }
     }
     // unused space
