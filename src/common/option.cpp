@@ -287,7 +287,7 @@ option_t::set_value_int8(
         const char* value, 
         ostream* err_stream)
 {
-    w_base_t::int8_t l;
+    w_base_t::int8_t MAYBE_UNUSED l;
 
     char* lastValid;
     errno = 0;

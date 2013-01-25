@@ -475,7 +475,7 @@ ss_m::append_mrbt_rec(const rid_t& rid, const vec_t& data,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::truncate_mrbt_rec(const rid_t& rid, smsize_t amount, bool &should_forward,
-			const bool bIgnoreLocks, const bool bIgnoreLatches)
+			const bool /*bIgnoreLocks*/, const bool bIgnoreLatches)
 {
 #if FILE_LOG_COMMENT_ON
     {

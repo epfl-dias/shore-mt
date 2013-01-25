@@ -303,7 +303,8 @@ static void pretty_print(ostream &out, xct_list const* /* rec */) {
     }
 }
 #include <sstream>
-static char const* db_pretty_print(xct_list const* rec, int /* i=0 */, char const* /* s=0 */) {
+char const*
+db_pretty_print(xct_list const* rec, int /* i=0 */, char const* /* s=0 */) {
     static stringstream out;
     static string str;
     out.str("");

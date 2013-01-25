@@ -644,7 +644,7 @@ void key_ranges_map::setNumPartitions(uint numPartitions)
     _rwlock.release_write();
 }
 
-void key_ranges_map::setMinKey(const Key& minKey)
+void key_ranges_map::setMinKey(const Key& /*minKey*/)
 {  
     // pin: not sure who is going to use this function
     assert (0); // IP: -//-
@@ -664,7 +664,7 @@ void key_ranges_map::setMinKey(const Key& minKey)
 //     _rwlock.release_write();
 }
 
-void key_ranges_map::setMaxKey(const Key& maxKey)
+void key_ranges_map::setMaxKey(const Key& /*maxKey*/)
 {
     // pin: not sure who is going to use this function
     assert (0); // IP: -//-

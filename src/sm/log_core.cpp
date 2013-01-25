@@ -966,7 +966,7 @@ struct hacked_qnode {
 static union {
     mcs_lock::qnode q;
     hacked_qnode hq;
-} const WAITING = {0,1,0}, ABORT_ME = {0,1,1};
+} const WAITING = {{0,1,0}}, ABORT_ME = {{0,1,1}};
 
 
 enum { SLOT_ARRAY_SIZE=256 };
@@ -2289,7 +2289,7 @@ bool log_core::_wait_for_expose(insert_info* info, bool attempt_abort) {
     membar_producer();
     if(enable_mcs_expose) {
 	if(attempt_abort && info->pred2 && _slot_array->indexof(info) % 32) {
-	    long waiting = WAITING.hq._state;
+	    unsigned long waiting = WAITING.hq._state;
 	    membar_exit();
 	    if(info->me2h._state == waiting && waiting == atomic_cas_64(&info->me2h._state, waiting, ABORT_ME.hq._state)) {
 		//fprintf(stderr, "slot %d bailed from queue\n", info - _slot_array);
@@ -2378,7 +2378,7 @@ bool log_core::_update_epochs(insert_info* info, bool attempt_abort) {
 
 	if(next.q) {
 	    next.n -= (long) &offset.i->me2._next;
-	    long value = atomic_cas_64(&next.i->me2h._state, WAITING.hq._state, 0);
+	    unsigned long value = atomic_cas_64(&next.i->me2h._state, WAITING.hq._state, 0);
 	    if(value == ABORT_ME.hq._state) {
 		// they aborted... up to us to do their dirty work
 		w_assert1(SLOT_FINISHED == next.i->vthis()->count);

@@ -4096,7 +4096,7 @@ btree_impl::_lookup(
 		    smo_mode = LATCH_NL;
 		    smo_p1mode = LATCH_NL;
 		}
-                w_error_t::err_num_t rce;
+                w_error_t::err_num_t MAYBE_UNUSED rce;
                 // unconditional
                 rce = tree_root.get_for_smo(false, smo_mode,
                         leaf, smo_p1mode, false, &p2, LATCH_NL, bIgnoreLatches);
@@ -4104,7 +4104,7 @@ btree_impl::_lookup(
                 //but we're going to restart it ANYWAY.
                 //TODO look this case up in the paper and document it here
                 //filed in GNATS 137
-                W_IGNORE(rc);
+#warning Edge case?
 
                 tree_root.unfix(); // instant latch
 
@@ -4487,7 +4487,7 @@ btree_impl::_update(
 		    smo_mode = LATCH_NL;
 		    smo_p1mode = LATCH_NL;
 		}
-                w_error_t::err_num_t rce;
+                w_error_t::err_num_t MAYBE_UNUSED rce;
                 // unconditional
                 rce = tree_root.get_for_smo(false, smo_mode,
                         leaf, smo_p1mode, false, &p2, LATCH_NL, bIgnoreLatches);
@@ -4495,7 +4495,7 @@ btree_impl::_update(
                 //but we're going to restart it ANYWAY.
                 //TODO look this case up in the paper and document it here
                 //filed in GNATS 137
-                W_IGNORE(rc);
+#warning Edge case?
 
                 tree_root.unfix(); // instant latch
 

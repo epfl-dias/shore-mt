@@ -154,7 +154,7 @@ bt_cursor_t::set_roots(vector<lpid_t>& roots) {
 
 bool
 bt_cursor_t::get_next_root() {
-    if(_backward && _next_root != _roots.size()) {
+    if(_backward && (size_t) _next_root != _roots.size()) {
 	_root = _roots[_next_root];
 	_next_root++;
 	return true;

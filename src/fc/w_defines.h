@@ -154,6 +154,11 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #error SM does not support pages this large.
 #endif
 
+#ifdef __GNUC__
+#define MAYBE_UNUSED __attribute__((unused))
+#else
+#define MAYBE_UNUSED
+#endif
 
 #include <sys/types.h>
 using namespace std;

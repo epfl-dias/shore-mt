@@ -91,7 +91,7 @@ btree_latch_manager::btree_latch_manager()
 {
 }
 
-latch_t &btree_latch_manager::find_latch(lpid_t const &root, const bool bIgnoreLatches) 
+latch_t &btree_latch_manager::find_latch(lpid_t const &root, bool bIgnoreLatches) 
 {
     long socket = cpu_info::socket_self();
     latch_t *latch=NULL;
@@ -99,7 +99,7 @@ latch_t &btree_latch_manager::find_latch(lpid_t const &root, const bool bIgnoreL
 	CRITICAL_SECTION(cs, _socket_latch_locks[socket] OCCREAD);
         btree_latch_map::iterator pos=_socket_latches[socket].find(root);
         if(pos != _socket_latches[socket].end()) {
-            lpid_t xxx = pos->first;
+            lpid_t MAYBE_UNUSED xxx = pos->first;
             w_assert1(root==xxx);
             latch=pos->second;
             return *latch; 

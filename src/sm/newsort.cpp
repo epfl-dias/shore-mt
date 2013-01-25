@@ -1904,15 +1904,11 @@ run_mgr::run_mgr(
         _tapes[j].alloc_runs(low); 
     }
 
-    smsize_t        len;
-
     /*
      * NB: it would be nice to grab only the amt of space
      * needed for the number of keys used 
      * but then the compiler couldn't do our arithmetic on rec_curr, etc
      */
-    len = sizeof(meta_header_t) * _numslots;
-
     rec_first = new meta_header_t[_numslots];
     if(!rec_first) {
         result = RC(eOUTOFMEMORY);
@@ -1923,7 +1919,6 @@ run_mgr::run_mgr(
     /* set up list of ptrs (for _QuickSort) to the metadata 
      * not needed for merge phase.
      */
-    len = sizeof(meta_header_t*) * _numslots;
     typedef meta_header_t *metaheaderptr; // for VC
     rec_list = new  metaheaderptr[_numslots];
     if(!rec_list) {

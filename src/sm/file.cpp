@@ -603,7 +603,7 @@ file_m::move_mrbt_rec_to_given_page(
 )
 {
     smsize_t        space_needed;
-    recflags_t      rec_impl; 
+    recflags_t      MAYBE_UNUSED rec_impl; 
     space_found = true;
     {
         /*
@@ -802,7 +802,7 @@ file_m::_create_mrbt_rec_in_slot(
     const vec_t&   hdr,
     const vec_t&   data,
     rid_t&        rid, // out
-    const bool    bIgnoreLatches
+    const bool    MAYBE_UNUSED bIgnoreLatches
 )
 {
     FUNC(_create_mrbt_rec_in_slot);
@@ -1649,7 +1649,7 @@ file_m::_create_rec_in_slot(
     sdesc_t&       sd,
     bool           do_append,
     rid_t&        rid, // out
-    const bool    bIgnoreLatches
+    const bool    MAYBE_UNUSED bIgnoreLatches
 )
 {
     FUNC(_create_rec_in_slot);

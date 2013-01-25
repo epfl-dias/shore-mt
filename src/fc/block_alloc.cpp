@@ -133,7 +133,6 @@ struct blob_pool::helper {
 	// doesn't matter if many threads exist already because our
 	// init function is empty and any thread which already exited
 	// can't have created a blist that needs tearing down.
-	static bool initialized = initialize();
 	static __thread bool blmap_initialized = false;
 	static __thread tls_tricks::tls_blob<BLMap> tls_blmap;
 	if(!blmap_initialized) {

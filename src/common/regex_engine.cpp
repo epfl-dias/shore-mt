@@ -290,7 +290,7 @@ dissect(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
     register char *ssp;    /* start of string matched by subsubRE */
     register char *sep;    /* end of string matched by subsubRE */
     register char *oldssp;    /* previous ssp */
-    register char *dp;
+    register char * MAYBE_UNUSED dp;
 
     AT("diss", start, stop, startst, stopst);
     sp = start;

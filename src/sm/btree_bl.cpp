@@ -1544,13 +1544,13 @@ btree_m::mr_bulk_load_l(
  *********************************************************************/
 rc_t
 btree_m::mr_bulk_load_l(
-    key_ranges_map&      partitions,          // I-  mrbtree partitions
-    sort_stream_i&       sorted_stream,        // IO - sorted stream        
-    int                  nkc,
-    const key_type_s*    kc,
-    bool                 unique,                // I-  true if btree is unique
-    concurrency_t        cc_unused,        // I-  concurrency control
-    btree_stats_t&       _stats)                // O-  index stats
+    key_ranges_map&      /*partitions*/,          // I-  mrbtree partitions
+    sort_stream_i&       /*sorted_stream*/,        // IO - sorted stream        
+    int                  /*nkc*/,
+    const key_type_s*    /*kc*/,
+    bool                 /*unique*/,                // I-  true if btree is unique
+    concurrency_t        /*cc_unused*/,        // I-  concurrency control
+    btree_stats_t&       /*_stats*/)                // O-  index stats
 {
     assert (0);      // TODO: how to implement ??
     return RCOK;

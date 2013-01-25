@@ -114,13 +114,10 @@ bool    sdisk_t::hasOption(int mode, int wanted)
 
 w_rc_t    sdisk_t::readv(const iovec_t *iov, int iovcnt, int &transfered)
 {
-    int    total = 0;
     int    done = 0;
     int    n;
     int    i;
     w_rc_t    e;
-
-    total = vsize(iov, iovcnt);
 
     for (i = 0; i < iovcnt; i++) {
         e = read(iov[i].iov_base, iov[i].iov_len, n);
@@ -139,13 +136,10 @@ w_rc_t    sdisk_t::readv(const iovec_t *iov, int iovcnt, int &transfered)
 
 w_rc_t    sdisk_t::writev(const iovec_t *iov, int iovcnt, int &transfered)
 {
-    int    total = 0;
     int    done = 0;
     int    n;
     int    i;
     w_rc_t    e;
-
-    total = vsize(iov, iovcnt);
 
     for (i = 0; i < iovcnt; i++) {
         e = write(iov[i].iov_base, iov[i].iov_len, n);

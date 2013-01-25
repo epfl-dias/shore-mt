@@ -2396,8 +2396,7 @@ ss_m::set_lock_cache_enable(bool enable)
     SM_PROLOGUE_RC(ss_m::set_lock_cache_enable, in_xct, read_only, 0);
     xct_t* x = xct();
     w_assert3(x);
-    bool old_value;
-    old_value = x->set_lock_cache_enable(enable);
+    (void) x->set_lock_cache_enable(enable);
     return RCOK;
 }
 

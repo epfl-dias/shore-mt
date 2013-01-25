@@ -423,7 +423,7 @@ void nbox_t::bytes2box(const char* key, int klen)
 //
 void nbox_t::put(const char* s)
 {
-    int n;
+    int MAYBE_UNUSED n;
     n = sscanf(C_STRING_BUG s, "%d.%d.%d.%d.%d", &dim,
                 &array[0], &array[1], &array[2], &array[3]);
     w_assert1(n==5 && dim == 2);

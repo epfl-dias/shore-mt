@@ -86,7 +86,7 @@ latch_t &store_latch_manager::find_latch(stid_t const &store)
         CRITICAL_SECTION(cs, _latch_lock OCCREAD);
         latch_map::iterator pos=_latches.find(store);
         if(pos != _latches.end()) {
-            stid_t xxx = pos->first;
+            stid_t MAYBE_UNUSED xxx = pos->first;
             w_assert1(store==xxx);
             latch=pos->second;
             return *latch; 

@@ -2517,7 +2517,7 @@ lock_core_m::close_quark(
 
     lock_head_t*        lock = 0;
     lock_request_t*     request = 0;
-    bool                found_marker = false;
+    bool                MAYBE_UNUSED found_marker = false;
 
     w_assert1(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
 

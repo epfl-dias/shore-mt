@@ -999,8 +999,9 @@ bf_m::_fix(
     ret_page = 0;
 
     bool         found=false; 
-    bool         easy_find = false; // for debugging aid; lets us
-                                    // know where "found" got set
+    // for debugging aid; lets us
+    // know where "found" got set
+    bool         MAYBE_UNUSED easy_find = false; 
     bfcb_t*      b;
     rc_t         rc;
 
@@ -1913,8 +1914,6 @@ bf_m::_clean_segment(
     // max_many_pages long and can therefore require span 2 mutexes at most.
     pthread_mutex_t* page_locks[2] = {NULL,NULL};
 
-    lsn_t   curr_lsn = lsn_t::null;
-
     // First & 2nd passes : not willing to wait for page latches
     // Third pass:
     // At the end of the loop below, you can see how it checks for
@@ -2139,7 +2138,7 @@ bf_m::_clean_segment(
                         page_s* ps = &pbuf[consecutive];
                         bfcb_t* bp = bparray[consecutive];
 
-                        bool   both(false);
+                        bool   MAYBE_UNUSED both(false);
                         pthread_mutex_t* thispagelock = 
                             page_write_mutex_t::locate(ps->pid);
                         if(thispagelock != page_locks[1]) {  

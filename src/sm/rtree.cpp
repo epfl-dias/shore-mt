@@ -112,7 +112,7 @@ ftstk_t::ftstk_t() {
 }
 
 ftstk_t::~ftstk_t() {
-    shpid_t tmp;
+    shpid_t MAYBE_UNUSED tmp;
     while (_top>0) {
         tmp = pop();
         // xd->lock()
@@ -1517,7 +1517,7 @@ rtree_m::_new_node(
 {
     rtree_p page(pl.top().page);
     vec_t el((const void*) &subtree.pid().page, 0);
-    bool split = false;
+    bool MAYBE_UNUSED split = false;
 
     rc_t rc = page.insert(key, el, subtree.pid().page);
     if (rc.is_error()) {

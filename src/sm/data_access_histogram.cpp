@@ -78,7 +78,6 @@ void data_access_histogram::initialize(key_ranges_map& krm,
     // TODO: pin: if no local ones are going to be used remove is_local also
     
     _foo_keys.clear();
-    uint init = 0;
     vector<lpid_t> subtrees;
     w_rc_t r = krm.getAllPartitions(subtrees);
     if (r.is_error()) { W_FATAL(r.err_num()); }
@@ -293,7 +292,7 @@ w_rc_t data_access_histogram::update_access_count(const lpid_t& root, const Key&
  *
  ******************************************************************/
 
-w_rc_t data_access_histogram::add_bucket(const lpid_t& root, int granularity)
+w_rc_t data_access_histogram::add_bucket(const lpid_t& /*root*/, int /*granularity*/)
 {
     assert(0);
     // TODO:
@@ -313,7 +312,7 @@ w_rc_t data_access_histogram::add_bucket(const lpid_t& root, int granularity)
  *
  ******************************************************************/
 
-w_rc_t data_access_histogram::add_sub_bucket(const lpid_t& root, const Key& key, int amount)
+w_rc_t data_access_histogram::add_sub_bucket(const lpid_t& /*root*/, const Key& /*key*/, int /*amount*/)
 {
     assert(0);
     // TODO:
@@ -331,7 +330,7 @@ w_rc_t data_access_histogram::add_sub_bucket(const lpid_t& root, const Key& key,
  *
  ******************************************************************/
 
-w_rc_t data_access_histogram::delete_bucket(const lpid_t& root)
+w_rc_t data_access_histogram::delete_bucket(const lpid_t& /*root*/)
 {
     assert(0);
     // TODO:
@@ -349,7 +348,7 @@ w_rc_t data_access_histogram::delete_bucket(const lpid_t& root)
  *
  ******************************************************************/
 
-w_rc_t data_access_histogram::delete_sub_bucket(const lpid_t& root, const Key& key)
+w_rc_t data_access_histogram::delete_sub_bucket(const lpid_t& /*root*/, const Key& /*key*/)
 {
     assert(0);
     // TODO:
@@ -407,7 +406,7 @@ w_rc_t data_access_histogram::update_granularity(const lpid_t& root, int new_gra
 
 // operator =
 
-data_access_histogram& data_access_histogram::operator=(const data_access_histogram& rhs)
+data_access_histogram& data_access_histogram::operator=(const data_access_histogram& /*rhs*/)
 {
     // pin: since now we think of a central data_access_histogram we don't need this
     
