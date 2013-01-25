@@ -1,3 +1,4 @@
+
 /* -*- mode:C++; c-basic-offset:4 -*-
    Shore-MT -- Multi-threaded port of the SHORE storage manager
    
@@ -187,7 +188,7 @@ bool sthread_t::isStackOK(const char * /*file*/, int /*line*/) const
 /* check all threads */
 void sthread_t::check_all_stacks(const char *file, int line)
 {
-    w_list_i<sthread_t, queue_based_lock_t> i(*_class_list);
+    sthread_list_i i(*_class_list);
     unsigned    corrupt = 0;
 
     while (i.next())  {
@@ -253,7 +254,12 @@ sthread_t*              sthread_t::_main_thread = 0;
 const w_base_t::uint4_t MAIN_THREAD_ID(1);
 w_base_t::uint4_t       sthread_t::_next_id = MAIN_THREAD_ID;
 sthread_list_t*         sthread_t::_class_list = 0;
+
+#ifdef LOCKHACK
+pthread_mutex_t sthread_t::_class_list_lock = PTHREAD_MUTEX_INITIALIZER;
+#else
 queue_based_lock_t      sthread_t::_class_list_lock;
+#endif
 
 stime_t                 sthread_t::boot_time = stime_t::now();
 
@@ -499,8 +505,9 @@ w_rc_t    sthread_t::fork()
         /* Add us to the list of threads, unless we are the main thread */
         if(this != _main_thread) 
         {
-            CRITICAL_SECTION(cs, _class_list_lock);
+            pthread_mutex_lock(&_class_list_lock);
             _class_list->append(this);
+            pthread_mutex_unlock(&_class_list_lock);
         }
 
         
@@ -558,7 +565,7 @@ sthread_t::sthread_t(priority_t        pr,
 
     DO_PTHREAD(pthread_cond_init(_start_cond, NULL));
     DO_PTHREAD(pthread_mutex_init(_start_terminate_lock, NULL));
-    
+   
     _core = new sthread_core_t;
     if (!_core)
         W_FATAL(fcOUTOFMEMORY);
@@ -784,17 +791,11 @@ void sthread_t::_start()
     w_assert1(isStackFrameOK(0));
     {
         CRITICAL_SECTION(cs, _start_terminate_lock);
-        if(_forked) {
-            // If the parent thread gets to fork() before
-            // the child can get to _start(), then _forked
-            // will be true. In this case, skip the condition wait.
-            CRITICAL_SECTION(cs_thread, _wait_lock);
-            _status = t_running;
-        } else {
+        while(!_forked) {
             DO_PTHREAD(pthread_cond_wait(_start_cond, _start_terminate_lock));
-            CRITICAL_SECTION(cs_thread, _wait_lock);
-            _status = t_running;
-        }
+	}
+	CRITICAL_SECTION(cs_thread, _wait_lock);
+	_status = t_running;
     }
 
 #if defined(PURIFY)
@@ -856,8 +857,9 @@ void sthread_t::_start()
         _link.detach();
     }
     {
-        CRITICAL_SECTION(cs, _class_list_lock);
+         pthread_mutex_lock(&_class_list_lock);
         _class_link.detach();
+        pthread_mutex_unlock(&_class_list_lock);
     }
 
     w_assert3(this == me());
@@ -1132,8 +1134,8 @@ void sthread_t::dumpall(ostream &o)
 // We've put this into a huge critical section
 // to make it thread-safe, even though it's probably not necessary
 // when used in the debugger, which is the only place this is used...
-    CRITICAL_SECTION(cs, _class_list_lock);
-    w_list_i<sthread_t, queue_based_lock_t> i(*_class_list);
+	pthread_mutex_lock(&_class_list_lock);
+    sthread_list_i i(*_class_list);
 
     while (i.next())  {
         o << "******* ";
@@ -1143,6 +1145,7 @@ void sthread_t::dumpall(ostream &o)
 
         i.curr()->_dump(o);
     }
+    pthread_mutex_unlock(&_class_list_lock);
 }
 
 
@@ -1302,12 +1305,14 @@ void sthread_t::for_each_thread(ThreadFunc& f)
 // We've put this into a huge critical section
 // to make it thread-safe, even though it's probably not necessary
 // when used in the debugger, which is the only place this is used...
-    CRITICAL_SECTION(cs, _class_list_lock);
-    w_list_i<sthread_t, queue_based_lock_t> i(*_class_list);
+    pthread_mutex_lock(&_class_list_lock);
+
+    sthread_list_i i(*_class_list);
 
     while (i.next())  {
         f(*i.curr());
     }
+    pthread_mutex_unlock(&_class_list_lock);
 }
 
 void print_timeout(ostream& o, const sthread_base_t::timeout_in_ms timeout)

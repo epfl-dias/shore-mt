@@ -226,7 +226,8 @@ public:
     rc_t        pin(
         const rid_t &          rid,
         smsize_t               start,
-        lock_mode_t            lmode = SH);
+        lock_mode_t            lmode = SH,
+        const bool             bIgnoreLatches = false);
 
     /**\brief Pin a portion of the record starting at a given location. 
      * \details
@@ -351,6 +352,10 @@ public:
 #endif
                        );
 
+    rc_t    update_mrbt_rec(smsize_t start, const vec_t& data, int* old_value = 0,
+			    const bool bIgnoreLocks = false,
+			    const bool bIgnoreLatches = false);
+
     /**\brief Update the pinned record's header.
      * \details
      * @param[in] start The offset from the beginning of the header of the
@@ -372,6 +377,10 @@ public:
      */
     rc_t    append_rec(const vec_t& data);
 
+    rc_t    append_mrbt_rec(const vec_t& data,
+			    const bool bIgnoreLocks = false,
+			    const bool bIgnoreLatches = false);
+    
     /**\brief Shorten a record.
      * \details
      * @param[in] amount Number of bytes to chop off the end of the 
@@ -413,7 +422,8 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m, 
                     latch_mode_t l);
 
-    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m);
+    rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m,
+                     const bool bIgnoreLatches = false);
 
     rc_t        _repin(lock_mode_t lmode, int* old_value = 0
 #ifdef SM_DORA

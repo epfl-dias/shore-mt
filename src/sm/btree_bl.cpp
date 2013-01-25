@@ -114,16 +114,15 @@ elm_cmp(const void *_r1, const void *_r2)
  *********************************************************************/
 class btsink_t : private btree_m {
 public:
-    // -- mrbt
-    btsink_t() {_bIgnoreLatches = false; }
-    // --
+
     NORET        btsink_t(const lpid_t& root, rc_t& rc);
     NORET        ~btsink_t() {};
 
-    // -- mrbt
+    // TODO: pin: while you implement bulk loading also adjust these
+    btsink_t() {_bIgnoreLatches = false; }
     rc_t        set(const lpid_t& root, const bool bIgnoreLatches = false);
     rc_t        put_mr_l(const cvec_t& key, const cvec_t& el, bool& new_leaf);
-    // --
+
     rc_t        put(const cvec_t& key, const cvec_t& el);
     rc_t        map_to_root();
 
@@ -143,9 +142,7 @@ private:
     shpid_t        _left_most[20];        // id of left most page in each level
     int         _top;                // top of the stack
 
-    // -- mrbt
     bool _bIgnoreLatches;
-    //
 
     rc_t        _add_page(int i, shpid_t pid0);
 };
@@ -747,7 +744,7 @@ btree_m::bulk_load(
     return RCOK;
 }
 
-// -- mrbt
+
 /*********************************************************************
  *
  *  btree_m::mr_bulk_load(root, ...)
@@ -801,7 +798,7 @@ btree_m::mr_bulk_load(
 
     rc_t rc;
     btsink_t sink;
-    int partition = 0;
+    //int partition = 0;
 
     // go thru the src file page by page
     int i = 0;                // toggle
@@ -911,7 +908,7 @@ btree_m::mr_bulk_load(
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey, last_root);
+			//partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);
@@ -1177,7 +1174,7 @@ btree_m::mr_bulk_load(
 	    // TODO: stats of the old root
 
 	    // change to new root
-	    partitions.getBoundaries(current_root, startKey, endKey, last_root);
+	    //partitions.getBoundaries(current_root, startKey, endKey, last_root);
 	    DBG(<< "index->sub_root =" << current_root 
 		<< "startKey =" << startKey
 		<< "endKey =" << endKey);
@@ -1348,7 +1345,7 @@ btree_m::mr_bulk_load_l(
 			// TODO: stats of the old root
 
 			// change to new root
-			partitions.getBoundaries(current_root, startKey, endKey, last_root);
+			//partitions.getBoundaries(current_root, startKey, endKey, last_root);
 			DBG(<< "index->sub_root =" << current_root 
 			    << "startKey =" << startKey
 			    << "endKey =" << endKey);
@@ -1555,11 +1552,10 @@ btree_m::mr_bulk_load_l(
     concurrency_t        cc_unused,        // I-  concurrency control
     btree_stats_t&       _stats)                // O-  index stats
 {
-
-    // TODO: how to implement ??
+    assert (0);      // TODO: how to implement ??
     return RCOK;
 }
-// --
+
 
 /*********************************************************************
  *
@@ -1582,7 +1578,7 @@ btsink_t::btsink_t(const lpid_t& root, rc_t& rc)
     _left_most[0] = _page[0].pid().page;
 }
 
-// -- mrbt
+
 /*********************************************************************
  *
  *  btsink_t::set(root_pid, bIgnoreLatches)
@@ -1613,7 +1609,7 @@ rc_t btsink_t::set(const lpid_t& root, const bool bIgnoreLatches)
     }
     return rc;
 }
-// --
+
 
 /*********************************************************************
  *
@@ -1880,7 +1876,6 @@ btsink_t::put(const cvec_t& key, const cvec_t& el)
     return RCOK;
 }
 
-// -- mrbt
 
 /*********************************************************************
  *
@@ -1993,5 +1988,3 @@ btsink_t::put_mr_l(const cvec_t& key, const cvec_t& el, bool& new_leaf)
 
     return RCOK;
 }
-
-// --

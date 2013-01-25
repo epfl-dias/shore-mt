@@ -120,7 +120,7 @@ public:
         bool                              unique,
         concurrency_t                      cc,
         btree_stats_t&                    stats);
-    // -- mrbt
+    
     static rc_t                        mr_bulk_load(
         key_ranges_map&                   partitions,
         int                               nsrcs,
@@ -200,7 +200,8 @@ public:
 	bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key,
-        rc_t (*fill_el)(vec_t&, const lpid_t&), 
+        //rc_t (*fill_el)(vec_t&, const lpid_t&), 
+	el_filler*                       ef,
 	size_t el_size,
         int                               split_factor = 50,
 	const bool                        bIgnoreLatches = false,
@@ -210,7 +211,8 @@ public:
 	bool                              unique,
         concurrency_t                     cc,
         const cvec_t&                     key,
-	rc_t (*fill_el)(vec_t&, const lpid_t&),
+	//rc_t (*fill_el)(vec_t&, const lpid_t&),
+	el_filler*                       ef,
 	size_t el_size,
         int                               split_factor = 50,
 	const bool                        bIgnoreLatches = false);
@@ -239,7 +241,16 @@ public:
         smsize_t&                        elen,
         bool&                            found,
 	const bool                       bIgnoreLatches);
-    // --
+    static rc_t                        mr_update(
+        const lpid_t&                    root, 
+        bool                             unique,
+        concurrency_t                    cc,
+        const cvec_t&                    key_to_find, 
+        const cvec_t&                    old_el, 
+	const cvec_t&                    new_el,
+        bool&                            found,
+	const bool                       bIgnoreLatches);
+
     static rc_t                        insert(
         const lpid_t&                     root,
         int                               nkc,
@@ -279,7 +290,8 @@ public:
         const cvec_t&                     key_to_find, 
         void*                            el, 
         smsize_t&                     elen,
-        bool&                     found);
+        bool&                     found,
+	bool                         use_dirbuf = false);
 
     /* for lid service only */
     static rc_t                        lookup_prev(
@@ -306,6 +318,22 @@ public:
         const cvec_t&                    bound2,
         lock_mode_t                    mode = SH,
 	const bool bIgnoreLatches = false);
+
+        static rc_t                        mr_fetch_init(
+        cursor_t&                     cursor, 
+        vector<lpid_t>&                     roots,
+        int                            nkc,
+        const key_type_s*            kc,
+        bool                             unique, 
+        concurrency_t                    cc,
+        const cvec_t&                     key, 
+        const cvec_t&                     elem,
+        cmp_t                            cond1,
+        cmp_t                           cond2,
+        const cvec_t&                    bound2,
+        lock_mode_t                    mode = SH,
+	const bool bIgnoreLatches = false);
+
     static rc_t                        fetch_reinit(cursor_t& cursor, const bool bIgnoreLatches = false); 
     static rc_t                        fetch(cursor_t& cursor,
 					     const bool bIgnoreLatches = false);
@@ -322,13 +350,15 @@ public:
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*            kc);
+        const key_type_s*            kc,
+	bool                        use_dirbuf = false);
 
     static rc_t                        _unscramble_key(
         cvec_t*&                    ret,
         const cvec_t&                    key, 
         int                             nkc,
-        const key_type_s*             kc);
+        const key_type_s*             kc,
+	bool                        use_dirbuf = false);
 
     // pin: to debug (protected shoudl be moved up later
 protected:

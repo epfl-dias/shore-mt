@@ -138,20 +138,20 @@ rc_t ranges_p::fill_ranges_map(key_ranges_map& partitions)
 
 rc_t ranges_p::fill_page(key_ranges_map& partitions)
 {
-    map<char*, lpid_t, cmp_greater> partitions_map = partitions.getMap();
+    key_ranges_map::KRMap partitions_map = partitions.getMap();
 
     page_p::mark_free(1);
     uint4_t i = 1;
  
     // put rest of the partitions' info
-    for(key_ranges_map::keysIter iter = partitions_map.begin();
+    for(key_ranges_map::KRMapIt iter = partitions_map.begin();
 	iter != partitions_map.end();
 	iter++, i++) {
 	cvec_t v;
 	// put subroot
-	v.put((char*)(&iter->second), sizeof(lpid_t));
+	v.put((char*)&iter->second, sizeof(lpid_t));
 	// put key
-	v.put(iter->first, sizeof(iter->first));
+        v.put((*iter).first._m,(*iter).first._len);
 	// add this key-subroot pair to page's data
 	W_DO(page_p::reclaim(i, v, true));
     }

@@ -73,9 +73,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "opt_error_def_gen.h"
 #endif
 
-// -- mrbt
 #include <vector>
-// --
 
 class ErrLog;
 class sm_stats_info_t;
@@ -92,10 +90,8 @@ class lock_m;
 class tid_t;
 class option_t;
 
-// -- mrbt
 class stid_t;
 class rid_t;
-// --
 
 #ifndef        SM_EXTENTSIZE
 #define        SM_EXTENTSIZE        8
@@ -314,13 +310,10 @@ public:
             partition_number_t num
         );
 
-    // -- mrbt
     typedef w_rc_t (*RELOCATE_RECORD_CALLBACK_FUNC) (
-           const stid_t&      stid,     
 	   vector<rid_t>&    old_rids, 
            vector<rid_t>&    new_rids
        );
-    // --
 
 /**\cond skip */
     enum switch_t {
@@ -366,14 +359,12 @@ public:
         t_btree,                 // B+tree with duplicates
         t_uni_btree,             // Unique-key btree
         t_rtree,                 // R*tree
-	// -- mrbt                 
 	t_mrbtree,       // Multi-rooted B+tree with regular heap files   
 	t_uni_mrbtree,          
 	t_mrbtree_l,          // Multi-rooted B+tree where a heap file is pointed by only one leaf page 
 	t_uni_mrbtree_l,               
 	t_mrbtree_p,     // Multi-rooted B+tree where a heap file belongs to only one partition
 	t_uni_mrbtree_p
-	// --
     };
 
     /**\enum concurrency_t 
@@ -443,10 +434,6 @@ public:
     static fileoff_t              log_warn_trigger; 
     static int                    log_warn_exceed_percent; 
     
-    // -- mrbt
-    // static RELOCATE_RECORD_CALLBACK_FUNC relocate_record_callback;
-    // --
-
     static int    dcommit_timeout; // to convey option to coordinator,
                                    // if it is created by VAS
 

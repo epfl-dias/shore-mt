@@ -111,9 +111,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "scan.h"
 #include "kvl_t.h" // define kvl_t for lock_base_t
 #include "lock_s.h" // define lock_base_t
-// -- mrbt
 #include "key_ranges_map.h"
-// --
 
 #include "sort.h" // define sort_stream_i
 #include "sort_s.h" // key_info_t

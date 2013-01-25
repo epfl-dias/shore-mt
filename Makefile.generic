@@ -1,3 +1,4 @@
+# -*- mode:Makefile -*-
 # rules, macros generic to all Makefile.am
 AUTOMAKE_OPTIONS = check-news dist-bzip2 readme-alpha
 
@@ -277,6 +278,10 @@ DEBUGFLAGS  = $(GENERIC_NODEBUG_FLAGS)
 OPTFLAGS    = $(FULLOPTFLAGS)
 endif
 endif
+endif
+
+if DISABLE_OPTIMIZATIONS
+OPTFLAGS = $(NOOPTFLAGS)
 endif
 
 if DEBUGGERSYMBOLS

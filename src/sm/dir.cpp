@@ -72,9 +72,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "btree_p.h"  
 #include "btcursor.h"  
 
-// -- mrbt
 #include "ranges_p.h"
-// --
 
 #ifdef EXPLICIT_TEMPLATE
 // template class w_auto_delete_array_t<snum_t>;
@@ -383,7 +381,7 @@ dir_vol_m::_access(const stid_t& stid, sinfo_s& si)
     smsize_t len = sizeof(si);
     W_DO( bt->lookup(_root[i], 1, &dir_key_type,
                      true, t_cc_none,
-                     key, &si, len, found) );
+                     key, &si, len, found, true) );
     if (!found)        {
         DBG(<<"_access: BADSTID " << stid.store);
         return RC(eBADSTID);
@@ -625,16 +623,17 @@ dir_m::access(const stid_t& stid, sdesc_t*& sd, lock_mode_t mode,
     return RCOK;
 }
 
+// only single-thread access now...
 inline void
 sdesc_cache_t::_serialize() const
 {
-    if(xct()) xct()->acquire_1thread_xct_mutex();
+    //    if(xct()) xct()->acquire_1thread_xct_mutex();
 }
 
 inline void
 sdesc_cache_t::_endserial() const
 {
-    if(xct()) xct()-> release_1thread_xct_mutex();
+    //    if(xct()) xct()-> release_1thread_xct_mutex();
 }
 
 inline void
@@ -735,17 +734,15 @@ sdesc_cache_t::remove(const stid_t& stid)
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             if (_sdescsBuckets[i][j].stid() == stid) {
-		// -- mrbt
-		//if(_sdescsBuckets[i][j].has_partitions()) {
-		//    _sdescsBuckets[i][j].store_partitions();
-		//}
-		// --
-                DBG(<<"");
+		DBG(<<"");
                 _sdescsBuckets[i][j].invalidate();
-                if (i < _minFreeBucket && j < _minFreeBucketIndex)  {
-                    _minFreeBucket = i;
-                    _minFreeBucketIndex = j;
-                }
+		if (i < _minFreeBucket) {
+		    _minFreeBucket = i;
+		    _minFreeBucketIndex = j;
+		}
+		else if(i == _minFreeBucket && j < _minFreeBucketIndex) {
+		    _minFreeBucketIndex = j;
+		}
                 _endserial();
                 return;
             }
@@ -761,11 +758,6 @@ sdesc_cache_t::remove_all()
     for (uint4_t i = 0; i < _num_buckets(); i++) {
         for (uint4_t j = 0; j < _elems_in_bucket(i); j++)  {
             DBG(<<"");
-	    // -- mrbt
-	    //if(_sdescsBuckets[i][j].has_partitions()) {
-	    //_sdescsBuckets[i][j].store_partitions();
-	    //}
-	    // --
             _sdescsBuckets[i][j].invalidate();
         }
     }
@@ -843,6 +835,7 @@ sdesc_t* sdesc_cache_t::add(const stid_t& stid, const sinfo_s& sinfo)
             }
             bucketIndex++;
         }
+	bucketIndex = 0;
         bucket++;
     }
 
@@ -907,10 +900,13 @@ sdesc_t::operator=(const sdesc_t& other)
         add_store_utilization(other._histoid->copy());
     }
 
+    _partitions = other._partitions;
+    _partitions_filled = other._partitions_filled;
+    _pages_with_space = other._pages_with_space;
+
     return *this;
 } 
 
-// -- mrbt
 key_ranges_map& sdesc_t::partitions()
 {
     if(!_partitions_filled) {
@@ -918,6 +914,15 @@ key_ranges_map& sdesc_t::partitions()
 	_partitions_filled = true;
     }
     return _partitions;
+}
+
+key_ranges_map* sdesc_t::get_partitions_p()
+{
+    if(!_partitions_filled) {
+	fill_partitions_map();
+	_partitions_filled = true;
+    }
+    return (&_partitions);
 }
 
 rc_t sdesc_t::fill_partitions_map() 
@@ -931,5 +936,3 @@ rc_t sdesc_t::store_partitions()
     W_DO( ranges_m::fill_page(root(), _partitions) );
     return RCOK;
 }
-
-// --

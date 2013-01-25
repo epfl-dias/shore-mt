@@ -75,17 +75,17 @@ typedef uint1_t        space_bucket_t;
 class page_p : public smlevel_0 
 {
 
-friend class dir_vol_m;  // for access to page_p::splice();
-    // -- mrbt
+    friend class dir_vol_m;  // for access to page_p::splice();
+    
     friend class btree_impl;
-    // --
+    
 protected:
     typedef page_s::slot_t slot_t;
     typedef page_s::slot_offset_t slot_offset_t;
     typedef page_s::slot_length_t slot_length_t;
 
 public:
-    // -- mrbt test
+    // -- for page tracing
     //static pthread_mutex_t _glmutex;
     //static ofstream _accesses;
     //static timeval curr_time;
@@ -115,10 +115,8 @@ public:
         t_rtree_p          = 8,        // rtree page
         t_lgdata_p         = 9,        // large record data page
         t_lgindex_p        = 10,       // large record index page
-	// -- mrbt
 	t_ranges_p         = 11,       // key-ranges info page
 	t_file_mrbt_p      = 12,       // file page that has an owner
-	// --
         t_any_p            = 13        // indifferent
     };
     enum page_flag_t {
@@ -193,9 +191,9 @@ public:
     bool                         pinned_by_me() const;
 
     slotid_t                     nslots() const;
-    // -- mrbt
+ 
     slotid_t                     nvacant() const;
-    // --
+ 
     smsize_t                     tuple_size(slotid_t idx) const;
     void*                        tuple_addr(slotid_t idx) const;
     bool                         is_tuple_valid(slotid_t idx) const;
@@ -662,7 +660,6 @@ page_p::nslots() const
     return _pp->nslots;
 }
 
-// -- mrbt
 /*--------------------------------------------------------------*
  *  page_p::nvacant()                                           *
  *--------------------------------------------------------------*/
@@ -671,7 +668,6 @@ page_p::nvacant() const
 {
     return _pp->nvacant;
 }
-// --
 
 /*--------------------------------------------------------------*
  *  page_p::lsn()                                                *

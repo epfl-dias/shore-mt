@@ -356,35 +356,6 @@ struct lock_x {                      \
     }                                \
 }
 
-struct Int {
-    int value;
-    Int(int v=0) : value(v) { }
-    operator int&() { return value; }
-    int &operator*() { return value; }
-};
-
-struct sli_stats {
-    Int xct_count;
-    
-    // how many locks...
-    Int requested ;	// did we explicitly ask for
-    Int acquired ;	// did we acquire (includes parents but not repeated requests)
-    Int upgraded ;	// did we upgrade?
-
-    Int eligible ;   // ... could we have inherited if we wanted to?
-    Int inherited ;		// ... did we inherit?
-    Int used ;			// ... did the next trx actually use?
-    Int too_weak ;		// ... did we inherit but have to upgrade to use?
-    Int found_late ;		// ... found by searching the lock's request queue?
-    
-    Int purged ;		// ... unused and abandoned by the next purge?
-    Int invalidated ;		// ... invalidated by another thread?
-    Int evicted ;		// ... abandoned because they left cache?
-    Int no_parent ;		// ... abandoned because we couldn't find their parent?
-    Int waited_on ;		// ... abandoned because somebody was waiting for them?
-};
-
-
 /**\brief Shared between transaction (xct_t) and lock manager
  * \details
  */
@@ -520,7 +491,6 @@ private:
 public:
     bool			_sli_enabled; // does the user want to use sli?
     bool			_sli_purged;
-    sli_stats			stats;
     sdesc_cache_t*		_sli_sdesc_cache;
     
 private:
@@ -730,9 +700,14 @@ inline lock_head_t*
 lock_request_t::get_lock_head() const
 {
     // XXX perhaps this should be an "associated list"??
-    return (lock_head_t*) (
-            ((char*)rlink.member_of()) -
-                   w_offsetof(lock_head_t, _queue));
+    union {
+	w_list_base_t* list;
+	long n;
+	lock_head_t* head;
+    } u = {rlink.member_of()};
+    if (u.list) 
+	u.n-= w_offsetof(lock_head_t, _queue);
+    return u.head;
 }
 
 inline NORET            

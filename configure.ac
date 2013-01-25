@@ -439,6 +439,7 @@ AH_TEMPLATE(W_DEBUG_RC,		[rc-is-checked code included])
 
 AH_TEMPLATE(SM_DORA,            [DORA-related code included])
 AH_TEMPLATE(SM_PLP_TRACING,     [PLP tracing code included])
+AH_TEMPLATE(SM_HISTOGRAM,       [HISTOGRAM-related code included])
 
 ## Check for atomic ops
 AC_CHECK_FUNCS([membar_enter]) 
@@ -1129,6 +1130,14 @@ AS_IF(
 AC_MSG_RESULT([Debugger symbols $dbgsymbols])
 AM_CONDITIONAL([DEBUGGERSYMBOLS], [test x$dbgsymbols = xtrue -o x$with_debug_level1 = xyes -o x$with_debug_level2 = xyes -o x$with_debug_level3 = xyes])
 
+AC_ARG_ENABLE([optimize],
+[  --enable-optimize	default:yes	Turn off compiler optimizations],
+[case "${enableval}" in
+ yes)	optimize=true ;;
+ no)	optimize=false ;;
+ *)	AC_MSG_ERROR([bad value ${enableval} for --enable-optimize]) ;;
+ esac], [optimize=true])
+AM_CONDITIONAL([DISABLE_OPTIMIZATIONS], [test x$optimize = xfalse])
 
 # -------------------------------------------------------------------------
 #
@@ -1240,8 +1249,26 @@ else
      AC_MSG_RESULT(no)
 fi
 
-# -------------------------------------------------------------------------
+#
+# (3) --enable-histogram : defines SM_HISTOGRAM
+# Enables the code paths for collecting information on data accesses
+AC_MSG_CHECKING(whether to enable HISTOGRAM-support)
+AC_ARG_ENABLE([histogram], 
+[  --enable-histogram         default:no   Enable DATA ACCESS HISTOGRAM],
+[case "${enableval}" in
+  yes) histogram=true ;;
+  no)  histogram=false ;;
+  *) histogram=false ;;
+esac],[histogram=false])
+AM_CONDITIONAL([USE_HISTOGRAM], [test x$histogram = xtrue])
 
+if test "$histogram" = true
+then 
+     AC_MSG_RESULT(yes)
+     AC_DEFINE(SM_HISTOGRAM)
+else
+     AC_MSG_RESULT(no)
+fi
 
 
 AC_CONFIG_FILES([Makefile])

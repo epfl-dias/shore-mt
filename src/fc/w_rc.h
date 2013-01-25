@@ -644,7 +644,7 @@ do {                            \
  */
 #define W_EDO(x)                      \
 do {                            \
-    w_rc_t::errcode_t __e = (x);                    \
+    w_rc_t::errcode_t __e(x);                    \
     if (W_EXPECT_NOT(__e)) return RC(__e);        \
 } while (0)
 
@@ -659,7 +659,7 @@ do {                            \
  */
 #define W_DO(x)                      \
 do {                            \
-    w_rc_t __e = (x);                    \
+    w_rc_t __e(x);                    \
     if (W_EXPECT_NOT(__e.is_error())) return RC_AUGMENT(__e);        \
 } while (0)
 
@@ -671,7 +671,7 @@ do {                            \
  */
 #define W_DO_MSG(x, m)                    \
 do {                            \
-    w_rc_t __e = (x);                    \
+    w_rc_t __e(x);                    \
     if (W_EXPECT_NOT(__e.is_error())) {                \
         RC_AUGMENT(__e);                \
         RC_APPEND_MSG(__e, m);                \
@@ -716,7 +716,7 @@ do {                            \
  */
 #define W_DO_PUSH(x, e)                    \
 do {                            \
-    w_rc_t __e = (x);                    \
+    w_rc_t __e(x);                    \
     if (W_EXPECT_NOT(__e.is_error()))  { return RC_PUSH(__e, e); }    \
 } while (0)
 
@@ -729,7 +729,7 @@ do {                            \
  */
 #define W_DO_PUSH_MSG(x, e, m)                \
 do {                            \
-    w_rc_t __e = (x);                    \
+    w_rc_t __e(x);                    \
     if (W_EXPECT_NOT(__e.is_error()))  {                \
         RC_PUSH(__e, e);                \
         RC_APPEND_MSG(__e, m);                \
@@ -758,7 +758,7 @@ do {                            \
  */
 #define W_COERCE(x)                      \
 do {                            \
-    w_rc_t __e = (x);                    \
+    w_rc_t __e(x);                    \
     if (W_EXPECT_NOT(__e.is_error()))  {                \
     RC_AUGMENT(__e);                \
     __e.fatal();                    \
@@ -770,7 +770,7 @@ do {                            \
  */
 #define W_COERCE_MSG(x, m)                \
 do {                            \
-    w_rc_t __em = (x);                    \
+    w_rc_t __em(x);                    \
     if (W_EXPECT_NOT(__em.is_error()))  {                \
     RC_APPEND_MSG(__em, m);                \
     W_COERCE(__em);                    \

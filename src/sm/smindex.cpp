@@ -59,12 +59,20 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "sm_int_4.h"
 #include "sm_du_stats.h"
 #include "sm.h"
-// -- mrbt
+
 #include "ranges_p.h"
 #include "btree_latch_manager.h"
+#ifdef SM_HISTOGRAM
+#include "data_access_histogram.h"
+#endif
+
 // NOTE : this is shared with btree layer
 btree_latch_manager btree_latches;
-// --
+
+#ifdef SM_HISTOGRAM
+// to keep data access statistics for load balancing
+map< stid_t, data_access_histogram* > data_accesses;
+#endif
 
 /*==============================================================*
  *  Physical ID version of all the index operations                *
@@ -378,8 +386,8 @@ ss_m::rtree_stats(const stid_t& stid, rtree_stats_t& stat,
     return RCOK;
 }
 
-// -- mrbt
 
+// TODO: pin: if you decide not to use system xcts anymore remove these 
 #if VOLUME_OPS_USE_OCC
 typedef occ_rwlock sm_vol_rwlock_t;
 typedef occ_rwlock::occ_rlock sm_vol_rlock_t;
@@ -499,11 +507,12 @@ rc_t ss_m::print_mr_index(stid_t stid)
  *--------------------------------------------------------------*/
 rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef, 
 			   const bool bIgnoreLocks, // = false
+			   const bool bIgnoreLatches, // = false
 			   RELOCATE_RECORD_CALLBACK_FUNC relocate_callback,  // = NULL 
-			   const lpid_t root) // lpid_t::null
+			   const lpid_t& root) // lpid_t::null
 {
     SM_PROLOGUE_RC(ss_m::create_mr_assoc, in_xct, read_write, 0);
-    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, relocate_callback, root));
+    W_DO(_create_mr_assoc(stid, key, ef, bIgnoreLocks, bIgnoreLatches, relocate_callback, root));
     return RCOK;
 }
 
@@ -511,10 +520,11 @@ rc_t ss_m::create_mr_assoc(stid_t stid, const vec_t& key, el_filler& ef,
  *  ss_m::destroy_mr_assoc()                                    *
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
-			    const bool bIgnoreLocks, const lpid_t root)
+			    const bool bIgnoreLocks, const bool bIgnoreLatches,
+			    const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, root));
+    W_DO(_destroy_mr_assoc(stid, key, el, bIgnoreLocks, bIgnoreLatches, root));
     return RCOK;
 }
 
@@ -522,10 +532,11 @@ rc_t ss_m::destroy_mr_assoc(stid_t stid, const vec_t& key, const vec_t& el,
  *  ss_m::destroy_mr_all_assoc()                                *
  *--------------------------------------------------------------*/
 rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
-				const bool bIgnoreLocks, const lpid_t root)
+				const bool bIgnoreLocks, const bool bIgnoreLatches,
+				const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mr_all_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, root));
+    W_DO(_destroy_mr_all_assoc(stid, key, num, bIgnoreLocks, bIgnoreLatches, root));
     return RCOK;
 }
 
@@ -534,10 +545,59 @@ rc_t ss_m::destroy_mr_all_assoc(stid_t stid, const vec_t& key, int& num,
  *--------------------------------------------------------------*/
 rc_t ss_m::find_mr_assoc(stid_t stid, const vec_t& key, 
 			 void* el, smsize_t& elen, bool& found,
-			 const bool bIgnoreLocks, const lpid_t root)
+			 const bool bIgnoreLocks, const bool bIgnoreLatches,
+			 const lpid_t& root)
 {
     SM_PROLOGUE_RC(ss_m::find_mr_assoc, in_xct, read_only, 0);
-    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, root));
+    W_DO(_find_mr_assoc(stid, key, el, elen, found, bIgnoreLocks, bIgnoreLatches, root));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::update_mr_assoc()                                     *
+ *--------------------------------------------------------------*/
+rc_t ss_m::update_mr_assoc(stid_t stid, const vec_t& key, 
+			   const vec_t& old_el, const vec_t& new_el, bool& found,
+			   const bool bIgnoreLocks, const bool bIgnoreLatches,
+			   const lpid_t& root)
+{
+    SM_PROLOGUE_RC(ss_m::update_mr_assoc, in_xct, read_write, 0);
+    W_DO(_update_mr_assoc(stid, key, old_el, new_el, found, bIgnoreLocks, bIgnoreLatches, root));
+    return RCOK;
+}
+
+#ifdef SM_HISTOGRAM
+/*--------------------------------------------------------------*
+ *  ss_m::destroy_all_histograms()                              *
+ *--------------------------------------------------------------*/
+rc_t ss_m::destroy_all_histograms()
+{
+    SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
+    W_DO(_destroy_all_histograms());
+    return RCOK;
+}
+#endif
+
+/*--------------------------------------------------------------*
+ *  ss_m::get_range_map()                                       *
+ *--------------------------------------------------------------*/
+rc_t ss_m::get_range_map(stid_t stid, key_ranges_map*& rangemap)
+{
+    SM_PROLOGUE_RC(ss_m::get_range_map, in_xct, read_write, 0);
+    CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
+    W_DO(_get_range_map(stid, rangemap));
+    return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::get_store_info()                                      *
+ *--------------------------------------------------------------*/
+rc_t ss_m::get_store_info(stid_t stid, sinfo_s& sinfo)
+{
+    SM_PROLOGUE_RC(ss_m::get_store_info, in_xct, read_only, 0);
+    CRITICAL_SECTION(cs, SM_VOL_RLOCK(_begin_xct_mutex));
+    W_DO(_get_store_info(stid, sinfo));
     return RCOK;
 }
 
@@ -556,23 +616,23 @@ rc_t ss_m::make_equal_partitions(stid_t stid, const vec_t& minKey,
 /*--------------------------------------------------------------*
  *  ss_m::add_partition_init()                                  *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
 {
     SM_PROLOGUE_RC(ss_m::add_partition_init, in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition_init(stid, key, bIgnoreLocks));
+    W_DO(_add_partition_init(stid, key, bIgnoreLatches));
     return RCOK;
 }
 
 /*--------------------------------------------------------------*
  *  ss_m::add_partition()                                       *
  *--------------------------------------------------------------*/
-rc_t ss_m::add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLocks, 
+rc_t ss_m::add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches, 
 			 RELOCATE_RECORD_CALLBACK_FUNC relocate_callback)
 {
     SM_PROLOGUE_RC(ss_m::add_partition, not_in_xct, read_write, 0);
     CRITICAL_SECTION(cs, SM_VOL_WLOCK(_begin_xct_mutex));
-    W_DO(_add_partition(stid, key, bIgnoreLocks, relocate_callback));
+    W_DO(_add_partition(stid, key, bIgnoreLatches, relocate_callback));
     return RCOK;
 }
 
@@ -640,13 +700,6 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 	 (cc != t_cc_im)
 	 ) return RC(eBADCCLEVEL);
 
-     // pin:
-     //vec_t startKey;
-     //cvec_t* real_key;
-     //int i = 0;
-     //startKey.put((char*)(&i),sizeof(i));
-     //W_DO(bt->_scramble_key(real_key, startKey, count, kcomp));
-    
      switch (ntype)  {
      case t_mrbtree:
      case t_uni_mrbtree:
@@ -729,7 +782,8 @@ rc_t ss_m::_create_mr_index(vid_t                   vid,
 
      // scramble the start keys
      vector<cvec_t*> keys;
-     ranges.getAllStartKeys(keys);
+     assert(0);// TODO
+     //ranges.getAllStartKeys(keys);
      vector<cvec_t*> real_keys;
 
      for(uint i=0; i< keys.size(); i++) {
@@ -921,7 +975,6 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     cvec_t* key;
     cvec_t end_key;
     int value;
-    bool last = false;
     
     switch (sd->sinfo().ntype) {
     case t_mrbtree:
@@ -935,7 +988,7 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
 	for(i = 0; i < pidVec.size(); i++) {
 	    cout << "Partition " << i << endl;
 	    bt->print(pidVec[i], k);
-	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key, last);
+	    sd->partitions().getBoundaries(pidVec[i], start_key, end_key);
 	    if(start_key.size() != 0) {
 		W_DO(bt->_unscramble_key(key, start_key, sd->sinfo().nkc, sd->sinfo().kc));
 		key->copy_to(&value, sizeof(value));
@@ -956,13 +1009,6 @@ rc_t ss_m::_print_mr_index(const stid_t& stid)
     return RCOK;
 }
 
-rc_t ss_m::_el_filler_wrapper(
-        vec_t&                 el,
-        const lpid_t&          leaf)
-{
-    return _ef->fill_el(el, leaf);
-}
-
 /*--------------------------------------------------------------*
  *  ss_m::_create_mr_assoc()                                    *
  *--------------------------------------------------------------*/
@@ -970,8 +1016,9 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			    const vec_t&         key, 
 			    el_filler&         ef,
 			    const bool bIgnoreLocks, // = false
+			    const bool bIgnoreLatches, // = false
 			    RELOCATE_RECORD_CALLBACK_FUNC relocate_callback, // = NULL
-			    const lpid_t root) // = lpid_t::null
+			    const lpid_t& root) // = lpid_t::null
 {
 
     // usually we will do kvl locking and already have an IX lock
@@ -1014,11 +1061,12 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1033,31 +1081,27 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 			   is_unique, 
 			   cc,
 			   *real_key, ef._el, 50, 
-			   bIgnoreLocks));
+			   bIgnoreLatches));
         break;
 
     case t_mrbtree_l:
     case t_uni_mrbtree_l:
 
-	_ef = &ef;
 	W_DO(bt->mr_insert_l(subroot, 
 			     is_unique, 
 			     cc,
-			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-			     bIgnoreLocks, relocate_callback));
-	_ef = NULL;
+			     *real_key, &ef, ef._el_size, 50, 
+			     bIgnoreLatches, relocate_callback));
 	break;
 
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	_ef = &ef;
 	W_DO(bt->mr_insert_p(subroot, 
 			     is_unique, 
 			     cc,
-			     *real_key, &_el_filler_wrapper, ef._el_size, 50, 
-			     bIgnoreLocks));
-	_ef = NULL;
+			     *real_key, &ef, ef._el_size, 50, 
+			     bIgnoreLatches));
 	break;
 	
     case t_rtree:
@@ -1067,6 +1111,11 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+#ifdef SM_HISTOGRAM
+    // update histogram
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1077,8 +1126,8 @@ rc_t ss_m::_create_mr_assoc(const stid_t&        stid,
 rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid, 
 			     const vec_t&         key, 
 			     const vec_t&         el,
-			     const bool bIgnoreLocks,
-			     const lpid_t root)
+			     const bool bIgnoreLocks, const bool bIgnoreLatches,
+			     const lpid_t& root)
 {
 
     concurrency_t cc = t_cc_bad;
@@ -1124,11 +1173,12 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1145,7 +1195,7 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
     
         W_DO(bt->mr_remove(subroot, 
 			   is_unique,
-			   cc, *real_key, el, bIgnoreLocks) );
+			   cc, *real_key, el, bIgnoreLatches) );
         break;
 
     case t_rtree:
@@ -1155,6 +1205,12 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
     DBG(<<"");
+
+#ifdef SM_HISTOGRAM
+    // update histogram
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
+    
     return RCOK;
 }
 
@@ -1162,7 +1218,8 @@ rc_t ss_m::_destroy_mr_assoc(const stid_t  &      stid,
  *  ss_m::_destroy_mr_all_assoc()                               *
  *--------------------------------------------------------------*/
 rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
-				 bool const bIgnoreLocks, const lpid_t root)
+				 const bool bIgnoreLocks, const bool bIgnoreLatches,
+				 const lpid_t& root)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
@@ -1212,11 +1269,12 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
     
@@ -1234,7 +1292,7 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
         W_DO(bt->mr_remove_key(subroot, 
 			       sd->sinfo().nkc, sd->sinfo().kc,
 			       is_unique,
-			       cc, *real_key, num, bIgnoreLocks));
+			       cc, *real_key, num, bIgnoreLatches));
         break;
 
     case t_rtree:
@@ -1244,6 +1302,11 @@ rc_t ss_m::_destroy_mr_all_assoc(const stid_t& stid, const vec_t& key, int& num,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+#ifdef SM_HISTOGRAM
+    // update histogram
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
 }
@@ -1257,7 +1320,8 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 			  smsize_t&             elen, 
 			  bool&                 found,
 			  const bool bIgnoreLocks,
-			  const lpid_t root)
+			  const bool bIgnoreLatches,
+			  const lpid_t& root)
 {
 
     concurrency_t cc = t_cc_bad;
@@ -1302,11 +1366,12 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
 	sd->sinfo().ntype == t_uni_mrbtree_l ||
 	sd->sinfo().ntype == t_uni_mrbtree_p;
 
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
+	
     lpid_t subroot;
     if(root != lpid_t::null) {
 	subroot = root;
     } else {
-	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	subroot = sd->root(*real_key);
     }
 
@@ -1324,7 +1389,7 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
         W_DO(bt->mr_lookup(subroot, 
 			   is_unique,
 			   cc,
-			   *real_key, el, elen, found, bIgnoreLocks) );
+			   *real_key, el, elen, found, bIgnoreLatches) );
         break;
 	
     case t_rtree:
@@ -1334,13 +1399,152 @@ rc_t ss_m::_find_mr_assoc(const stid_t&         stid,
     default:
         W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
     }
+
+#ifdef SM_HISTOGRAM
+    // update histogram
+    data_accesses[stid]->inc_access_count(subroot, *real_key);
+#endif
     
     return RCOK;
+}
+
+/*--------------------------------------------------------------*
+ *  ss_m::_update_mr_assoc()                                    *
+ *--------------------------------------------------------------*/
+rc_t ss_m::_update_mr_assoc(const stid_t&       stid, 
+			    const vec_t&        key,
+			    const vec_t&        old_el, 
+			    const vec_t&        new_el, 
+			    bool&               found,
+			    const bool bIgnoreLocks,
+			    const bool bIgnoreLatches,
+			    const lpid_t& root)
+{
+
+    concurrency_t cc = t_cc_bad;
+    // usually we will to kvl locking and already have an IS lock
+    // on the index
+    lock_mode_t                index_mode = NL;// lock mode needed on index
+
+    // IP: DORA does the dir access and the index lookup 
+    //     using the lowest concurrency and lock mode
+    if (bIgnoreLocks) {
+      cc = t_cc_none;
+      index_mode = NL;
+    }
+    else {
+
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO(lm->query(stid, lock_mode, xd->tid(), true, true));
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode >= SH) {
+		cc = t_cc_none;
+	    } else if (lock_mode >= IS) {
+		// no changes needed
+	    } else {
+		// Index isn't already locked; have to grab IS lock
+		// on it below, via access()
+		index_mode = IS;
+	    }
+	}
+
+    }
+
+    sdesc_t* sd;
+    cvec_t* real_key;
+    W_DO(dir->access(stid, sd, index_mode));
+    if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);
+    if (cc == t_cc_bad ) cc = (concurrency_t)sd->sinfo().cc;
+
+    bool is_unique = sd->sinfo().ntype == t_uni_mrbtree;
+
+    W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc, true));
+	
+    lpid_t subroot;
+    if(root != lpid_t::null) {
+	subroot = root;
+    } else {
+	subroot = sd->root(*real_key);
+    }
+
+    switch (sd->sinfo().ntype) {
+    case t_bad_ndx_t:
+        return RC(eBADNDXTYPE);
+
+	// since this is only for secondary indexes in the case of mrbtrees now,
+	// no option for mrbtree_p or mrbtree_l or regular btrees
+    case t_mrbtree:
+    case t_uni_mrbtree:
+    
+        W_DO(bt->mr_update(subroot, 
+			   is_unique,
+			   cc,
+			   *real_key, old_el, new_el,
+			   found, bIgnoreLatches) );
+        break;
+	
+    default:
+        W_FATAL_MSG(eINTERNAL, << "bad index type " << sd->sinfo().ntype );
+    }
+    
+    return RCOK;
+}
+
+#ifdef SM_HISTOGRAM
+rc_t ss_m::_destroy_all_histograms()
+{
+    for(map< stid_t, data_access_histogram* >::iterator iter = data_accesses.begin();
+	iter != data_accesses.end();
+	iter++) {
+	delete iter->second;
+	iter->second = 0;
+    }
+    return RCOK;
+}
+#endif
+
+rc_t ss_m::_get_range_map(stid_t stid, key_ranges_map*& rangemap)
+{
+    FUNC(ss_m::_get_range_map);
+
+    DBG(<<" stid " << stid);
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, SH));
+
+    sinfo_s sinfo = sd->sinfo();
+
+    if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
+
+    rangemap = sd->get_partitions_p();
+    return (RCOK);
+}
+
+
+rc_t ss_m::_get_store_info(stid_t stid, sinfo_s& sinfo)
+{
+    FUNC(ss_m::_get_store_info);
+
+    DBG(<<" stid " << stid);
+
+    // get the sinfo from sdesc
+    sdesc_t* sd;
+    W_DO(dir->access(stid, sd, SH));
+
+    sinfo = sd->sinfo();
+    return (RCOK);
 }
 
 rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
 				 const vec_t& maxKey, uint numParts)
 {
+    // TODO: might give an error here if some partitions already exists
+    //       this should only be called initially, no assocs in the index yet
+
     FUNC(ss_m::_make_equal_partitions);
 
     DBG(<<" stid " << stid);
@@ -1349,23 +1553,70 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     sdesc_t* sd;
     W_DO(dir->access(stid, sd, EX));
 
-    vector<lpid_t> roots;
-    ///cvec_t* real_minKey;
-    ///cvec_t* real_maxKey;
     sinfo_s sinfo = sd->sinfo();
 
     if (sinfo.stype != t_index)   return RC(eBADSTORETYPE);
 
-    // TODO: might give an error here if some partitions already exists
-    //       this should only be called initially, no assocs in the index yet
-
     bool isCompressed = sinfo.kc[0].compressed != 0;
+    
+
+    // 1. make initial almost equal partitions   
+    cvec_t* real_key;
+    // 1.1. scramble min key
+    W_DO(bt->_scramble_key(real_key, minKey, minKey.count(), sd->sinfo().kc));
+    uint minKey_size = real_key->size();
+    char* minKey_c = (char*) malloc(minKey_size);
+    real_key->copy_to(minKey_c, minKey_size);
+    // 1.2. scramble max key
+    real_key->reset();
+    W_DO(bt->_scramble_key(real_key, maxKey, maxKey.count(), sd->sinfo().kc));
+    uint maxKey_size = real_key->size();
+    char* maxKey_c = (char*) malloc(maxKey_size);
+    real_key->copy_to(maxKey_c, maxKey_size);
+    // 1.3. determine the partition start keys
+    char** subParts = (char**) malloc(numParts*sizeof(char*));
+    uint partsCreated = key_ranges_map::distributeSpace(minKey_c, minKey_size,
+							maxKey_c, maxKey_size,
+							numParts, subParts);
+
+    // 2. Create the btree roots and add partitions to key_ranges_map
+    uint size = (minKey_size < maxKey_size) ? minKey_size : maxKey_size;
+    lpid_t root;    
+    // pin: lines commented out with "d" is for debugging
+    //char* copy_char = (char*) malloc(size); // d
+    //cvec_t* real_key2; // d
+    for(uint i=1; i<partsCreated; i++) {
+	real_key->reset();
+	real_key->put(subParts[i], size);
+	// W_DO(bt->_unscramble_key(real_key2, *real_key, maxKey.count(), sd->sinfo().kc, true)); // d
+	// real_key2->copy_to(copy_char, size); // d
+	// cout << *(int*) copy_char << endl; // d
+	// if(i != 0) {
+	W_DO(bt->create(stid, root, isCompressed));
+	sd->partitions().addPartition(*real_key, root);
+	//} // d
+    }
+
+    // 3. free malloced stuff
+    for(uint i=0; i<partsCreated; i++) {
+	delete subParts[i];
+    }
+    delete subParts;
+    delete minKey_c;
+    delete maxKey_c;
+
+    // 4. print final partitions
+    sd->partitions().printPartitionsInBytes();  
+
+
+    // pin: FOR INTEGERS ONLY
+    /*
+    vector<lpid_t> roots;
     for(uint i=0; i<numParts-1; i++) {
 	lpid_t root;
 	W_DO(bt->create(stid, root, isCompressed));
 	roots.push_back(root);
     }
-
     // ------------- HACK FOR THE DEADLINE ------------------------
     cvec_t* real_key;
     int lower_bound = 0;
@@ -1374,38 +1625,37 @@ rc_t ss_m::_make_equal_partitions(stid_t stid, const vec_t& minKey,
     maxKey.copy_to(&upper_bound, sizeof(int));
 
     int space = upper_bound - lower_bound;
-    int diff = space / numParts;
-    uint partsCreated = 0; // In case it cannot divide to numParts partitions
-    
-    int current_key = lower_bound;
+    double diff = (double)space / (double)numParts;
+    uint partsCreated = 0; // In case it cannot divide to numParts partitions   
+    double current_key = lower_bound;
+
     while(partsCreated < numParts - 1) {
 	current_key = current_key + diff;
-	cvec_t start_key_vec((char*)(&current_key), sizeof(int));
+        int startKey = current_key;
+	cvec_t start_key_vec((char*)(&startKey), sizeof(int));
 	W_DO(bt->_scramble_key(real_key, start_key_vec, minKey.count(), sd->sinfo().kc));
 	sd->partitions().addPartition(*real_key, roots[partsCreated]);
 	partsCreated++;
     }
     // --------------------------------------------------------------
-    
-    ///W_DO(bt->_scramble_key(real_minKey, minKey, minKey.count(), sd->sinfo().kc));
-    ///sd->partitions().setMinKey(*real_minKey);
-    ///W_DO(bt->_scramble_key(real_maxKey, maxKey, maxKey.count(), sd->sinfo().kc));
-    ///sd->partitions().setMaxKey(*real_maxKey);
-	
-    ///uint partsCreated = sd->partitions().makeEqualPartitions((*real_maxKey).size(), numParts, roots);
+    //sd->partitions().printPartitions();
+    */
 
-    //while(partsCreated < numParts) {
-    // 	W_DO( io->free_page(roots[partsCreated-2], false/*checkstore*/) );
-    // 	partsCreated++;
-    //}
 
     // update the ranges page which keeps the partition info
     W_DO( ra->fill_page(sd->root(), sd->partitions()) );
 
+#ifdef SM_HISTOGRAM
+    // initialize the histogram (TODO: this should be generalized, like the common gran,
+    //                                 and should be updated as partitions are updated)
+    data_accesses[stid] = new data_access_histogram(sd->partitions(), 100, 7, false);
+#endif
+    
     return RCOK;    
 }
 
-rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnoreLocks)
+rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key,
+			       const bool bIgnoreLatches)
 {
 
     FUNC(ss_m::_add_partition_init);
@@ -1414,8 +1664,7 @@ rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnore
 
     lock_mode_t                index_mode = NL; // lock mode needed on index
     
-    // IP: DORA inserts using the lowest concurrency and lock mode
-    if (bIgnoreLocks) {
+    if (bIgnoreLatches) {
       index_mode = NL;
     } else {
 
@@ -1447,7 +1696,7 @@ rc_t ss_m::_add_partition_init(stid_t stid, const vec_t& key, const bool bIgnore
     case t_mrbtree_p:
     case t_uni_mrbtree_p:
 
-	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLocks));
+	W_DO(bt->create(stid, root_new, sinfo.kc[0].compressed != 0, bIgnoreLatches));
 	W_DO(bt->_scramble_key(real_key, key, sd->sinfo().nkc, sd->sinfo().kc));
 	// update the ranges page & key_ranges_map which keeps the partition info
 	W_DO( sd->partitions().addPartition(*real_key, root_new) );    
@@ -1548,7 +1797,8 @@ rc_t ss_m::_add_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatch
     return RCOK;    
 }
 
-rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLatches)
+rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key,
+			     const bool bIgnoreLatches)
 {
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
@@ -1612,7 +1862,8 @@ rc_t ss_m::_delete_partition(stid_t stid, const vec_t& key, const bool bIgnoreLa
     return RCOK;    
 }
 
-rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatches)
+rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2,
+			     const bool bIgnoreLatches)
 {
     xct_auto_abort_t xct_auto; // start a tx, abort if not completed	   
 
@@ -1673,8 +1924,6 @@ rc_t ss_m::_delete_partition(stid_t stid, lpid_t& root2, const bool bIgnoreLatch
 
     return RCOK;
 }
-
-// --
 
 /*--------------------------------------------------------------*
  *  ss_m::_create_index()                                        *

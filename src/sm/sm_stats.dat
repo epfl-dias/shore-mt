@@ -217,6 +217,7 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long bt_clr_smo_traverse	Cleared SMO bits on traverse
     u_long bt_pcompress		Prefixes compressed
     u_long bt_plmax		Maximum prefix levels encountered
+    u_long bt_update_cnt	Btree updates (update_assoc())
 
     // Sort 
     u_long sort_keycmp_cnt	Key-comparison callbacks
@@ -254,6 +255,14 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long page_alloc_cnt	Pages allocated
     u_long page_dealloc_cnt	Pages deallocated
 
+    // Specific pages alloc/dealloc counts
+    u_long page_btree_alloc	       Number of index pages alloced
+    u_long page_file_alloc	       Number of file pages alloced
+    u_long page_file_mrbt_alloc	       Number of file pages alloced by plp-leaf & plp-part
+    u_long page_btree_dealloc	       Number of index pages dealloced
+    u_long page_file_dealloc	       Number of file pages dealloced
+    u_long page_file_mrbt_dealloc      Number of file pages dealloced by plp-leaf & plp-part
+    
     // Extent operation counts
     u_long ext_lookup_hits	Hits in extent lookups in cache 
     u_long ext_lookup_misses	Misses in extent lookups in cache 
@@ -336,6 +345,21 @@ SM Storage manager = 0x00060000 sm_stats_t {
     u_long lk_user2_wait		User2 locks waited
     u_long lk_user3_wait		User3 locks waited
     u_long lk_user4_wait		User4 locks waited
+
+    u_long sli_requested		requests made (including implicit)
+    u_long sli_acquired			requests processed by lock_core
+    u_long sli_upgrades			requests to upgrade a lock
+    u_long sli_eligible			locks we could inherit if we want
+    u_long sli_inherited		locks we did inherit
+    u_long sli_used			inherited locks the next xct used
+    u_long sli_too_weak			inherited but had to upgrade anyway
+    u_long sli_found_late		inherited but not in cache
+    u_long sli_purged			inherited but discarded (unused)
+    u_long sli_invalidated		inherited but invalidated by another xct
+    u_long sli_kept			not used but re-inherited anyway
+    u_long sli_evicted			abandoned because it left cache
+    u_long sli_no_parent		abandoned because its parent was missing
+    u_long sli_waited_on		abandoned because another xct was waiting
 
     // directory-related stats
     u_long dir_cache_hit		Hits to the directory cache

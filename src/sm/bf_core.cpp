@@ -935,8 +935,10 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
 
 
     // mode is LATCH_NL in error case
-    w_assert2( (mode != LATCH_NL) || error_occurred); 
-    w_assert2(p->latch.is_mine()); 
+    //w_assert2( (mode != LATCH_NL) || error_occurred); // mrbt
+    w_assert2( !error_occurred || (mode == LATCH_NL &&  error_occurred)); // mrbt
+    //w_assert2(p->latch.is_mine()); // mrbt
+    w_assert2(p->latch.is_mine() || (!error_occurred && latch_mode_t == LATCH_NL)); // mrbt
 
     w_assert9(!p->old_pid_valid());
 
@@ -991,7 +993,7 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
             // is this really allowed?
             // Do we need to unpin the frame here?
             // The assertion will tell us if this ever happens.
-            w_assert0(false);
+            //w_assert0(false); // mrbt
 
 #if SM_PLP_TRACING
         if (_ptrace_level>=PLP_TRACE_PAGE) {
@@ -1003,7 +1005,7 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
         }
 #endif
 
-            p->latch.latch_release(); // PROTOCOL
+	//           p->latch.latch_release(); // PROTOCOL // mrbt
 
         }
     }

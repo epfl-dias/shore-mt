@@ -61,9 +61,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #pragma interface
 #endif
 
-// -- mrbt
 #include <set>
-// --
 
 #ifndef BTREE_H
 #include "btree.h"
@@ -86,7 +84,6 @@ class btree_impl : protected btree_m  {
 
 protected:
 
-    // -- mrbt
     static rc_t                        _split_tree(
         const lpid_t&                   root_old,
 	const lpid_t&                   root_new,
@@ -121,29 +118,11 @@ protected:
         bool                             unique,
         concurrency_t                    cc,
         const cvec_t&                     key,
-	rc_t (*fill_el)(vec_t&, const lpid_t&), 
+	el_filler*                       ef,
 	size_t el_size,
         int                             split_factor = 50,
 	const bool bIgnoreLatches = false,
 	RELOCATE_RECORD_CALLBACK_FUNC relocate_callback = NULL);
-
-    static rc_t                        _insert_l(
-        const lpid_t&                     root,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                     key,
-        cvec_t&                     elem,
-        int                             split_factor = 50,
-	const bool bIgnoreLatches = false);
-
-    static rc_t                        _insert_p(
-        const lpid_t&                     root,
-        bool                             unique,
-        concurrency_t                    cc,
-        const cvec_t&                     key,
-        cvec_t&                     elem,
-        int                             split_factor = 50,
-	const bool bIgnoreLatches = false);
 
     static rc_t                 _split_leaf_and_relocate_recs(
         const lpid_t&                    root_pid,         // I - root of tree
@@ -191,7 +170,7 @@ protected:
 	vector<rid_t>& old_rids,
 	vector<rid_t>& new_rids,
 	const bool bIgnoreLatches); 
-// --
+
 
     static rc_t                        _alloc_page(
         const lpid_t&                    root,
@@ -230,7 +209,17 @@ protected:
         bt_cursor_t*                    cursor,// I/o - put result here OR
         void*                             el,           // I/o-  buffer to put el if !cursor
         smsize_t&                     elen,   // IO- size of el if !cursor
-	const bool bIgnoreLatches = false);        
+	const bool bIgnoreLatches = false);
+
+    static rc_t          _update(
+        const lpid_t&       root,        // I-  root of btree
+	bool                unique, // I-  true if btree is unique
+	concurrency_t       cc,        // I-  concurrency control
+	const cvec_t&       key,        // I-  key we want to find
+	const cvec_t&       old_el,    // I-  element we want to update
+	const cvec_t&       new_el,    // I-  new value of the element
+	bool&               found,  // O-  true if key is found
+	const bool bIgnoreLatches = false);                
 
     static rc_t                 _skip_one_slot(
         btree_p&                    p1, 
@@ -383,7 +372,7 @@ private:
 
 
 public:
-    NORET tree_latch(const lpid_t pid) ;
+    NORET tree_latch(const lpid_t pid, const bool bIgnoreLatches = false) ;
 
     NORET ~tree_latch(); 
 

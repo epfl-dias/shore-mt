@@ -1,5 +1,5 @@
 /* -*- mode:C++; c-basic-offset:4 -*-
-     Shore-MT -- Multi-threaded port of the SHORE storage manager
+     Shore-kits -- Benchmark implementations for Shore-MT
    
                        Copyright (c) 2007-2009
       Data Intensive Applications and Systems Labaratory (DIAS)
@@ -21,23 +21,43 @@
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
 
-/* This file is home to all the polling functions we *do not* want inlined */
-#include "w_defines.h"
+#ifndef __UTIL_STOPWATCH_H
+#define __UTIL_STOPWATCH_H
 
-#define SM_SOURCE
-#define LOG_CORE_C
-#include "sm_int_1.h"
-#include "log.h"
-#include "log_core.h"
+#include <sys/time.h>
 
-void log_core::_spin_on_epoch(long old_end) {
-    while(*&_cur_epoch.vthis()->end + *&_cur_epoch.vthis()->base != old_end) ;
-}    
 
-long log_core::_spin_on_count(long volatile* count, long bound) {
-    long old_count;
-    while( (old_count=*count) >= bound) ;
-    membar_enter();
-    return old_count;
-}
 
+/**
+ *  @brief a timer object.
+ */
+class stopwatch_t {
+private:
+    struct timeval tv;
+    long long mark;
+public:
+    stopwatch_t() {
+        reset();
+    }
+    long long time_us() {
+        long long old_mark = mark;
+        reset();
+        return mark - old_mark;
+    }
+    double time_ms() {
+        return ((double)(time_us()*1e-3));
+    }
+    double time() {
+        return ((double)(time_us()*1e-6));
+    }
+    long long now() {
+        gettimeofday(&tv, NULL);
+        return tv.tv_usec + tv.tv_sec*1000000ll;
+    }
+    void reset() {
+	mark = now();
+    }
+};
+
+
+#endif

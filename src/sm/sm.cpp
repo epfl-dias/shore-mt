@@ -115,9 +115,6 @@ ss_m::LOG_WARN_CALLBACK_FUNC
                      smlevel_0::log_warn_callback = 0;
 ss_m::LOG_ARCHIVED_CALLBACK_FUNC 
                      smlevel_0::log_archived_callback = 0;
-// -- mrbt
-//ss_m::RELOCATE_RECORD_CALLBACK_FUNC smlevel_0::relocate_record_callback = 0;
-// --
 
 // these are set when the logsize option is set
 smlevel_0::fileoff_t        smlevel_0::max_logsz = 0;
@@ -225,9 +222,8 @@ chkpt_m* smlevel_1::chkpt = 0;
 btree_m* smlevel_2::bt = 0;
 file_m* smlevel_2::fi = 0;
 rtree_m* smlevel_2::rt = 0;
-// -- mrbt
 ranges_m* smlevel_2::ra = 0;
-// --
+
 
 
 dir_m* smlevel_3::dir = 0;
@@ -263,9 +259,6 @@ option_t* ss_m::_cc_alg_option = NULL;
 option_t* ss_m::_log_warn_percent = NULL;
 option_t* ss_m::_num_page_writers = NULL;
 option_t* ss_m::_logging = NULL;
-// -- mrbt
-ss_m::el_filler* ss_m::_ef = NULL;
-// --
 
 /*
  * class sm_quark_t code
@@ -882,13 +875,12 @@ ss_m::_construct_once(
         W_FATAL(eOUTOFMEMORY);
     }
 
-    // -- mrbt
     ra = new ranges_m;
     if (! ra) {
         W_FATAL(eOUTOFMEMORY);
     }
-    // --
 
+    
     DBG(<<"Level 3");
     /*
      *  Level 3
@@ -1127,6 +1119,10 @@ ss_m::_destruct_once()
 
     lm->assert_empty(); // no locks should be left
 
+#ifdef SM_HISTOGRAM
+    W_COERCE( destroy_all_histograms() );
+#endif
+    
     /*
      *  Level 4
      */
@@ -1142,9 +1138,7 @@ ss_m::_destruct_once()
     /*
      *  Level 2
      */
-    // -- mrbt
     delete ra; ra = 0; // partitions manager
-    // --
     delete rt; rt = 0; // rtree manager
     delete fi; fi = 0; // file manager : log is still running
     delete bt; bt = 0; // btree manager

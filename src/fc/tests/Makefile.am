@@ -96,9 +96,17 @@ bitvector_SOURCES      = bitvector.cpp
 TEST = testall
 testall:  $(check_PROGRAMS)
 
-TEST_STAT_GENFILES = test_stat_struct_gen.h  test_stat_msg_gen.h
+TEST_STAT_GENFILES = test_stat_struct_gen.h \
+                     test_stat_msg_gen.h \
+                     test_stat_collect_enum_gen.h \
+                     test_stat_collect_gen.cpp \
+                     test_stat_dec_gen.cpp \
+                     test_stat_inc_gen.cpp \
+                     test_stat_out_gen.cpp
 
 GENFILES = $(TEST_STAT_GENFILES)
+
+MOSTLYCLEANFILES = $(GENFILES)
 
 test_stat.$(OBJEXT): $(TEST_STAT_GENFILES)
 stats.$(OBJEXT):  $(TEST_STAT_GENFILES)

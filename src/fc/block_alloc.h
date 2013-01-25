@@ -135,9 +135,10 @@ struct block_pool
     // gets old typing this over and over...
 #define TEMPLATE_ARGS chip_size(), chip_count(), block_size()
 
+    // Default 64MB per pool per thread
     static Pool* get_pool() {
 	static Pool p(chip_size(), chip_count(), BlockSize::LOG2,
-		      MaxBytes? MaxBytes : 1024*1024*1024);
+		      MaxBytes? MaxBytes : 64*1024*1024); 
 	return &p;
     }
   
@@ -376,6 +377,55 @@ NORET object_cache<T,TF,M>::cache_pool::~cache_pool() {
 	}
     }
 }
+
+
+/* A pool for holding blobs of bytes whose size is fixed but
+   determined at runtime. This class must only be instantiated once
+   per Tag.
+ */
+struct blob_pool
+{
+    typedef dynpool Pool;
+    typedef memory_block::block_list BlockList;
+
+    struct helper;
+    blob_pool(size_t size);
+
+    size_t nbytes() const { return _chip_size; }
+    
+    void* acquire();
+    // really release, but for backward compat w/ ats...
+    void destroy(void* ptr);
+    
+private:
+    size_t _chip_size;
+    size_t _block_size;
+    size_t _chip_count;
+    Pool _pool;
+    
+    // no copying allowed
+    blob_pool(blob_pool&);
+    void operator=(blob_pool&);
+};
+
+inline
+void* operator new(size_t W_IFDEBUG1(nbytes), blob_pool &alloc) 
+{
+    w_assert1(nbytes <= alloc.nbytes());
+    return alloc.acquire();
+}
+
+/* No, this isn't a way to do "placement delete" (if only the language
+   allowed that symmetry)... this operator is only called -- by the
+   compiler -- if T's constructor throws
+ */
+inline
+void operator delete(void* ptr, blob_pool &alloc) 
+{
+    alloc.destroy(ptr);
+}
+
+
 
 /**\endcond skip */
 #endif

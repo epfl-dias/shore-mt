@@ -148,7 +148,7 @@ public:
     lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd);
     bool sli_invalidate_request(lock_request_t* &req);
     void sli_abandon_request(lock_request_t* &req);
-    void sli_purge_inactive_locks(xct_lock_info_t* theLockInfo);
+    void sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool force=false);
 
 
     /* search the lock cache. if reclaim=true, attempt to reclaim the

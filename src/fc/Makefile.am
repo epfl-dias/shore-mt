@@ -17,6 +17,7 @@ include_HEADERS = \
     atomic_container.h \
     atomic_templates.h \
     block_alloc.h \
+    cpu_info.h \
     dynarray.h \
     mem_block.h \
     errlog.h errlog_s.h \
@@ -47,6 +48,7 @@ include_HEADERS = \
 libfc_a_SOURCES      = \
         rand48.cpp \
         block_alloc.cpp \
+	cpu_info.cpp fc-noinline.cpp \
         dynarray.cpp \
         mem_block.cpp \
         gethrtime.cpp \

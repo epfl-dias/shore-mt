@@ -172,7 +172,7 @@ zkeyed_p::shift(slotid_t idx, zkeyed_p* rsib, bool compressed)
 
 }
 
-// -- mrbt
+
 /*********************************************************************
  *
  *  zkeyed_p::shift(idx, idx_dest, rsib, compressed)
@@ -262,7 +262,7 @@ zkeyed_p::shift(slotid_t idx, slotid_t idx_dest, zkeyed_p* rsib, bool compressed
     return rc.reset();
 
 }
-// --
+
 
 /*********************************************************************
  *

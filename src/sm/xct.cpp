@@ -79,7 +79,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include <sm.h>
 #include "tls.h"
-#include "chkpt_serial.h"
 #include <sstream>
 #include "crash.h"
 #include "chkpt.h"
@@ -235,14 +234,10 @@ xct_i::xct_i(bool already_locked)
 xct_i::~xct_i() {
 }
 
-xct_t* xct_i::next() {
-    if(_cur_xd == _end_xd) {
-	_cur_xd = _end_xd = 0;
-	return 0;
-    }
-
+xct_t* xct_i::next(bool can_delete) {
     /* no thread can leave while the iterator is active so we can walk
-       the list at our leisure, deleting nodes which already left.
+       the list at our leisure, skipping or deleting nodes which
+       already left.
        
        NOTE: new transactions can still join the list, so we have to
        end when we reach the tail we originally saw rather than
@@ -251,45 +246,50 @@ xct_t* xct_i::next() {
        NOTE: the list is (and will stay) in a consistent state
        because transactions can only remove nodes if we don't hold the
        lock (and we do). This means we can skip NODE_LEFT nodes instead
-       of trying to reclaim them.
+       of trying to reclaim them, though we'll delete them if allowed to.
 
        NOTE: if we hit a null next pointer, we know that the
        transaction cannot have started because it does not have a tid
        yet. However, its successors may have read its just-set tid and
-       ocntinued on without it. This means we cannot stop iterating
+       continued on without it. This means we cannot stop iterating
        until we reach _end_xd
 
      */
- retry:
-    xct_link* n;
-    while( !(n=_cur_xd->vthis()->_next) );
-    _cur_xd = n;
-    if(NODE_LEFT == _cur_xd->vthis()->_node_state) {
-	if(_cur_xd == _end_xd)
-	    return 0;
-	    
-	goto retry;
+    while(_cur_xd != _end_xd) {
+	xct_link* n;
+	while( !(n=_cur_xd->vthis()->_next) ) ;
+	if(NODE_LEFT == n->vthis()->_node_state) {
+	    if(can_delete && n != *&_xlist._tail) {
+		// unlink+delete the next and retry
+		// NOTE: single-threaded => no atomic ops
+		_cur_xd->_next = n->_next;
+		delete n;
+	    }
+	    else {
+		// next!
+		_cur_xd = n;
+	    }
+	}
+	else {
+	    // success!
+	    _cur_xd = n;
+	    return n->_owner;
+	}
     }
-
-    // success!
-    return _cur_xd->_owner;
+    return 0;
 }
 
 xct_t* xct_i::erase_and_next() {
-    if(_cur_xd == _end_xd) {
-	_cur_xd = _end_xd = 0;
+    if(_cur_xd == _end_xd)
 	return 0;
-    }
-
-    xct_link* cur = _cur_xd;
-    xct_t* n = this->next();
-    delete cur;
-    return n;
+    
+    _cur_xd->_node_state = NODE_LEFT;
+    return next(true);
 }
 
 
 
-static void pretty_print(ostream &out, xct_list const*rec) {
+static void pretty_print(ostream &out, xct_list const* /* rec */) {
     xct_link* cur = &_xlist._anchor;
     out << "[anchor: " << cur->_tid << "]  ";
     while( (cur=cur->_next) ) {
@@ -303,7 +303,7 @@ static void pretty_print(ostream &out, xct_list const*rec) {
     }
 }
 #include <sstream>
-static char const* db_pretty_print(xct_list const* rec, int i=0, char const* s=0) {
+static char const* db_pretty_print(xct_list const* rec, int /* i=0 */, char const* /* s=0 */) {
     static stringstream out;
     static string str;
     out.str("");
@@ -354,29 +354,49 @@ void xct_list::insert_existing_unsafe(xct_t* owner) {
        guaranteed. Note that by induction all current members of the
        list were inserted by this same code segment.
     */
-    xct_link* _xlink = new xct_link(owner);
+    xct_link* _xlink = owner->_xlink = new xct_link(owner);
     tid_t t = _xlink->_tid = owner->tid();
     w_assert1(t.valid());
     w_assert1(operating_mode == t_in_analysis);
-	
-    // find insertion spot (always exists thanks to list anchor)
-    xct_link* xd = &_anchor;
-    while(t < xd->_tid)
-	xd = xd->_next;
 
-    // do a fake insertion
-    xct_link* next = _xlink->_next = xd->_next; // maybe NULL
-    xd->_next = _xlink;
-    _xlink->_node_state = NODE_ACTIVE;
-
-    // corner case: eol
-    if(!next) 
-	_tail = _xlink;
-
-    // corner case: bol (eol+bol possible)
-    if(xd == &_anchor) {
+    if(_tail) {
+	if(t < _tail->_tid) {
+	    // not eol
+	    if(t < _anchor._tid) {
+		// bol
+		_anchor._tid = t;
+		_xlink->_next = _anchor._next;
+		_anchor._next = _xlink;
+		_xlink->_node_state = NODE_HEAD;
+	    }
+	    else {
+		// somewhere in the middle
+		xct_link* xd = &_anchor;
+		while(1) {
+		    xct_link* next = xd->_next;
+		    if(t < next->_tid) 
+			break;
+		    xd=next;
+		}
+		w_assert1(t != xd->_tid);
+		_xlink->_next = xd->_next;
+		xd->_next = _xlink;
+		_xlink->_node_state = NODE_ACTIVE;
+	    }
+	}
+	else {
+	    // eol
+	    _xlink->_next = NULL;
+	    _tail = _tail->_next = _xlink;
+	    _xlink->_node_state = NODE_ACTIVE;
+	}
+    }
+    else {
+	// empty list (eol+bol)
+	_anchor._tid = t;
+	_xlink->_next = NULL;
+	_tail = _anchor._next = _xlink;
 	_xlink->_node_state = NODE_HEAD;
-	_anchor._next = _xlink;
     }
 }
 
@@ -470,7 +490,7 @@ void xct_list::remove(xct_link* xd) {
 	    }
 	    else {
 		// wait for new arrival to introduce itself
-		while( !(next=xd->vthis()->_next) );
+		while( !(next=xd->vthis()->_next) ) ;
 
 		// link the newly formed list into the anchor
 		_anchor._next = next; 
@@ -645,7 +665,7 @@ xct_t::cleanup(bool dispose_prepared)
                     } else {
                         DBG(<< xd->tid() <<"keep -- prepared ");
                         nprepared++;
-			next = i.next();
+			next = i.next(true);
                     }
                 } 
                 break;
@@ -653,7 +673,7 @@ xct_t::cleanup(bool dispose_prepared)
             default: {
                     DBG(<< xd->tid() <<"skipping " 
                             << " w/ state=" << xd->state() );
-		    next = i.next();
+		    next = i.next(true);
                 }
                 break;
             
@@ -697,12 +717,8 @@ xct_t::look_up(const tid_t& tid)
     xct_t* xd;
     xct_i iter(true);
 
-    while ((xd = iter.next())) {
-        if (xd->tid() == tid) {
-            return xd;
-        }
-    }
-    return 0;
+    while ((xd = iter.next()) && xd->tid() < tid);
+    return (xd && xd->tid() == tid)? xd : 0;
 }
 
 xct_lock_info_t*
@@ -954,11 +970,7 @@ xct_t::delete_lock_hierarchy(lockid_t* l)
 sdesc_cache_t*                    
 xct_t::sdesc_cache() const
 {
-#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
     return me()->sdesc_cache();
-#else
-    return __saved_sdesc_cache_t;
-#endif /* SDESC_CACHE_PER_THREAD */
 }
 
 /**\brief Used by smthread upon attach_xct() to avoid excess heap activity.
@@ -968,11 +980,7 @@ xct_t::sdesc_cache() const
  * calling smthread. If not, allocate some off the stack.
  */
 void                        
-xct_t::steal(lockid_t*&l, sdesc_cache_t*&
-#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
-        s
-#endif
-        , xct_log_t*&x)
+xct_t::steal(lockid_t*&l, sdesc_cache_t*&s, xct_log_t*&x)
 {
     /* See comments in smthread_t::new_xct() */
     w_assert1(is_1thread_xct_mutex_mine());
@@ -981,23 +989,14 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
         l = new_lock_hierarchy(); // deleted when thread goes away
     }
 
-#ifdef SDESC_CACHE_PER_THREAD
-#ifdef SM_DORA
-#error DORA and SDESC_CACHE_PER_THREAD are mutually exclusive
-#endif
-    if( (s = __saved_sdesc_cache_t) ) {
-         __saved_sdesc_cache_t = 0;
-    } else {
-        s = new_sdesc_cache_t(); // deleted when thread detaches or xct finishes
+    // the sdesc_cache is the only one of these which has any state
+    // worth migrating if a thread attaches or detaches.
+    if( !s ) {
+	std::swap(s, __saved_sdesc_cache_t);
     }
-#elif defined(SM_DORA)
-    /*
-      If the calling thread has an sdesc cache handy (DORA is active),
-      use it. Otherwise, use the one belonging to the transaction.
-     */
-    if(!s && __saved_sdesc_owner)
-	s = __saved_sdesc_cache_t;
-#endif /* SDESC_CACHE_PER_THREAD */
+    if( !s ) {
+        s = new_sdesc_cache_t(); // deleted when thread goes away
+    }
 
     if( !x ) {
         x = new_xct_log_t(); // deleted when thread finishes
@@ -1014,31 +1013,20 @@ xct_t::steal(lockid_t*&l, sdesc_cache_t*&
  * thread that attaches to this xct.
  */
 void                        
-xct_t::stash(lockid_t*& /*l*/, sdesc_cache_t*&
-#if defined(SDESC_CACHE_PER_THREAD) || defined(SM_DORA)
-        s
-#endif
-        , xct_log_t*& /*x*/)
+xct_t::stash(lockid_t*& /*l*/, sdesc_cache_t*& s, xct_log_t*& /*x*/)
 {
     /* See comments in smthread_t::new_xct() */
     w_assert1(is_1thread_xct_mutex_mine());
     // don't dup acquire acquire_1thread_xct_mutex();
 
-#ifdef SDESC_CACHE_PER_THREAD
-    if(__saved_sdesc_cache_t) {
-        DBGX(<<"stash: delete " << s);
-        delete s; 
-    }
-    else { __saved_sdesc_cache_t = s;}
-    s = 0;
-#elif defined(SM_DORA)
-    /*
-      NOTE: for DORA we don't want to erase s because it's supposed to
-      carry over to every transaction the worker thread touches.
-    */
-    if(__saved_sdesc_owner)
+    if(__saved_sdesc_owner) {
+	if(__saved_sdesc_cache_t) {
+	    DBGX(<<"stash: delete " << s);
+	    delete s; 
+	}
+	else { __saved_sdesc_cache_t = s;}
 	s = 0;
-#endif /* SDESC_CACHE_PER_THREAD */
+    }
 
     // dup acquire/release removed release_1thread_xct_mutex();
 }
@@ -1440,7 +1428,6 @@ xct_t::_xct_ended(xct_end_type type) {
 	rc = log_xct_end();
     else if(type == xct_end_abort)
 	rc = log_xct_abort();
-    _xlist.remove(_xlink);
     chkpt_serial_m::trx_release();
     return rc;
 }
@@ -1512,9 +1499,7 @@ void xct_t::init(xct_core* core, sm_stats_info_t* stats,
 {
     _xlink = 0;
     __stats = stats;
-    __saved_lockid_t = 0;
     __saved_sdesc_cache_t = 0;
-    __saved_xct_log_t = 0;
     __saved_sdesc_owner = !me()->sdesc_cache();
     _last_lsn = last_lsn;
     _undo_nxt = undo_nxt;
@@ -1537,18 +1522,10 @@ void xct_t::init(xct_core* core, sm_stats_info_t* stats,
     }
     w_assert9(timeout_c() >= 0 || timeout_c() == WAIT_FOREVER);
 
-#ifndef SDESC_CACHE_PER_THREAD
     xct_lock_info_t* li = lock_info();
     if(li->_sli_enabled)
 	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
     
-    /* When DORA is active, we piggy-back on the worker thread's sdesc
-       cache and should not allocate our own.
-     */
-    if(!__saved_sdesc_cache_t && __saved_sdesc_owner)
-	__saved_sdesc_cache_t = new_sdesc_cache_t(); // deleted when xct finishes
-#endif /* SDESC_CACHE_PER_THREAD */
-
     if(tid().invalid()) 
 	join_xlist();
     else 
@@ -1585,15 +1562,10 @@ xct_t::~xct_t()
     delete _log_buf;
 #endif
 
-    if(__saved_lockid_t)  { 
-        delete[] __saved_lockid_t; 
-        __saved_lockid_t=0; 
+    if(__saved_sdesc_cache_t) {
+	delete __saved_sdesc_cache_t;
     }
     
-    if(__saved_xct_log_t) { 
-        delete __saved_xct_log_t; 
-        __saved_xct_log_t=0; 
-    }
     // caller deletes core...
 }
 
@@ -1629,9 +1601,9 @@ xct_t::reset() {
 	__saved_sdesc_cache_t->inherit_all();
 	std::swap(__saved_sdesc_cache_t, li->_sli_sdesc_cache);
     }
-    if(__saved_sdesc_cache_t) {         
-        delete __saved_sdesc_cache_t;
-        __saved_sdesc_cache_t=0; 
+    if(__saved_sdesc_cache_t) {
+	delete __saved_sdesc_cache_t;
+	__saved_sdesc_cache_t=0;
     }
 }
 
@@ -1718,6 +1690,8 @@ xct_t::change_state(state_t new_state)
     while ((d = i.next()))  {
         d->xct_state_changed(old_state, new_state);
     }
+    if(new_state == xct_ended)
+	_xlist.remove(_xlink);
 }
 
 
@@ -2467,6 +2441,7 @@ xct_t::dispose()
     ClearAllLoadStores();
     _core->_state = xct_ended; // unclean!
     me()->detach_xct(this);
+    _xlist.remove(this->_xlink);
     return RCOK;
 }
 
@@ -3304,15 +3279,6 @@ xct_t::rollback(const lsn_t &save_pt)
 
     _undo_nxt = nxt;
 
-    /*
-     *  The sdesc cache must be cleared, because rollback may
-     *  have caused conversions from multi-page stores to single
-     *  page stores.
-     */
-    if(sdesc_cache()) {
-        sdesc_cache()->remove_all();
-    }
-
 done:
 
     DBGX( << "leaving rollback: compensated op " << _in_compensated_op);
@@ -3699,6 +3665,7 @@ xct_t::one_thread_attached() const
 #endif
             return false;
         }
+	chkpt_serial_m::trx_release();
     }
     return true;
 }
