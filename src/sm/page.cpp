@@ -1058,7 +1058,7 @@ page_p::mark_free(slotid_t idx)
 #endif
 
     w_assert1(idx >= 0 && idx < _pp->nslots);
-    w_assert1(_pp->slot[-idx].offset >= 0);
+    w_assert1(_pp->slot(idx).offset >= 0);
 
 
     /*

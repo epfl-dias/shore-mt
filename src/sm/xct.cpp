@@ -357,8 +357,8 @@ void xct_list::insert_existing_unsafe(xct_t* owner) {
     */
     xct_link* _xlink = owner->_xlink = new xct_link(owner);
     tid_t t = _xlink->_tid = owner->tid();
-    w_assert1(t.valid());
-    w_assert1(operating_mode == t_in_analysis);
+    w_assert1(not t.invalid());
+    w_assert1(smlevel_0::operating_mode == smlevel_0::t_in_analysis);
 
     if(_tail) {
 	if(t < _tail->_tid) {
@@ -556,7 +556,7 @@ xct_t::new_xct(const tid_t& t, state_t s, const lsn_t& last_lsn,
        thread-unsafe ways if we discover any tids out of order.
      */
     w_assert1(operating_mode == t_in_analysis);
-    w_assert1(t.valid());
+    w_assert1(not t.invalid());
     xct_core* core = NEW_CORE(t, s, timeout);
     xct_t* xd = NEW_XCT(core, (sm_stats_info_t*)0, last_lsn, undo_nxt);
     
@@ -1463,7 +1463,7 @@ void xct_t::xct_core::init(tid_t const &t, state_t s, timeout_in_ms timeout)
     _xct_ended = 0;
 
     _lock_info->init(t, convert(cc_alg) );
-    w_assert1(_tid == _lock_info->tid());
+    w_assert1(t == _lock_info->tid());
     
     INC_TSTAT(begin_xct_cnt);
 }

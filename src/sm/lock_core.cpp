@@ -1896,7 +1896,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 	    }
 	    else {
 		w_assert1(req->xlink.member_of() == &theLockInfo->sli_list);
-		w_assert1(MUTEX_IS_MINE(theLockInfo->mutex));
+		w_assert1(MUTEX_IS_MINE(theLockInfo->lock_info_mutex));
 		req->xlink.detach();
 		theLockInfo->my_req_list[req->get_duration()].push(req);
 		lockid_t const &name = lock->name;
@@ -1913,7 +1913,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 		    }
 		    else {
 			// good.
-			w_assert1(e->mode == req->mode);
+			w_assert1(e->mode == req->mode());
 		    }
 		}
 		else {
@@ -1942,8 +1942,9 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
     }
     
     // thwarted!
-    w_assert1(MUTEX_IS_MINE(req->get_lock_info()->mutex));
-    w_assert1(req->xlink.member_of() == &req->get_lock_info()->list[req->duration]);
+    w_assert1(MUTEX_IS_MINE(req->get_lock_info()->lock_info_mutex));
+    w_assert1(req->xlink.member_of() 
+	      == &req->get_lock_info()->my_req_list[req->get_duration()]);
     req->xlink.detach();
     
     // are we (apparently) not last to leave?
@@ -1977,7 +1978,7 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
 
     // no matter who started it, unlink the request from lock->queue
     //w_assert1(MUTEX_IS_MINE(req->get_lock_head()->mutex));
-    w_assert1(req->rlink.member_of() == &req->get_lock_head()->queue);
+    //w_assert1(req->rlink.member_of() == &req->get_lock_head()->_queue);
     req->rlink.detach();
 
     // are we (apparently) not the last to leave?
@@ -2092,8 +2093,8 @@ lock_core_m::_maybe_inherit(lock_request_t* request, bool is_ancestor) {
 		request->_ref_count = 0;
 		
 		// move the lock from the transaction list to the sli list
-		w_assert1(MUTEX_IS_MINE(request->get_lock_info()->mutex));
-		w_assert1(request->xlink.member_of() == &request->get_lock_info()->list[request->duration]);
+		w_assert1(MUTEX_IS_MINE(request->get_lock_info()->lock_info_mutex));
+		w_assert1(request->xlink.member_of() == &request->get_lock_info()->my_req_list[request->get_duration()]);
 		request->xlink.detach();
 		request->get_lock_info()->sli_list.push(request);
 		// not yet... let the lock_info do this.
