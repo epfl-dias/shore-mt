@@ -192,16 +192,15 @@ public:
     w_base_t::uint4_t    page_flags;        // page_p::page_flag_t
     /* 4 bytes: offset 64 */
     /* MUST BE 8-BYTE ALIGNED HERE */
-    enum { MAX_SLOT = 2+data_sz/sizeof(slot_t) }; 
     union slot_array {
 	char     data[data_sz];
-	slot_t   slot[MAX_SLOT];
+	slot_t   slot[max_slot];
     } _slots;
 
-    slot_t &slot(slotid_t idx) { return _slots.slot[MAX_SLOT-idx-1]; }
+    slot_t &slot(slotid_t idx) { return _slots.slot[max_slot-idx-1]; }
     char *data() { return _slots.data; }
     
-    slot_t const &slot(slotid_t idx) const { return _slots.slot[MAX_SLOT-idx-1]; }
+    slot_t const &slot(slotid_t idx) const { return _slots.slot[max_slot-idx-1]; }
     char const *data() const { return _slots.data; }
     
     /* offset 8184 */

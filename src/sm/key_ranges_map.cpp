@@ -706,7 +706,7 @@ bool key_ranges_map::is_same(const key_ranges_map& krm)
 //     if (strcmp(_minKey,krm._minKey)!=0) return (false);
 //     if (strcmp(_maxKey,krm._maxKey)!=0) return (false);
 
-    assert (_keyRangesMap.size()==krm.size());
+    assert (_keyRangesMap.size()==krm.getNumPartitions());
 
     KRMapIt myIt = _keyRangesMap.begin();
     KRMapCIt urCIt = krm._keyRangesMap.begin();

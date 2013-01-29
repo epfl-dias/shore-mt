@@ -1760,7 +1760,7 @@ ss_m::config_info(sm_config_info_t& info)
             w_offsetof(page_s,page_flags) + 
             sizeof(uint4_t) << std::endl;
 
-        std::cerr << " offsetof data " << w_offsetof(page_s,data) << std::endl;
+        std::cerr << " offsetof data " << w_offsetof(page_s,_slots.data) << std::endl;
         std::cerr << " -- sizeof(prior data) " 
             << sizeof(lsn_t)  + sizeof(lpid_t) 
             + sizeof(shpid_t)
@@ -1772,8 +1772,8 @@ ss_m::config_info(sm_config_info_t& info)
             + sizeof(uint4_t)
             + sizeof(uint4_t)
             << std::endl;
-        std::cerr << " offsetof reserved_slot " << w_offsetof(page_s,reserved_slot) << std::endl;
-        std::cerr << " offsetof slot " << w_offsetof(page_s,slot) << std::endl;
+        std::cerr << " offsetof reserved_slot " << w_offsetof(page_s,_slots.slot[page_s::max_slot-2]) << std::endl;
+        std::cerr << " offsetof slot " << w_offsetof(page_s,_slots.slot[page_s::max_slot-1]) << std::endl;
         std::cerr << " offsetof lsn2 " << w_offsetof(page_s,lsn2) << std::endl;
         W_FATAL_MSG(eINTERNAL, << "page-size arithmetic ");
 

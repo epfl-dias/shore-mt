@@ -938,7 +938,7 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
     //w_assert2( (mode != LATCH_NL) || error_occurred); // mrbt
     w_assert2( !error_occurred || (mode == LATCH_NL &&  error_occurred)); // mrbt
     //w_assert2(p->latch.is_mine()); // mrbt
-    w_assert2(p->latch.is_mine() || (!error_occurred && latch_mode_t == LATCH_NL)); // mrbt
+    w_assert2(p->latch.is_mine() || (!error_occurred && mode == LATCH_NL)); // mrbt
 
     w_assert9(!p->old_pid_valid());
 

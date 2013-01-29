@@ -121,6 +121,8 @@ private:
     }
 
     bool                 is_file_p() const;
+    bool                 is_file_mrbt_p() const;
+    
     rc_t                 set_hdr(const file_p_hdr_t& new_hdr);
     rc_t                 get_hdr(file_p_hdr_t &hdr) const;
 
@@ -530,8 +532,6 @@ public:
     rc_t                 set_owner(const lpid_t& new_owner);
     rc_t                 get_owner(lpid_t &owner) const;
 
-    bool                 is_file_mrbt_p() const;
-    
     static recflags_t   choose_rec_implementation(
         uint4_t                    est_hdr_len,
         smsize_t                   est_data_len,
@@ -556,7 +556,7 @@ inline rc_t file_mrbt_p::get_owner(lpid_t& owner) const
     return RCOK;
 }
 
-inline bool file_mrbt_p::is_file_mrbt_p() const
+inline bool file_p::is_file_mrbt_p() const
 {
     // all pages in file must be either t_file|t_lgdata|t_lgindex
     w_assert3(tag()&(t_file_mrbt_p|t_lgdata_p|t_lgindex_p)); 

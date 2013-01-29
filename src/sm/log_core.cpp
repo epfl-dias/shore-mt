@@ -2463,7 +2463,7 @@ void log_core::_allocate_slot(long idx) {
 
 rc_t log_core::insert(logrec_t &rec, lsn_t* rlsn) {
     long size = rec.length();
-    w_assert1(size <= sizeof(logrec_t));
+    w_assert1((size_t)size <= sizeof(logrec_t));
 
     /* Copy our data into the buffer and update/create epochs. Note
        that, while we may race the flush daemon to update the epoch

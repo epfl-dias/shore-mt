@@ -1231,7 +1231,7 @@ page_p::reclaim(slotid_t idx, const cvec_t& vec, bool log_it)
     // make sure the slot table isn't getting overrun
     char* target = _pp->data() + (s.offset = _pp->end);
     w_assert3((caddr_t)(target + vec.size()) <= 
-              (caddr_t)&_pp->slot[-(_pp->nslots-1)]);
+              (caddr_t)&_pp->slot(_pp->nslots-1));
     vec.copy_to(target);
     _pp->end += int(align( (s.length = vec.size()) ));
 
@@ -1898,7 +1898,7 @@ page_p::splice(slotid_t idx, slot_length_t start, slot_length_t len, const cvec_
     if (vecsz > 0)  {
         w_assert3((int)(s.offset + start + vec.size() <= data_sz));
         // make sure the slot table isn't getting overrun
-        w_assert3((caddr_t)(p + start + vec.size()) <= (caddr_t)&_pp->slot[-(_pp->nslots-1)]);
+        w_assert3((caddr_t)(p + start + vec.size()) <= (caddr_t)&_pp->slot(_pp->nslots-1));
                 
         vec.copy_to(p + start);
     }
