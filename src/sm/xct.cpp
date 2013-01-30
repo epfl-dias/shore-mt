@@ -645,7 +645,7 @@ xct_t::cleanup(bool dispose_prepared)
                     } else {
                         W_COERCE( xd->dispose() );
                     }
-                    delete xd;
+                    DELETE_XCT(xd);
                 } 
                 break;
 
@@ -654,7 +654,7 @@ xct_t::cleanup(bool dispose_prepared)
 		    next = i.erase_and_next()
                     DBG(<< xd->tid() <<"deleting " 
                             << " w/ state=" << xd->state() );
-                    delete xd;
+                    DELETE_XCT(xd);
                 }
                 break;
 
@@ -663,7 +663,7 @@ xct_t::cleanup(bool dispose_prepared)
                         me()->attach_xct(xd);
 			next = i.erase_and_next();
                         W_COERCE( xd->dispose() );
-                        delete xd;
+                        DELETE_XCT(xd);
                     } else {
                         DBG(<< xd->tid() <<"keep -- prepared ");
                         nprepared++;
