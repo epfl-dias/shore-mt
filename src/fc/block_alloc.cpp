@@ -84,7 +84,7 @@ struct blob_pool::helper {
 	long initialized;
 	BLBlob() : initialized(false) { }
     };
-    typedef std::map<int, BLBlob> BLMap;
+    typedef std::map<void*, BLBlob> BLMap;
     
     enum { OVERHEAD=sizeof(memory_block::block) };
     enum { MAX_CHIPS=memory_block::block_bits::MAX_CHIPS };
@@ -145,9 +145,9 @@ struct blob_pool::helper {
 
 	return tls_blmap.get();
     }
-    static bool get_blist(BlockList** rbl, long chip_size) {
+    static bool get_blist(BlockList** rbl, void* owner) {
 	BLMap &blm = *blmap();
-	BLBlob &bl = blm[chip_size];
+	BLBlob &bl = blm[owner];
 	*rbl = bl.get();
 	if(bl.initialized)
 	    return true;
@@ -176,9 +176,11 @@ blob_pool::blob_pool(size_t size)
  */
 void* blob_pool::acquire() {
     BlockList* blist;
-    if(! helper::get_blist(&blist, _chip_size))
+    if(! helper::get_blist(&blist, &_pool))
 	new (blist) BlockList(&_pool, BLOB_POOL_TEMPLATE_ARGS);
-    return (char*) blist->acquire(BLOB_POOL_TEMPLATE_ARGS);
+    void* ptr = blist->acquire(BLOB_POOL_TEMPLATE_ARGS);
+    assert(_pool.validate_pointer(ptr));
+    return ptr;
 }
     
 /* Verify that we own the object then find its block and report it
