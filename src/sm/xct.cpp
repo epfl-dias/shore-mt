@@ -369,6 +369,7 @@ void xct_list::insert_existing_unsafe(xct_t* owner) {
 		_xlink->_next = _anchor._next;
 		_anchor._next = _xlink;
 		_xlink->_node_state = NODE_HEAD;
+		_xlink->_next->_node_state = NODE_ACTIVE;
 	    }
 	    else {
 		// somewhere in the middle
