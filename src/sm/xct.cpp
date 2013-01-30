@@ -936,9 +936,10 @@ xct_t::new_sdesc_cache_t()
 }
 
 void
-xct_t::delete_sdesc_cache_t(sdesc_cache_t* sdc)
+xct_t::delete_sdesc_cache_t(sdesc_cache_t* &sdc)
 {
     delete sdc;
+    sdc = NULL;
 }
 
 xct_log_t*          
@@ -950,9 +951,10 @@ xct_t::new_xct_log_t()
 }
 
 void
-xct_t::delete_xct_log_t(xct_log_t* l)
+xct_t::delete_xct_log_t(xct_log_t* &l)
 {
     delete l;
+    l = NULL;
 }
 
 lockid_t*          
@@ -964,9 +966,10 @@ xct_t::new_lock_hierarchy()
 }
 
 void
-xct_t::delete_lock_hierarchy(lockid_t* l)
+xct_t::delete_lock_hierarchy(lockid_t* &l)
 {
     delete [] l;
+    l = NULL;
 }
 
 sdesc_cache_t*                    
