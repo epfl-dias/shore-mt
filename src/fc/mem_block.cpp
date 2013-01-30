@@ -206,7 +206,7 @@ block::block(size_t chip_size, size_t chip_count, size_t block_size)
     , _next(0)
 {
     // make sure all the chips actually fit in this block
-    char* end_of_block = _get(0, chip_size)-sizeof(this)+block_size;
+    char* end_of_block = _get(0, chip_size)-sizeof(*this)+block_size;
     char* end_of_chips = _get(chip_count, chip_size);
     (void) end_of_block; // keep gcc happy
     (void) end_of_chips; // keep gcc happy
