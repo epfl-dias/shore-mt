@@ -300,6 +300,7 @@ void lock_m::set_sli_enabled(bool enable) { global_sli_enabled = enable; }
 xct_lock_info_t::xct_lock_info_t()
 :
     _wait_request(NULL),
+    _blocking(false),
     _sli_enabled(global_sli_enabled),
     _sli_purged(false),
     _sli_sdesc_cache(0),
