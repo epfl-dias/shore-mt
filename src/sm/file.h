@@ -174,7 +174,7 @@ public:
 
     int                 rec_count();
 
-    // get stats on fixed size (ie. independent of th number of
+    // get stats on fixed size (ie. independent of the number of
     // records) page headers
     rc_t                hdr_stats(file_pg_stats_t& file_pg);
 

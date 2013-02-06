@@ -614,7 +614,7 @@ file_m::move_mrbt_rec_to_given_page(
 							   est_data_len,
 							   space_needed);
     }
-    DBG(<<"create_rec with policy " << int(policy)
+    DBG(<< "create_rec "
         << " space_needed=" << space_needed
         << " rec_impl=" << int(rec_impl)
         << " page is fixed=" << page.is_fixed()
@@ -626,7 +626,6 @@ file_m::move_mrbt_rec_to_given_page(
         histoid_update_t hu(page);
 
         if(page.is_fixed()) {
-            //w_assert2(policy == t_append);
 	    w_assert2(bIgnoreLatches || page.latch_mode() == LATCH_EX);
 	    
             rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
@@ -3346,8 +3345,8 @@ file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
             << " from page " << pid().page);
         rc = remove_compress(1 + idx, n);
     }
-    DBG(<< " page " << pid().page << " has " << nrecs() << " slots");
-    DBG(<< " page " << rsib->pid().page << " has " << rsib->nrecs() 
+    DBG(<< " page " << pid().page << " has " << rec_count() << " slots");
+    DBG(<< " page " << rsib->pid().page << " has " << rsib->rec_count() 
         << " slots");
 
     return rc.reset();
