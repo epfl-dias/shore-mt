@@ -633,6 +633,7 @@ histoid_t::__find_page_in_heap(
     }
     // should never happen
     W_FATAL(eINTERNAL);
+    return (-1); // to keep compiler happy
 }
 
 /********************************************************************

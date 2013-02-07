@@ -3324,7 +3324,10 @@ file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
     const int tmp_chunk_size = 20;    // XXX magic number
     vec_t *tp = new vec_t[tmp_chunk_size];
     if (!tp)
+    {
         return RC(fcOUTOFMEMORY);
+    }
+
     w_auto_delete_array_t<vec_t>    ad_tp(tp);
 
     for (int i = start_simple_move; i < n && (! rc.is_error()); ) {
@@ -3345,9 +3348,8 @@ file_mrbt_p::shift(slotid_t idx, file_mrbt_p* rsib)
             << " from page " << pid().page);
         rc = remove_compress(1 + idx, n);
     }
-    DBG(<< " page " << pid().page << " has " << rec_count() << " slots");
-    DBG(<< " page " << rsib->pid().page << " has " << rsib->rec_count() 
-        << " slots");
+    DBG(<< " page " << pid().page << " has " << num_slots() << " slots");
+    DBG(<< " page " << rsib->pid().page << " has " << num_slots() << " slots");
 
     return rc.reset();
 
