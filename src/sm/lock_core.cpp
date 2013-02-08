@@ -1945,8 +1945,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
     
     // thwarted!
     w_assert1(MUTEX_IS_MINE(req->get_lock_info()->lock_info_mutex));
-    w_assert1(req->xlink.member_of() 
-	      == &req->get_lock_info()->my_req_list[req->get_duration()]);
+    w_assert1(req->xlink.member_of() == &req->get_lock_info()->sli_list);
     req->xlink.detach();
     
     // are we (apparently) not last to leave?
