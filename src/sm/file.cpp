@@ -1300,17 +1300,19 @@ file_m::_find_slotted_page_with_space(
         // might not have last pid cached
         if(lastpid.page) {
             DBG(<<"look in last page - which is " << lastpid );
-            w_assert2(io->is_valid_page_of(lastpid, stid.store));
+            found = io->is_valid_page_of(lastpid, stid.store);
 
             // TODO: might get a deadlock here!!!!!
 
             INC_TSTAT(fm_lastpid_cached);
             sd.free_last_pid();
 
-            W_DO(h->latch_lock_get_slot( 
-                        lastpid.page, &page, space_needed,
-                        !may_search_file, // append-only
-                        found, slot));
+            if (found) {
+                W_DO(h->latch_lock_get_slot( 
+                                            lastpid.page, &page, space_needed,
+                                            !may_search_file, // append-only
+                                            found, slot));
+            }
             if(found) {
                 w_assert3(page.is_fixed());
                 DBG(<<"found page " << page.pid().page 
@@ -1320,6 +1322,7 @@ file_m::_find_slotted_page_with_space(
                 return RCOK;
             }
             DBG(<<"no slot in last page ");
+            lastpid.page = 0;
         } else {
             sd.free_last_pid();
         }
