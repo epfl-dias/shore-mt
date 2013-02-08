@@ -1327,7 +1327,11 @@ lock_core_m::acquire_lock(
 		if (!compat[mode][granted_mode_other]) {
 		    // make sure SLI isn't the problem
 		    if(lock->granted_mode <= SH) {
-                        granted_mode_other = lock->granted_mode_other(req, true);
+                        lmode_t new_gmo = lock->granted_mode_other(req, true);
+                        if (new_gmo != granted_mode_other) {
+                            must_wake_waiters = true;
+                            granted_mode_other = new_gmo;
+                        }
                         lock->granted_mode = supr[granted_mode_other][req->mode()];
 		    }
 		}
@@ -1533,6 +1537,16 @@ lock_core_m::acquire_lock(
 
             rce = _check_deadlock(xd, count == 0, req, &invalidated_sli_nodes);
 	    must_wake_waiters |= invalidated_sli_nodes;
+            if (rce == eOK and invalidated_sli_nodes) {
+                // SLI invalidation may have left me holding the lock
+                lock_mode_t granted_mode_other = lock->granted_mode_other(req);
+                if (compat[mode][granted_mode_other]) {
+                    lock->granted_mode = supr[granted_mode_other][mode];
+                    req->set_status(lock_m::t_granted);
+                    the_xlinfo->done_waiting();
+                    goto success;
+                }
+            }
 
             ++count;
             if (rce == eOK) {
@@ -2794,7 +2808,6 @@ lock_core_m::_check_deadlock(xct_t* self,
                         req->status(), req->mode(), req);
 
         }
-        w_assert1(req != NULL);
 
     }
 
@@ -2905,9 +2918,6 @@ lock_core_m::_check_deadlock(xct_t* self,
             return eDEADLOCK;
         }
     }
-    if(*invalidated_sli_nodes)
-	lock->granted_mode = lock->granted_mode_other(0);
-
     return eOK;
 }
 
