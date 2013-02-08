@@ -259,11 +259,19 @@ xct_t* xct_i::next(bool can_delete) {
 	xct_link* n;
 	while( !(n=_cur_xd->vthis()->_next) ) ;
 	if(NODE_LEFT == n->vthis()->_node_state) {
-	    if(can_delete && n != *&_xlist._tail) {
-		// unlink+delete the next and retry
-		// NOTE: single-threaded => no atomic ops
-		_cur_xd->_next = n->_next;
-		delete n;
+	    if(can_delete) {
+                if (n == *&_xlist._tail) {
+                    w_assert1(n == _end_xd);
+                    if (_xlist.anchor()->_next == n)
+                        _xlist.anchor()->_next = 0;
+                    _cur_xd = _end_xd = _xlist._tail = 0;
+                }
+                else {
+                    // unlink+delete the next and retry
+                    // NOTE: single-threaded => no atomic ops
+                    _cur_xd->_next = n->_next;
+                    delete n;
+                }
 	    }
 	    else {
 		// next!
@@ -280,11 +288,29 @@ xct_t* xct_i::next(bool can_delete) {
 }
 
 xct_t* xct_i::erase_and_next() {
+    // keep this in sync with list remove (esp. NODE_HEAD)
     if(_cur_xd == _end_xd)
 	return 0;
-    
-    _cur_xd->_node_state = NODE_LEFT;
-    return next(true);
+
+    xct_link* old_xd = _cur_xd;
+    if (old_xd->_owner) {
+        old_xd->_owner->_xlink = 0;
+        old_xd->_owner = 0;
+    }
+    xct_t* n = next(true);
+    if (old_xd->_node_state == NODE_HEAD) {
+        xct_link* anchor = _xlist.anchor();
+        if (_cur_xd) {
+            anchor->_tid = _cur_xd->_tid;
+            _cur_xd->_node_state = NODE_HEAD;
+        }
+        anchor->_next = _cur_xd;
+        delete old_xd;
+    }
+    else {
+        old_xd->_node_state = NODE_LEFT;
+    }
+    return n;
 }
 
 
@@ -403,7 +429,9 @@ void xct_list::insert_existing_unsafe(xct_t* owner) {
 }
 
 void xct_list::remove(xct_link* xd) {
-    w_assert1(xd);
+    if (not xd)
+        return;
+
     xct_link* next;
     if(xd->_owner) {
 	xd->_owner->_xlink = 0;
