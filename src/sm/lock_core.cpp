@@ -1542,7 +1542,7 @@ lock_core_m::acquire_lock(
 		}
 		else {
 		    MUTEX_RELEASE(lock->head_mutex);
-	    }
+                }
                 MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
 
                 DBGTHRD(<< "waiting (blocking) for:"
@@ -1938,9 +1938,6 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
     }
 
     w_assert1(req && !req->is_reclaimed());
-    if(0 && req->mode() == SH) {
-	fprintf(stderr, "Dropping a SH SLI lock!\n");
-    }
     
     // thwarted!
     w_assert1(MUTEX_IS_MINE(req->get_lock_info()->lock_info_mutex));

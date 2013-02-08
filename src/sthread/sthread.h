@@ -988,10 +988,9 @@ private:
 /**\endcond skip */
 #endif
 
-#define MUTEX_ACQUIRE(mutex)    W_COERCE((mutex).acquire());
-#define MUTEX_RELEASE(mutex)    (mutex).release();
+#define MUTEX_ACQUIRE(mutex)    W_COERCE((mutex).acquire())
+#define MUTEX_RELEASE(mutex)    (mutex).release()
 #define MUTEX_IS_MINE(mutex)    (mutex).is_mine()
-
 
 /**\def CRITICAL_SECTION(name, lock)
  *
