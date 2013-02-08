@@ -38,8 +38,7 @@ BF_HTAB_STATS_GENFILES_CPP = \
 	bf_htab_stats_t_collect_gen.cpp \
 	bf_htab_stats_t_dec_gen.cpp \
 	bf_htab_stats_t_inc_gen.cpp \
-	bf_htab_stats_t_out_gen.cpp \
-	bf_htab_stats_t_enum_gen.cpp
+	bf_htab_stats_t_out_gen.cpp
 
 LOGDEF_GENFILES_H = \
 	logfunc_gen.h \
