@@ -1323,8 +1323,8 @@ lock_core_m::acquire_lock(
 		if (!compat[mode][granted_mode_other]) {
 		    // make sure SLI isn't the problem
 		    if(lock->granted_mode <= SH) {
-			lock->granted_mode = lock->granted_mode_other(req, true);
-			granted_mode_other = supr[mode][lock->granted_mode];
+                        granted_mode_other = lock->granted_mode_other(req, true);
+                        lock->granted_mode = supr[granted_mode_other][req->mode()];
 		    }
 		}
 		
