@@ -394,7 +394,7 @@ void lock_m::disable_sli(xct_lock_info_t* theLockInfo) {
     W_COERCE(theLockInfo->lock_info_mutex.acquire());
     request_list_i it(theLockInfo->sli_list);
     while(lock_request_t* req=it.next()) 
-	_core->sli_abandon_request(req);
+	_core->sli_abandon_request(req, NULL);
 
     W_COERCE(theLockInfo->lock_info_mutex.release());
     theLockInfo->_sli_enabled = false;

@@ -1260,8 +1260,12 @@ lock_core_m::acquire_lock(
     if (!req) {
         req = lock->find_lock_request(the_xlinfo);
 	if(req) {
-	    if( !(req=sli_reclaim_request(req, RECLAIM_CHECK_PARENT)))
+	    if( !(req=sli_reclaim_request(req, RECLAIM_CHECK_PARENT, &lock->head_mutex))) {
+                // Careful! lock mutex was released by sli_abandon_request
+                w_assert1(not MUTEX_IS_MINE(lock->head_mutex));
+                MUTEX_ACQUIRE(lock->head_mutex);
 		must_wake_waiters = true;
+            }
 	    else if(req->_sli_status == sli_active
 		    && req->mode() == supr[mode][req->mode()])
 		INC_TSTAT(sli_found_late);
@@ -1820,12 +1824,12 @@ void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool fo
     while(lock_request_t* req=it.next()) {
 	if(force || !req->keep_me) {
 	    INC_TSTAT(sli_purged);
-	    sli_abandon_request(req);
+	    sli_abandon_request(req, NULL);
 	}
     }
 }
 
-lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd) {
+lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd, lock_head_t::my_lock* lock_mutex) {
 
     sli_status_t s = req->vthis()->_sli_status;
     if( !(s & SLI_INACTIVE))
@@ -1877,7 +1881,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 			    failed = true;
 			}
 			else if(pcmd == RECLAIM_RECLAIM_PARENT) {
-			    if(!sli_reclaim_request(pe->req, RECLAIM_RECLAIM_PARENT)) {
+			    if(!sli_reclaim_request(pe->req, RECLAIM_RECLAIM_PARENT, NULL)) {
 				pe->mode = NL;
 				failed = true;
 			    }
@@ -1892,7 +1896,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 	    
 	    // was the lock legit? move it to the trx lock list
 	    if(failed) {
-		sli_abandon_request(req); // does a full release because is_reclaimed()==true
+		sli_abandon_request(req, lock_mutex); // does a full release because is_reclaimed()==true
 		req = 0;
 	    }
 	    else {
@@ -1957,6 +1961,10 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 	DELETE_LOCK_REQUEST(req);
     }
 
+    if (lock_mutex) {
+        MUTEX_RELEASE(*lock_mutex);
+    }
+    
     // done. give our caller the bad news
     return req = 0;
 }
@@ -1975,7 +1983,9 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
 	return false; // SLI cannot be stopped
 
     // no matter who started it, unlink the request from lock->queue
-    //w_assert1(MUTEX_IS_MINE(req->get_lock_head()->mutex));
+#ifdef MY_LOCK_DEBUG
+    w_assert1(MUTEX_IS_MINE(req->get_lock_head()->head_mutex));
+#endif
     //w_assert1(req->rlink.member_of() == &req->get_lock_head()->_queue);
     req->rlink.detach();
 
@@ -2000,21 +2010,32 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
     return true;
 }
 
-void lock_core_m::sli_abandon_request(lock_request_t* &req) {
+void lock_core_m::sli_abandon_request(lock_request_t* &req, lock_head_t::my_lock* lock_mutex) {
     W_IFDEBUG1(sli_status_t s = req->vthis()->_sli_status);
     w_assert1(s != sli_not_inherited);
 
     // attempt to activate. If it succeeds we must release rather than abandon.
-    if(sli_reclaim_request(req, RECLAIM_NO_PARENT)) {
+    if(sli_reclaim_request(req, RECLAIM_NO_PARENT, lock_mutex)) {
 	/* heavyweight release to avoid deadlock risk. As a side
 	   effect we can finish invalidating the request with no more
 	   atomic ops (we will acquire the lock head mutex).
 	*/
-	lock_head_t::my_lock* lock_mutex = &req->get_lock_head()->head_mutex;
-	W_COERCE(lock_mutex->acquire());
+        if (lock_mutex) 
+            w_assert1(lock_mutex == &req->get_lock_head()->head_mutex);
+        else {
+            lock_mutex = &req->get_lock_head()->head_mutex;
+            W_COERCE(lock_mutex->acquire());
+        }
+#ifdef MY_LOCK_DEBUG
+        w_assert1(not lock_mutex or MUTEX_IS_MINE(*lock_mutex));
+#endif
 	W_COERCE(_release_lock(req, true));
     }
 
+    // should always have been released
+    if (lock_mutex)
+        w_assert1(not MUTEX_IS_MINE(*lock_mutex));
+    
     req = 0;
 }
 
@@ -2036,7 +2057,7 @@ void lock_core_m::put_in_cache(xct_lock_info_t* the_xlinfo,
         // cache overflowed... 
 	if(victim.req && !victim.req->is_reclaimed()) {
 	    INC_TSTAT(sli_evicted);
-	    sli_abandon_request(victim.req);
+	    sli_abandon_request(victim.req, NULL);
 	}
     }
 }
@@ -2055,7 +2076,7 @@ lock_cache_elem_t* lock_core_m::search_cache(
             // some sort of corruption here...
             w_assert1((void*) e->req->xlink.member_of() != (void*) e->req->xlink.prev());
 #warning FIXME: is it always correct to reclaim parents recursively here?
-	    if(reclaim && !sli_reclaim_request(e->req, RECLAIM_RECLAIM_PARENT)) {
+	    if(reclaim && !sli_reclaim_request(e->req, RECLAIM_RECLAIM_PARENT, NULL)) {
 		e->mode = NL;
 		e = 0;
 	    }
@@ -2147,7 +2168,10 @@ lock_core_m::release_lock(
         w_assert2(MUTEX_IS_MINE(lock->head_mutex));
 #endif
         request = lock->find_lock_request(the_xlinfo);
-	if(request && !(request=sli_reclaim_request(request, RECLAIM_CHECK_PARENT)) ) {
+	if(request && !(request=sli_reclaim_request(request, RECLAIM_CHECK_PARENT, &lock->head_mutex)) ) {
+            // Careful! sli_reclaim_request released the mutex!
+            w_assert1(not MUTEX_IS_MINE(lock->head_mutex));
+            MUTEX_ACQUIRE(lock->head_mutex);
 	    wakeup_waiters(lock); // releases mutex
 	    return RCOK;
 	}

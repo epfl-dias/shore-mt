@@ -145,9 +145,9 @@ public:
     void        FreeLockHeadToPool(lock_head_t* theLockHead);
 
     enum sli_parent_cmd { RECLAIM_NO_PARENT, RECLAIM_CHECK_PARENT, RECLAIM_RECLAIM_PARENT };
-    lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd);
+    lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd, lock_head_t::my_lock* lock_mutex);
     bool sli_invalidate_request(lock_request_t* &req);
-    void sli_abandon_request(lock_request_t* &req);
+    void sli_abandon_request(lock_request_t* &req, lock_head_t::my_lock* lock_mutex);
     void sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool force=false);
 
 
