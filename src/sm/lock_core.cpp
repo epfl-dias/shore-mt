@@ -342,10 +342,19 @@ xct_lock_info_t::reset()
 	    put_cache(name, req->mode(), req, ignore_me);
 	}
 	else {
-	    // clean up ones we know are dead
-	    w_assert0(req->_sli_status == sli_invalid);
-	    req->xlink.detach();
-	    DELETE_LOCK_REQUEST(req);
+	    // clean up invalid ones
+            // WARNING: might still be invalidating
+            sli_status_t s = req->vthis()->_sli_status;
+            if (s == sli_invalidating)
+                s = req->cas_sli_status(s, sli_abandoned);
+            if (s != sli_invalidating) {
+                // didn't get away...
+                if(s != sli_invalid)
+                    fprintf(stderr, "Yikes! state is %d/%d\n", s, req->vthis()->_sli_status);
+                w_assert0(s == sli_invalid);
+                req->xlink.detach();
+                DELETE_LOCK_REQUEST(req);
+            }
 	}
     }
     membar_exit(); // can't let the status change precede the lock name read above!
