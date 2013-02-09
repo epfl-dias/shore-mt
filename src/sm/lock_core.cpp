@@ -1318,11 +1318,11 @@ lock_core_m::acquire_lock(
 
                 // first do the cheap test in case our upgrade 
                 // can be granted outright
-                lmode_t granted_mode_other = supr[lock->granted_mode][req->mode()];
+                lmode_t granted_mode_other = supr[lock->granted_mode][mode];
                 if(!compat[mode][granted_mode_other]) {
                     // am I the one that would prevent the upgrade?
                     granted_mode_other = lock->granted_mode_other(req);
-                    w_assert9(lock->granted_mode == supr[granted_mode_other][req->mode()]);
+                    w_assert9(lock->granted_mode == supr[granted_mode_other][mode]);
                 }
 
                 upgraded = true;
@@ -1342,7 +1342,7 @@ lock_core_m::acquire_lock(
                 if (compat[mode][granted_mode_other]) {
                     /* compatible --> no wait */
                     req->set_mode(mode);
-                    lock->granted_mode = supr[mode][granted_mode_other];
+                    lock->granted_mode = supr[granted_mode_other][mode];
                     DBGTHRD(<<"goto success");
                     goto success;
                 }
