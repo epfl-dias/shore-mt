@@ -2050,8 +2050,9 @@ void lock_core_m::sli_abandon_request(lock_request_t* &req, lock_head_t::my_lock
     }
 
     // should always have been released
-    if (lock_mutex)
+    if (lock_mutex) {
         w_assert1(not MUTEX_IS_MINE(*lock_mutex));
+    }
     
     req = 0;
 }
