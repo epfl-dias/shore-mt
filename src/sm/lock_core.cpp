@@ -871,14 +871,13 @@ lockid_t::truncate(name_space_t space)
  *
  *********************************************************************/
 inline lock_base_t::lmode_t
-lock_head_t::granted_mode_other(const lock_request_t* exclude, bool kill_sli)
+lock_head_t::granted_mode_other(const lock_request_t* exclude)
 {
     w_assert9(!exclude || exclude->status() == lock_m::t_granted ||
                           exclude->status() == lock_m::t_converting);
 
     lock_base_t::lmode_t gmode = smlevel_0::NL;
     lock_head_t::safe_queue_iterator_t iter(*this); 
-
     lock_request_t* f;
     while ((f = iter.next())) {
         if (f->status() == lock_m::t_waiting) break;
@@ -888,12 +887,27 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude, bool kill_sli)
         w_assert9(lock_m::compat[f->mode][gmode]
 		  || lock_m::compat[gmode][f->mode]);
 
-	if (kill_sli && smlevel_0::lm->_core->sli_invalidate_request(f))
-	    continue; // never mind...
         if (f != exclude) gmode = lock_base_t::supr[f->mode()][gmode];
     }
 
     return gmode;
+}
+
+bool
+lock_head_t::invalidate_sli()
+{
+    // is SLI even possible?
+    if(granted_mode > lock_m::SH)
+        return false;
+    
+    lock_head_t::safe_queue_iterator_t iter(*this); 
+    bool invalidated = false;
+    while (lock_request_t* f=iter.next()) {
+	if (smlevel_0::lm->_core->sli_invalidate_request(f)) 
+            invalidated = true;
+    }
+
+    return invalidated;
 }
 
 // does not check whether the request is reclaimed
@@ -1327,18 +1341,6 @@ lock_core_m::acquire_lock(
 
                 upgraded = true;
                 
-		if (!compat[mode][granted_mode_other]) {
-		    // make sure SLI isn't the problem
-		    if(lock->granted_mode <= SH) {
-                        lmode_t new_gmo = lock->granted_mode_other(req, true);
-                        if (new_gmo != granted_mode_other) {
-                            must_wake_waiters = true;
-                            granted_mode_other = new_gmo;
-                        }
-                        lock->granted_mode = supr[granted_mode_other][req->mode()];
-		    }
-		}
-		
                 if (compat[mode][granted_mode_other]) {
                     /* compatible --> no wait */
                     req->set_mode(mode);
@@ -1387,13 +1389,6 @@ lock_core_m::acquire_lock(
             prev_mode = NL;
 
 	    INC_TSTAT(sli_requested);
-	    if (!compat[mode][lock->granted_mode]) {
-		// make sure SLI isn't the problem
-		if(lock->granted_mode <= SH) {
-		    lock->granted_mode = lock->granted_mode_other(req, true);
-		}
-	    }
-		
             bool compatible = !lock->waiting 
                 && compat[mode][lock->granted_mode];
 
@@ -1483,6 +1478,12 @@ lock_core_m::acquire_lock(
         w_assert1(timeout && !the_xlinfo->waiting_request());
         lock->waiting = true;
 
+        // make sure SLI isn't the problem
+        if (the_xlinfo->_sli_enabled and lock->invalidate_sli()) {
+            if (wakeup_waiters(lock, req))
+                goto success;
+        }
+        
         switch(name.lspace()) {
         case lockid_t::t_bad:
         default:
@@ -1536,36 +1537,17 @@ lock_core_m::acquire_lock(
      again:
         {
             DBGTHRD(<<" again: timeout " << timeout);
-	    bool invalidated_sli_nodes;
-	
+                
             w_assert2(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
 
-            rce = _check_deadlock(xd, count == 0, req, &invalidated_sli_nodes);
-	    must_wake_waiters |= invalidated_sli_nodes;
-            if (rce == eOK and invalidated_sli_nodes) {
-                // SLI invalidation may have left me holding the lock
-                lock_mode_t granted_mode_other = lock->granted_mode_other(req);
-                if (compat[mode][granted_mode_other]) {
-                    lock->granted_mode = supr[granted_mode_other][mode];
-                    req->set_status(lock_m::t_granted);
-                    the_xlinfo->done_waiting();
-                    goto success;
-                }
-            }
-
+            rce = _check_deadlock(xd, count == 0, req);
             ++count;
             if (rce == eOK) {
                 // either no deadlock or there is a deadlock but 
                 // some other xact was selected as victim
 
                 the_xlinfo->set_waiting_request_is_blocking(true);
-		if(must_wake_waiters) {
-		    wakeup_waiters(lock); // releases mutex
-		    must_wake_waiters = false;
-		}
-		else {
-		    MUTEX_RELEASE(lock->head_mutex);
-                }
+                MUTEX_RELEASE(lock->head_mutex);
                 MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
 
                 DBGTHRD(<< "waiting (blocking) for:"
@@ -2267,8 +2249,8 @@ lock_core_m::_release_lock(lock_request_t* request, bool force
     return RCOK;
 }
 
-void
-lock_core_m::wakeup_waiters(lock_head_t*& lock)
+bool
+lock_core_m::wakeup_waiters(lock_head_t*& lock, lock_request_t* self)
 {
     // The lock was released by someone or else its acquisition failed.
     // Try to free the lock head if it's not in use anymore. 
@@ -2280,6 +2262,7 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
     w_assert2(MUTEX_IS_MINE(lock->head_mutex));
 #endif
 
+    bool woke_self = false;
     if (lock->queue_length() == 0) 
     {
         uint4_t idx = _table_hash(w_hash(lock->name));
@@ -2295,7 +2278,7 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
 
         RELEASE_BUCKET_MUTEX(idx);
 
-        if (!lock) return;
+        if (!lock) return false;
     }
 
     if(lock->waiting) 
@@ -2346,21 +2329,28 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
                 w_assert2(request == 
                              request->get_lock_info()->waiting_request());
                 request->set_status(lock_m::t_granted);
-                rc_t rc = thr->smthread_unblock(eOK); 
-                if(rc.is_error() && rc.err_num() == eNOTBLOCKED) {
-                    // We hit a race in which the waiting thread is
-                    // no longer blocked -- perhaps it was running
-                    // deadlock detection. This is a problem because
-                    // it missed its wakeup call.
-                    rc = RCOK;
+                if (request == self) {
+                    woke_self = true;
                 }
-                W_COERCE(rc);
+                else {
+                    rc_t rc = thr->smthread_unblock(eOK); 
+                    if(rc.is_error() && rc.err_num() == eNOTBLOCKED) {
+                        // We hit a race in which the waiting thread is
+                        // no longer blocked -- perhaps it was running
+                        // deadlock detection. This is a problem because
+                        // it missed its wakeup call.
+                        rc = RCOK;
+                    }
+                    W_COERCE(rc);
+                }
             }
         }
 
         if (cvt_pending) lock->waiting = true;
     }
-    MUTEX_RELEASE(lock->head_mutex);
+    if (not self)
+        MUTEX_RELEASE(lock->head_mutex);
+    return woke_self;
 }
 
 
@@ -2602,11 +2592,9 @@ lock_core_m::close_quark(
 w_rc_t::errcode_t
 lock_core_m::_check_deadlock(xct_t* self, 
         bool first_time, 
-        lock_request_t *myreq, 
-        bool* invalidated_sli_nodes
+        lock_request_t *myreq
 )
 {
-    *invalidated_sli_nodes = false;
     
     xct_lock_info_t* myli = self->lock_info();
     w_assert2(MUTEX_IS_MINE(myli->lock_info_mutex));
@@ -2795,13 +2783,6 @@ lock_core_m::_check_deadlock(xct_t* self,
                 myreq, __LINE__, i, Qlen,
                 req->status(), req->mode(), req,
                 myreq->status(), mymode);
-		// attempt to invalidate the request
-		// (fails if it is currently in use)
-		if(sli_invalidate_request(req)) {
-		    *invalidated_sli_nodes = true;
-		    continue;
-		}
-		
                 deadlock_found = true;
                 break;
             }
