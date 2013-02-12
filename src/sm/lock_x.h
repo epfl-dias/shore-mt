@@ -113,20 +113,15 @@ class xct_lock_info_t; // forward
    simultaneously; the final state will be sli_invalid or
    sli_abandoned depending on who finishes first.
  */
-enum {
-    SLI_INACTIVE=0x10,			// SLI may be stopped on this request
-    SLI_LOCKED=0x100, 			// Somebody is stopping SLI on this request
-    SLI_DEAD=0x1000 			// Somebody has finished stopping SLI
-};
-
 enum sli_status_t {
-    sli_not_inherited =	0,
-    sli_active =	1,
-    sli_inactive =	    SLI_INACTIVE,
-    sli_invalidating =	0 | SLI_INACTIVE | SLI_LOCKED,
-    sli_abandoning =	1 | SLI_INACTIVE | SLI_LOCKED,
-    sli_invalid =	0 | SLI_INACTIVE | SLI_DEAD,
-    sli_abandoned =	1 | SLI_INACTIVE | SLI_DEAD
+    sli_not_inherited,
+    sli_active,
+    // those above must stay above
+    sli_inactive,
+    // those below must stay below
+    sli_invalidating,
+    sli_invalid,
+    sli_abandoned,
 };
 
 // typedef     w_list_t<lock_request_t,queue_based_lock_t> request_list_t;
@@ -256,8 +251,7 @@ public:
        no two threads ever try to set the status to the same value.
      */
     sli_status_t cas_sli_status(sli_status_t expect, sli_status_t assign) {
-	sli_status_t found = (sli_status_t) atomic_cas_32((unsigned*)&_sli_status, expect, assign);
-	return (found == expect)? assign : found;
+	return (sli_status_t) atomic_cas_32((unsigned*)&_sli_status, expect, assign);
     }
 
     // convert_mode used when we hold lock head mutex
@@ -308,7 +302,13 @@ public:
 
     lock_head_t*     get_lock_head() const;
     xct_lock_info_t* get_lock_info() const { return _lock_info; }
-    bool		is_reclaimed() { return !(_sli_status & SLI_INACTIVE); }
+    
+    static bool	     is_reclaimed(sli_status_t s) {
+        return s < sli_inactive;
+    }
+    bool	     is_reclaimed() {
+        return is_reclaimed(vthis()->_sli_status);
+    }
 
     bool             is_quark_marker() const;
 
@@ -621,7 +621,11 @@ public:
 
     NORET            ~lock_head_t()   { chain.detach(); }
 
-    lmode_t          granted_mode_other(const lock_request_t* exclude, bool kill_sli=false);
+    lmode_t          granted_mode_other(const lock_request_t* exclude);
+    
+    // Invalidate all inactive SLI requests, returning true if any were found
+    bool             invalidate_sli();
+    
     lock_request_t*  find_lock_request(const xct_lock_info_t*  xdli);
     int              queue_length() const { 
 #if MY_LOCK_DEBUG

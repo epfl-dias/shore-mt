@@ -122,7 +122,7 @@ public:
                 lock_request_t*   request,
                 bool              force);
 
-    void        wakeup_waiters(lock_head_t*& lock);
+    bool        wakeup_waiters(lock_head_t*& lock, lock_request_t* self=NULL);
 
     bool        upgrade_ext_req_to_EX_if_should_free(
                 lock_request_t*        req);
@@ -145,9 +145,9 @@ public:
     void        FreeLockHeadToPool(lock_head_t* theLockHead);
 
     enum sli_parent_cmd { RECLAIM_NO_PARENT, RECLAIM_CHECK_PARENT, RECLAIM_RECLAIM_PARENT };
-    lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd);
+    lock_request_t* sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd, lock_head_t::my_lock* lock_mutex);
     bool sli_invalidate_request(lock_request_t* &req);
-    void sli_abandon_request(lock_request_t* &req);
+    void sli_abandon_request(lock_request_t* &req, lock_head_t::my_lock* lock_mutex);
     void sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool force=false);
 
 
@@ -170,8 +170,7 @@ public:
 private:
     uint4_t        _table_hash(uint4_t) const; // mod it to fit table size
     w_rc_t::errcode_t _check_deadlock(xct_t* xd, bool first_time,
-				      lock_request_t *myreq,
-				      bool* invalidated_sli_nodes);
+				      lock_request_t *myreq);
     void    _update_cache(xct_lock_info_t *theLockInfo, const lockid_t& name, lmode_t m);
     bool	_maybe_inherit(lock_request_t* request, bool is_ancestor=false);
     

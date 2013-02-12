@@ -902,7 +902,7 @@ histoid_t::latch_lock_get_slot(
             return RCOK; 
         }
          
-        if( 0 && ! io_m::is_valid_page_of(pid, pid._stid.store)) {
+        if( ! io_m::is_valid_page_of(pid, pid._stid.store)) {
             DBGTHRD(<<"page no longer in store " << cmp.key);
             // reject this page
             //

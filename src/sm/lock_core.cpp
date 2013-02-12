@@ -342,24 +342,27 @@ xct_lock_info_t::reset()
 	    put_cache(name, req->mode(), req, ignore_me);
 	}
 	else {
-	    // clean up ones we know are dead
-	    w_assert0(req->_sli_status == sli_invalid);
-	    req->xlink.detach();
-	    DELETE_LOCK_REQUEST(req);
+	    // clean up invalid ones
+            // WARNING: might still be invalidating
+            sli_status_t s = req->vthis()->_sli_status;
+            if (s == sli_invalidating)
+                s = req->cas_sli_status(s, sli_abandoned);
+            if (s != sli_invalidating) {
+                // didn't get away...
+                if(s != sli_invalid)
+                    fprintf(stderr, "Yikes! state is %d/%d\n", s, req->vthis()->_sli_status);
+                w_assert0(s == sli_invalid);
+                req->xlink.detach();
+                DELETE_LOCK_REQUEST(req);
+            }
 	}
     }
     membar_exit(); // can't let the status change precede the lock name read above!
     long inherited = 0;
-    for(it.reset(sli_list); lock_request_t* req = it.next(); ++inherited)
-	switch(req->_sli_status) {
-	case sli_not_inherited:
-	case sli_active:
-	    // only deactivate active locks as opposed to
-	    // inactive-possibly-invalid locks
-	    req->_sli_status = sli_inactive;
-	default:
-	    break;
-	}
+    for(it.reset(sli_list); lock_request_t* req = it.next(); ++inherited) {
+        if (req->is_reclaimed())
+            req->_sli_status = sli_inactive;
+    }
     ADD_TSTAT(sli_inherited, inherited);
 
     // tid set by init()
@@ -868,14 +871,13 @@ lockid_t::truncate(name_space_t space)
  *
  *********************************************************************/
 inline lock_base_t::lmode_t
-lock_head_t::granted_mode_other(const lock_request_t* exclude, bool kill_sli)
+lock_head_t::granted_mode_other(const lock_request_t* exclude)
 {
     w_assert9(!exclude || exclude->status() == lock_m::t_granted ||
                           exclude->status() == lock_m::t_converting);
 
     lock_base_t::lmode_t gmode = smlevel_0::NL;
     lock_head_t::safe_queue_iterator_t iter(*this); 
-
     lock_request_t* f;
     while ((f = iter.next())) {
         if (f->status() == lock_m::t_waiting) break;
@@ -885,12 +887,27 @@ lock_head_t::granted_mode_other(const lock_request_t* exclude, bool kill_sli)
         w_assert9(lock_m::compat[f->mode][gmode]
 		  || lock_m::compat[gmode][f->mode]);
 
-	if (kill_sli && smlevel_0::lm->_core->sli_invalidate_request(f))
-	    continue; // never mind...
         if (f != exclude) gmode = lock_base_t::supr[f->mode()][gmode];
     }
 
     return gmode;
+}
+
+bool
+lock_head_t::invalidate_sli()
+{
+    // is SLI even possible?
+    if(granted_mode > lock_m::SH)
+        return false;
+    
+    lock_head_t::safe_queue_iterator_t iter(*this); 
+    bool invalidated = false;
+    while (lock_request_t* f=iter.next()) {
+	if (smlevel_0::lm->_core->sli_invalidate_request(f)) 
+            invalidated = true;
+    }
+
+    return invalidated;
 }
 
 // does not check whether the request is reclaimed
@@ -1260,8 +1277,12 @@ lock_core_m::acquire_lock(
     if (!req) {
         req = lock->find_lock_request(the_xlinfo);
 	if(req) {
-	    if( !(req=sli_reclaim_request(req, RECLAIM_CHECK_PARENT)))
+	    if( !(req=sli_reclaim_request(req, RECLAIM_CHECK_PARENT, &lock->head_mutex))) {
+                // Careful! lock mutex was released by sli_abandon_request
+                w_assert1(not MUTEX_IS_MINE(lock->head_mutex));
+                MUTEX_ACQUIRE(lock->head_mutex);
 		must_wake_waiters = true;
+            }
 	    else if(req->_sli_status == sli_active
 		    && req->mode() == supr[mode][req->mode()])
 		INC_TSTAT(sli_found_late);
@@ -1311,33 +1332,26 @@ lock_core_m::acquire_lock(
 
                 // first do the cheap test in case our upgrade 
                 // can be granted outright
-                lmode_t granted_mode_other = supr[lock->granted_mode][req->mode()];
+                lmode_t granted_mode_other = supr[lock->granted_mode][mode];
                 if(!compat[mode][granted_mode_other]) {
                     // am I the one that would prevent the upgrade?
                     granted_mode_other = lock->granted_mode_other(req);
-                    w_assert9(lock->granted_mode == supr[granted_mode_other][req->mode()]);
+                    w_assert9(lock->granted_mode == supr[granted_mode_other][mode]);
                 }
 
                 upgraded = true;
                 
-		if (!compat[mode][granted_mode_other]) {
-		    // make sure SLI isn't the problem
-		    if(lock->granted_mode <= SH) {
-			lock->granted_mode = lock->granted_mode_other(req, true);
-			granted_mode_other = supr[mode][lock->granted_mode];
-		    }
-		}
-		
                 if (compat[mode][granted_mode_other]) {
                     /* compatible --> no wait */
                     req->set_mode(mode);
-                    lock->granted_mode = supr[mode][granted_mode_other];
+                    lock->granted_mode = supr[granted_mode_other][mode];
                     DBGTHRD(<<"goto success");
                     goto success;
                 }
 
                 // don't bother with all the stuff 
                 // below if we know we failed now...
+                w_assert1(lock->queue_length() > 1);
                 if(!timeout) {
 		if(must_wake_waiters) {
 		    wakeup_waiters(lock); // releases mutex
@@ -1360,6 +1374,7 @@ lock_core_m::acquire_lock(
                     //Another thread, on behalf of this xct, is either
                     //running the deadlock detector (waking up, trying again)
                     //or is blocked waiting for this lock.
+                    w_assert1(the_xlinfo->waiting_request() != req);
                     goto has_waiter;
                 }
 
@@ -1374,13 +1389,6 @@ lock_core_m::acquire_lock(
             prev_mode = NL;
 
 	    INC_TSTAT(sli_requested);
-	    if (!compat[mode][lock->granted_mode]) {
-		// make sure SLI isn't the problem
-		if(lock->granted_mode <= SH) {
-		    lock->granted_mode = lock->granted_mode_other(req, true);
-		}
-	    }
-		
             bool compatible = !lock->waiting 
                 && compat[mode][lock->granted_mode];
 
@@ -1470,6 +1478,12 @@ lock_core_m::acquire_lock(
         w_assert1(timeout && !the_xlinfo->waiting_request());
         lock->waiting = true;
 
+        // make sure SLI isn't the problem
+        if (the_xlinfo->_sli_enabled and lock->invalidate_sli()) {
+            if (wakeup_waiters(lock, req))
+                goto success;
+        }
+        
         switch(name.lspace()) {
         case lockid_t::t_bad:
         default:
@@ -1523,26 +1537,17 @@ lock_core_m::acquire_lock(
      again:
         {
             DBGTHRD(<<" again: timeout " << timeout);
-	    bool invalidated_sli_nodes;
-	
+                
             w_assert2(MUTEX_IS_MINE(the_xlinfo->lock_info_mutex));
 
-            rce = _check_deadlock(xd, count == 0, req, &invalidated_sli_nodes);
-	    must_wake_waiters |= invalidated_sli_nodes;
-
+            rce = _check_deadlock(xd, count == 0, req);
             ++count;
             if (rce == eOK) {
                 // either no deadlock or there is a deadlock but 
                 // some other xact was selected as victim
 
                 the_xlinfo->set_waiting_request_is_blocking(true);
-		if(must_wake_waiters) {
-		    wakeup_waiters(lock); // releases mutex
-		    must_wake_waiters = false;
-		}
-		else {
-		    MUTEX_RELEASE(lock->head_mutex);
-	    }
+                MUTEX_RELEASE(lock->head_mutex);
                 MUTEX_RELEASE(the_xlinfo->lock_info_mutex);
 
                 DBGTHRD(<< "waiting (blocking) for:"
@@ -1820,23 +1825,24 @@ void lock_core_m::sli_purge_inactive_locks(xct_lock_info_t* theLockInfo, bool fo
     while(lock_request_t* req=it.next()) {
 	if(force || !req->keep_me) {
 	    INC_TSTAT(sli_purged);
-	    sli_abandon_request(req);
+	    sli_abandon_request(req, NULL);
 	}
     }
 }
 
-lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd) {
+lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_parent_cmd pcmd, lock_head_t::my_lock* lock_mutex) {
 
     sli_status_t s = req->vthis()->_sli_status;
-    if( !(s & SLI_INACTIVE))
-	return req; // already active
+    if (req->is_reclaimed(s))
+	return req; // nothing more to be done
 
+    w_assert2(s == sli_inactive || s == sli_invalid || s == sli_invalidating);
     if(s == sli_inactive) {
 	// try to reactivate it
 	s = req->cas_sli_status(sli_inactive, sli_active);
 	
-	// success?
-	if(s == sli_active) {
+	// double check... may have been invalidated
+	if(s == sli_inactive) {
 	    // we have it now... but can we actually use it?
 	    lock_head_t* lock = req->get_lock_head();
 	    xct_lock_info_t* theLockInfo = req->get_lock_info();
@@ -1877,7 +1883,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 			    failed = true;
 			}
 			else if(pcmd == RECLAIM_RECLAIM_PARENT) {
-			    if(!sli_reclaim_request(pe->req, RECLAIM_RECLAIM_PARENT)) {
+			    if(!sli_reclaim_request(pe->req, RECLAIM_RECLAIM_PARENT, NULL)) {
 				pe->mode = NL;
 				failed = true;
 			    }
@@ -1892,7 +1898,7 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
 	    
 	    // was the lock legit? move it to the trx lock list
 	    if(failed) {
-		sli_abandon_request(req); // does a full release because is_reclaimed()==true
+		sli_abandon_request(req, lock_mutex); // does a full release because is_reclaimed()==true
 		req = 0;
 	    }
 	    else {
@@ -1938,58 +1944,58 @@ lock_request_t* lock_core_m::sli_reclaim_request(lock_request_t* &req, sli_paren
     }
 
     w_assert1(req && !req->is_reclaimed());
-    if(0 && req->mode() == SH) {
-	fprintf(stderr, "Dropping a SH SLI lock!\n");
-    }
     
-    // thwarted!
+    // thwarted! no matter what, unlink from the transaction
     w_assert1(MUTEX_IS_MINE(req->get_lock_info()->lock_info_mutex));
-    w_assert1(req->xlink.member_of() 
-	      == &req->get_lock_info()->my_req_list[req->get_duration()]);
+    w_assert1(req->xlink.member_of() == &req->get_lock_info()->sli_list);
     req->xlink.detach();
     
     // are we (apparently) not last to leave?
-    if(s & SLI_LOCKED) {
-	membar_producer();
-	s = req->cas_sli_status(s, sli_abandoned);
-    }
-    
+    if (s == sli_invalidating)
+        s = req->cas_sli_status(s, sli_abandoned);
+
     // were we actually the last to leave?
     if(s == sli_invalid) {
+        membar_consumer();
 	w_assert1(!req->xlink.member_of() && !req->rlink.member_of());
 	DELETE_LOCK_REQUEST(req);
     }
 
+    if (lock_mutex) {
+        MUTEX_RELEASE(*lock_mutex);
+    }
+    
     // done. give our caller the bad news
     return req = 0;
 }
 
 bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
     sli_status_t s = req->vthis()->_sli_status;
+    if (req->is_reclaimed(s))
+        return false;
 
-    // were we the first to arrive?
-    if(s == sli_inactive) {
-	s = req->cas_sli_status(sli_inactive, sli_invalidating);
-	membar_consumer();
-    }
+    // let the race begin...
+    w_assert1(s == sli_inactive);
+    s = req->cas_sli_status(sli_inactive, sli_invalidating);
+    membar_consumer();
 
-    // is it active?
-    if( !(s & SLI_INACTIVE) )
-	return false; // SLI cannot be stopped
+    // double check.. may have just activated or become ineligible
+    if(req->is_reclaimed(s))
+        return false;
 
-    // no matter who started it, unlink the request from lock->queue
-    //w_assert1(MUTEX_IS_MINE(req->get_lock_head()->mutex));
+    // unlink the request from lock->queue
+    w_assert1(s == sli_inactive);
+#ifdef MY_LOCK_DEBUG
+    w_assert1(MUTEX_IS_MINE(req->get_lock_head()->head_mutex));
+#endif
     //w_assert1(req->rlink.member_of() == &req->get_lock_head()->_queue);
     req->rlink.detach();
 
-    // are we (apparently) not the last to leave?
-    if(s & SLI_LOCKED) {
-	membar_producer();
-	s = req->cas_sli_status(s, sli_invalid);
-    }
-    
-    // were we actually the last to leave?
-    if(s == sli_abandoned) {
+    // try to leave without getting caught
+    s = req->cas_sli_status(sli_invalidating, sli_invalid);
+    if (s != sli_invalidating) {
+        // caught... have to clean up the mess
+        w_assert1(s == sli_abandoned);
 	membar_consumer();
 	w_assert1(!req->xlink.member_of() && !req->rlink.member_of());	
 	DELETE_LOCK_REQUEST(req);
@@ -2003,21 +2009,33 @@ bool lock_core_m::sli_invalidate_request(lock_request_t* &req) {
     return true;
 }
 
-void lock_core_m::sli_abandon_request(lock_request_t* &req) {
+void lock_core_m::sli_abandon_request(lock_request_t* &req, lock_head_t::my_lock* lock_mutex) {
     W_IFDEBUG1(sli_status_t s = req->vthis()->_sli_status);
     w_assert1(s != sli_not_inherited);
 
     // attempt to activate. If it succeeds we must release rather than abandon.
-    if(sli_reclaim_request(req, RECLAIM_NO_PARENT)) {
+    if(sli_reclaim_request(req, RECLAIM_NO_PARENT, lock_mutex)) {
 	/* heavyweight release to avoid deadlock risk. As a side
 	   effect we can finish invalidating the request with no more
 	   atomic ops (we will acquire the lock head mutex).
 	*/
-	lock_head_t::my_lock* lock_mutex = &req->get_lock_head()->head_mutex;
-	W_COERCE(lock_mutex->acquire());
+        if (lock_mutex) 
+            w_assert1(lock_mutex == &req->get_lock_head()->head_mutex);
+        else {
+            lock_mutex = &req->get_lock_head()->head_mutex;
+            W_COERCE(lock_mutex->acquire());
+        }
+#ifdef MY_LOCK_DEBUG
+        w_assert1(not lock_mutex or MUTEX_IS_MINE(*lock_mutex));
+#endif
 	W_COERCE(_release_lock(req, true));
     }
 
+    // should always have been released
+    if (lock_mutex) {
+        w_assert1(not MUTEX_IS_MINE(*lock_mutex));
+    }
+    
     req = 0;
 }
 
@@ -2039,7 +2057,7 @@ void lock_core_m::put_in_cache(xct_lock_info_t* the_xlinfo,
         // cache overflowed... 
 	if(victim.req && !victim.req->is_reclaimed()) {
 	    INC_TSTAT(sli_evicted);
-	    sli_abandon_request(victim.req);
+	    sli_abandon_request(victim.req, NULL);
 	}
     }
 }
@@ -2058,7 +2076,7 @@ lock_cache_elem_t* lock_core_m::search_cache(
             // some sort of corruption here...
             w_assert1((void*) e->req->xlink.member_of() != (void*) e->req->xlink.prev());
 #warning FIXME: is it always correct to reclaim parents recursively here?
-	    if(reclaim && !sli_reclaim_request(e->req, RECLAIM_RECLAIM_PARENT)) {
+	    if(reclaim && !sli_reclaim_request(e->req, RECLAIM_RECLAIM_PARENT, NULL)) {
 		e->mode = NL;
 		e = 0;
 	    }
@@ -2150,7 +2168,10 @@ lock_core_m::release_lock(
         w_assert2(MUTEX_IS_MINE(lock->head_mutex));
 #endif
         request = lock->find_lock_request(the_xlinfo);
-	if(request && !(request=sli_reclaim_request(request, RECLAIM_CHECK_PARENT)) ) {
+	if(request && !(request=sli_reclaim_request(request, RECLAIM_CHECK_PARENT, &lock->head_mutex)) ) {
+            // Careful! sli_reclaim_request released the mutex!
+            w_assert1(not MUTEX_IS_MINE(lock->head_mutex));
+            MUTEX_ACQUIRE(lock->head_mutex);
 	    wakeup_waiters(lock); // releases mutex
 	    return RCOK;
 	}
@@ -2228,8 +2249,8 @@ lock_core_m::_release_lock(lock_request_t* request, bool force
     return RCOK;
 }
 
-void
-lock_core_m::wakeup_waiters(lock_head_t*& lock)
+bool
+lock_core_m::wakeup_waiters(lock_head_t*& lock, lock_request_t* self)
 {
     // The lock was released by someone or else its acquisition failed.
     // Try to free the lock head if it's not in use anymore. 
@@ -2241,6 +2262,7 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
     w_assert2(MUTEX_IS_MINE(lock->head_mutex));
 #endif
 
+    bool woke_self = false;
     if (lock->queue_length() == 0) 
     {
         uint4_t idx = _table_hash(w_hash(lock->name));
@@ -2256,7 +2278,7 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
 
         RELEASE_BUCKET_MUTEX(idx);
 
-        if (!lock) return;
+        if (!lock) return false;
     }
 
     if(lock->waiting) 
@@ -2307,21 +2329,28 @@ lock_core_m::wakeup_waiters(lock_head_t*& lock)
                 w_assert2(request == 
                              request->get_lock_info()->waiting_request());
                 request->set_status(lock_m::t_granted);
-                rc_t rc = thr->smthread_unblock(eOK); 
-                if(rc.is_error() && rc.err_num() == eNOTBLOCKED) {
-                    // We hit a race in which the waiting thread is
-                    // no longer blocked -- perhaps it was running
-                    // deadlock detection. This is a problem because
-                    // it missed its wakeup call.
-                    rc = RCOK;
+                if (request == self) {
+                    woke_self = true;
                 }
-                W_COERCE(rc);
+                else {
+                    rc_t rc = thr->smthread_unblock(eOK); 
+                    if(rc.is_error() && rc.err_num() == eNOTBLOCKED) {
+                        // We hit a race in which the waiting thread is
+                        // no longer blocked -- perhaps it was running
+                        // deadlock detection. This is a problem because
+                        // it missed its wakeup call.
+                        rc = RCOK;
+                    }
+                    W_COERCE(rc);
+                }
             }
         }
 
         if (cvt_pending) lock->waiting = true;
     }
-    MUTEX_RELEASE(lock->head_mutex);
+    if (not self)
+        MUTEX_RELEASE(lock->head_mutex);
+    return woke_self;
 }
 
 
@@ -2563,11 +2592,9 @@ lock_core_m::close_quark(
 w_rc_t::errcode_t
 lock_core_m::_check_deadlock(xct_t* self, 
         bool first_time, 
-        lock_request_t *myreq, 
-        bool* invalidated_sli_nodes
+        lock_request_t *myreq
 )
 {
-    *invalidated_sli_nodes = false;
     
     xct_lock_info_t* myli = self->lock_info();
     w_assert2(MUTEX_IS_MINE(myli->lock_info_mutex));
@@ -2756,13 +2783,6 @@ lock_core_m::_check_deadlock(xct_t* self,
                 myreq, __LINE__, i, Qlen,
                 req->status(), req->mode(), req,
                 myreq->status(), mymode);
-		// attempt to invalidate the request
-		// (fails if it is currently in use)
-		if(sli_invalidate_request(req)) {
-		    *invalidated_sli_nodes = true;
-		    continue;
-		}
-		
                 deadlock_found = true;
                 break;
             }
@@ -2774,7 +2794,6 @@ lock_core_m::_check_deadlock(xct_t* self,
                         req->status(), req->mode(), req);
 
         }
-        w_assert1(req != NULL);
 
     }
 
@@ -2885,9 +2904,6 @@ lock_core_m::_check_deadlock(xct_t* self,
             return eDEADLOCK;
         }
     }
-    if(*invalidated_sli_nodes)
-	lock->granted_mode = lock->granted_mode_other(0);
-
     return eOK;
 }
 
@@ -3100,9 +3116,6 @@ operator<<(ostream& o, const lock_request_t& r)
 	break;
     case sli_invalid:
 	o << "i";
-	break;
-    case sli_abandoning:
-	o << "a*";
 	break;
     case sli_abandoned:
 	o << "a";
