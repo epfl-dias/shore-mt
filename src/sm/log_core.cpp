@@ -2025,8 +2025,9 @@ void log_core::_set_size(fileoff_t size)
 void log_core::_acquire_buffer_space(insert_info* info, long recsize)
 {
    INC_TSTAT(log_inserts);
-    
-   w_assert2((unsigned long)(recsize) <= sizeof(logrec_t));
+
+   if (not use_combination_array)
+       w_assert2((unsigned long)(recsize) <= sizeof(logrec_t));
    w_assert2(recsize > 0);
 
 
