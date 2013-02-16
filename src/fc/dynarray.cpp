@@ -45,7 +45,8 @@ static size_t align_up(size_t bytes, size_t align) {
 #define USE_MAP_ALIGN 1
 #endif
 
-int dynarray::init(size_t max_size, size_t align) {
+int dynarray::init(size_t max_size, size_t align) 
+{
     // round up to the nearest page boundary
     max_size = align_up(max_size, MM_PAGE_SIZE);
     
@@ -101,7 +102,7 @@ int dynarray::init(size_t max_size, size_t align) {
     if(u.v == MAP_FAILED)
     {
         fprintf(stderr, "dynarray::init MAP_FAILED %d\n", errno);        
-	return errno;
+	return ( errno );
     }
 
 #if !USE_MAP_ALIGN
@@ -122,24 +123,30 @@ int dynarray::init(size_t max_size, size_t align) {
      */
 #ifdef TEST_ME
     std::fprintf(stderr, "start: %p	end:%p\n", u.c, u.c+max_size+align_extra);
-#endif
+#endif // TEST ME
+
     long aligned_base = align_up(u.n, align);
     if(long extra=aligned_base-u.n) {
+
 #ifdef TEST_ME
 	std::fprintf(stderr, "chopping off %zx bytes of prefix for start: %zx\n",
 		extra, aligned_base);
-#endif
+#endif // TEST_ME
+
 	munmap(u.c, extra);
 	u.n = aligned_base;
 	align_extra -= extra;
     }
-    if(align_extra > 0) {
+
+    if(align_extra > 0) 
+    {
 #ifdef TEST_ME
 	std::fprintf(stderr, "chopping %zx bytes of postfix for end: %p\n", align_extra, u.c+max_size);
-#endif
+#endif // TEST ME
+
 	munmap(u.c+max_size, align_extra);
     }
-#endif
+#endif // !USE_MAP_ALIGN
 
     _base = u.c;
     _capacity = max_size;
@@ -172,7 +179,9 @@ int dynarray::resize(size_t new_size) {
 
     // validate
     if(_size > new_size)
+    {
 	return EINVAL;
+    }
 
     static int const PROTS = PROT_READ | PROT_WRITE;
     static int const FLAGS = MAP_FIXED | MAP_ANON | MAP_PRIVATE;
@@ -180,7 +189,9 @@ int dynarray::resize(size_t new_size) {
     // remap the new range as RW. Don't mess w/ the existing region!!
     void* result = mmap(_base+_size, new_size-_size, PROTS, FLAGS, -1, 0);
     if(result == MAP_FAILED)
+    {
 	return errno;
+    }
 
     _size = new_size;
     return 0;

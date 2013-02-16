@@ -191,61 +191,18 @@ w_rc_t key_ranges_map::nophy_equal_partitions(const sinfo_s& sinfo,
 	W_DO(addPartition(*scrambled_key,root));
     }
 
-    // 4. delete malloced stuff
-    for(uint i=0; i<partsCreated; i++) {
-	delete subParts[i];
+    // 4. delete malloced subParts
+    for(uint i=0; i<partsCreated; i++) 
+    {
+	//delete subParts[i];
+        free (subParts[i]);
+        subParts[i] = NULL;
     }
-    delete subParts;
-    delete minKey_c;
-    delete maxKey_c;
-    
-    // FOR INTEGERS ONLY
-    /*
-    assert (_minKey);
-    assert (_maxKey);
-    assert(numParts);
 
-    // Calculate the first key and the step thereafter
-    int size = sizeof(int);
-    int lower_bound = 0;
-    int upper_bound = 0;
-    minKey.copy_to(&lower_bound,size);
-    maxKey.copy_to(&upper_bound,size);
-
-    int space = upper_bound - lower_bound;
-    double diff = (double)space / (double)numParts;
-    assert (diff>0);     
-
-    double d_current_key = lower_bound;
-    int current = 0;
-    cvec_t* scrambledKey = NULL;
-    stid_t astid;
-    uint4_t i=0;
-    
-    // Put the partitions to map
-
-    // ---------------------
-    _rwlock.acquire_write();
-    _keyRangesMap.clear();
-    _rwlock.release_write();
-    // ---------------------
-
-    while(i < numParts) {
-
-	current = d_current_key;
-        cvec_t acv((char*)(&current),size);
-        W_DO(btree_m::_scramble_key(scrambledKey,acv,minKey.count(),sinfo.kc));
-
-        lpid_t alpid(astid,i);
-        W_DO(addPartition(*scrambledKey,alpid));
-
-	d_current_key = d_current_key + diff;
-        i++;
-    }
-    */
-
-    //printPartitionsInBytes();  
-    
+    free(subParts);
+    free(minKey_c);
+    free(maxKey_c);
+        
     return (RCOK);
 }
 
