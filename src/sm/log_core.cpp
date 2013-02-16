@@ -1011,20 +1011,30 @@ struct log_core::insert_info_array {
     {
     }
     
-    ~insert_info_array() {
+    ~insert_info_array() 
+    {
 	// make sure all slots are free before continuing...
 	for(long i=0; i < _total_slots; i++)
-	    allocate();
+        {
+	    allocate(false);
+        }
 	delete [] _slot_array;
     }
 
     long indexof(insert_info const* info) const {
 	return info - _slot_array;
     }
-    insert_info* allocate() {
-	while(SLOT_UNUSED != _slot_array[_slot_mark].count) {
+
+    insert_info* allocate(bool be_patient=true) 
+    {
+        long orig_slot_mark = _slot_mark;
+	while(SLOT_UNUSED != _slot_array[_slot_mark].count) 
+        {
 	    if(++_slot_mark == _total_slots)
+            {
 		_slot_mark = 0;
+            }
+            w_assert0(be_patient || _slot_mark != orig_slot_mark);
 	}
 	insert_info* i2 = &_slot_array[_slot_mark];
 	i2->count = SLOT_AVAILABLE;
