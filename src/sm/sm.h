@@ -2376,11 +2376,8 @@ public:
     static rc_t            create_assoc(
         stid_t                   stid, 
         const vec_t&             key, 
-        const vec_t&             el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&             el,
+        const bool               bIgnoreLocks = false);
     /**\brief Remove an entry from a B+-Tree index.
      * \ingroup SSMBTREE
      *
@@ -2391,11 +2388,8 @@ public:
     static rc_t            destroy_assoc(
         stid_t                   stid, 
         const vec_t&             key,
-        const vec_t&             el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&             el,
+        const bool               bIgnoreLocks = false);
     /**\brief Destroy all entries associated with a key in a B+-Tree index. 
      * \ingroup SSMBTREE
      *
@@ -2431,11 +2425,8 @@ public:
         const vec_t&            key, 
         void*                   el, 
         smsize_t&               elen, 
-        bool&                   found
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        bool&                   found,
+        const bool              bIgnoreLocks = false);
 
 
     // TODO: pin: add explaination for MRBT (SSMMRBTREE :)
@@ -3069,22 +3060,16 @@ public:
         const vec_t&             hdr, 
         smsize_t                 len_hint, 
         const vec_t&             data, 
-        rid_t&                   new_rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    ); 
+        rid_t&                   new_rid,
+        const bool               bIgnoreLocks = false); 
 
     /**\brief Destroy a record.
      * \ingroup SSMFILE
      * \details
      * @param[in] rid  ID of the record to destroy.
      */
-    static rc_t            destroy_rec(const rid_t& rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-                                       );
+    static rc_t            destroy_rec(const rid_t& rid,
+				       const bool bIgnoreLocks = false);
 
     /**\brief Modify the body of an existing record.
      * \ingroup SSMFILE
@@ -3204,11 +3189,8 @@ public:
         const vec_t&             hdr, 
         smsize_t                 len_hint, 
         const vec_t&             data, 
-        rid_t&                   new_rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif	
-    ); 
+        rid_t&                   new_rid,
+        const bool               bIgnoreLocks = false); 
 
     /**\brief Create a new record in given page.
      * \ingroup SSMFILE
@@ -3266,25 +3248,22 @@ public:
 	const bool             bIgnoreLocks = false,
         const bool             bIgnoreLatches = false); 
 
-    static rc_t            destroy_mrbt_rec(const rid_t& rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false,
-	const bool               bIgnoreLatches = false
-#endif
-                                       );
+    static rc_t            destroy_mrbt_rec(const rid_t& rid,
+					    const bool bIgnoreLocks = false,
+					    const bool bIgnoreLatches = false);
 
     static rc_t            update_mrbt_rec(
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             data,
-	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false);
 
     static rc_t            update_mrbt_rec_hdr(
         const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             hdr,
-	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false);
 
     static rc_t            append_mrbt_rec(
@@ -3705,20 +3684,14 @@ private:
     static rc_t            _create_assoc(
         const stid_t  &        stid, 
         const vec_t&           key, 
-        const vec_t&           el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&           el,
+        const bool             bIgnoreLocks = false);
 
     static rc_t            _destroy_assoc(
         const stid_t &        stid, 
         const vec_t&          key,
-        const vec_t&          el
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        const vec_t&          el,
+        const bool            bIgnoreLocks = false);
 
     static rc_t            _destroy_all_assoc(
         const stid_t&        stid, 
@@ -3730,11 +3703,8 @@ private:
         const vec_t&         key, 
         void*                el, 
         smsize_t&            elen, 
-        bool&                found
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-    );
+        bool&                found,
+        const bool           bIgnoreLocks = false);
 
 
     static rc_t            _create_mr_index(
@@ -3923,36 +3893,24 @@ private:
         const vec_t&             hdr, 
         smsize_t                 len_hint, 
         const vec_t&             data, 
-        rid_t&                   new_rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        ); 
+        rid_t&                   new_rid,
+        const bool               bIgnoreLocks = false); 
 
     static rc_t            _destroy_rec(
-        const rid_t&             rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        );
+	const rid_t&             rid,
+        const bool               bIgnoreLocks = false);
 
     static rc_t            _update_rec(
         const rid_t&             rid, 
         smsize_t                 start, 
-        const vec_t&             data
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        );
+        const vec_t&             data,
+        const bool               bIgnoreLocks = false);
 
     static rc_t            _update_rec_hdr(
         const rid_t&             rid, 
         smsize_t                 start, 
-        const vec_t&             hdr
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        );
+        const vec_t&             hdr,
+        const bool               bIgnoreLocks = false);
 
     static rc_t            _append_rec(
         const rid_t&             rid, 
@@ -3969,8 +3927,8 @@ private:
     static rc_t            _create_mrbt_file(
         vid_t                 vid, 
         stid_t&               fid,
-        store_property_t     property,
-        shpid_t              cluster_hint = 0
+        store_property_t      property,
+        shpid_t               cluster_hint = 0
     ); 
 
     static rc_t            _create_mrbt_rec(
@@ -3978,11 +3936,8 @@ private:
         const vec_t&             hdr, 
         smsize_t                 len_hint, 
         const vec_t&             data, 
-        rid_t&                   new_rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false
-#endif
-        ); 
+        rid_t&                   new_rid,
+        const bool               bIgnoreLocks = false); 
 
     static rc_t            _create_mrbt_rec_in_page(
         const stid_t&            fid, 
@@ -3992,8 +3947,8 @@ private:
         const vec_t&             data, 
         rid_t&                   new_rid,
 	bool&                    space_found,
-	const bool             bIgnoreLocks = false,
-        const bool             bIgnoreLatches = false); 
+	const bool               bIgnoreLocks = false,
+        const bool               bIgnoreLatches = false); 
 
     static rc_t            _find_page_and_create_mrbt_rec(
         const stid_t&            fid,
@@ -4002,28 +3957,25 @@ private:
         smsize_t                 len_hint, 
         const vec_t&             data, 
         rid_t&                   new_rid,
-	const bool             bIgnoreLocks = false,
-        const bool             bIgnoreLatches = false);
+	const bool               bIgnoreLocks = false,
+        const bool               bIgnoreLatches = false);
 
-    static rc_t            _destroy_mrbt_rec(const rid_t& rid
-#ifdef SM_DORA
-        , const bool             bIgnoreLocks = false,
-	const bool               bIgnoreLatches = false
-#endif
-                                       ); 
+    static rc_t            _destroy_mrbt_rec(const rid_t& rid,
+					     const bool bIgnoreLocks = false,
+					     const bool bIgnoreLatches = false); 
 
     static rc_t            _update_mrbt_rec(
 	const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             data,
-	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false);
 
     static rc_t            _update_mrbt_rec_hdr(
 	const rid_t&             rid, 
         smsize_t                 start, 
         const vec_t&             data,
-	const bool             bIgnoreLocks = false,
+	const bool               bIgnoreLocks = false,
 	const bool               bIgnoreLatches = false);
     
     static rc_t            _append_mrbt_rec(

@@ -437,7 +437,6 @@ AH_TEMPLATE(NDEBUG,		[no debug code included])
 AH_TEMPLATE(W_TRACE,		[tracing debugging code included])
 AH_TEMPLATE(W_DEBUG_RC,		[rc-is-checked code included])
 
-AH_TEMPLATE(SM_DORA,            [DORA-related code included])
 AH_TEMPLATE(SM_PLP_TRACING,     [PLP tracing code included])
 AH_TEMPLATE(SM_HISTOGRAM,       [HISTOGRAM-related code included])
 
@@ -1206,29 +1205,10 @@ AM_CONDITIONAL([PURECOV], [test x$purecov = xtrue])
 #
 # Shore-MT new features
 #
-# (1) --enable-dora       : defines SM_DORA
-# Enables the code paths for Data-oriented Transaction Execution (DORA)
 # -------------------------------------------------------------------------
-AC_MSG_CHECKING(whether to enable DORA-support)
-AC_ARG_ENABLE([dora], 
-[  --enable-dora        default:no   Enable DORA],
-[case "${enableval}" in
-  yes) dora=true ;;
-  no)  dora=false ;;
-  *) dora=false ;;
-esac],[dora=false])
-AM_CONDITIONAL([USE_DORA], [test x$dora = xtrue])
-
-if test "$dora" = true
-then 
-     AC_MSG_RESULT(yes)
-     AC_DEFINE(SM_DORA)
-else
-     AC_MSG_RESULT(no)
-fi
 
 #
-# (2) --enable-plptracing : define SM_PLP_TRACING
+# (1) --enable-plptracing : define SM_PLP_TRACING
 # Enables the code paths that enable tracing of page-level accesses and/or 
 # critical sections
 AC_MSG_CHECKING(whether to enable PLP tracing)
@@ -1250,7 +1230,7 @@ else
 fi
 
 #
-# (3) --enable-histogram : defines SM_HISTOGRAM
+# (2) --enable-histogram : defines SM_HISTOGRAM
 # Enables the code paths for collecting information on data accesses
 AC_MSG_CHECKING(whether to enable HISTOGRAM-support)
 AC_ARG_ENABLE([histogram], 

@@ -137,11 +137,9 @@ ss_m::destroy_file(const stid_t& fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
-                 smsize_t len_hint, const vec_t& data, rid_t& new_rid
-#ifdef SM_DORA
-                 , const bool bIgnoreLocks
-#endif
-                 )
+                 smsize_t len_hint, const vec_t& data, rid_t& new_rid,
+                 const bool bIgnoreLocks
+)
 {
 #if FILE_LOG_COMMENT_ON
     {
@@ -151,13 +149,7 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
     }
 #endif
     SM_PROLOGUE_RC(ss_m::create_rec, in_xct,read_write, 0);
-
-    W_DO(_create_rec(fid, hdr, len_hint, data, new_rid
-#ifdef SM_DORA
-                     , bIgnoreLocks
-#endif
-                     ));
-
+    W_DO(_create_rec(fid, hdr, len_hint, data, new_rid, bIgnoreLocks));
     return RCOK;
 }
 
@@ -165,21 +157,11 @@ ss_m::create_rec(const stid_t& fid, const vec_t& hdr,
  *  ss_m::destroy_rec()                                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::destroy_rec(const rid_t& rid
-#ifdef SM_DORA
-                  , const bool bIgnoreLocks
-#endif
-                  )
+ss_m::destroy_rec(const rid_t& rid, const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::destroy_rec, in_xct,read_write, 0);
     DBG(<<"destroy_rec " <<rid);
-
-    W_DO(_destroy_rec(rid
-#ifdef SM_DORA
-                      , bIgnoreLocks
-#endif
-                      ));
-
+    W_DO(_destroy_rec(rid, bIgnoreLocks));
     return RCOK;
 }
 
@@ -328,11 +310,9 @@ ss_m::destroy_mrbt_file(const stid_t& fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::create_mrbt_rec(const stid_t& fid, const vec_t& hdr,
-		      smsize_t len_hint, const vec_t& data, rid_t& new_rid
-#ifdef SM_DORA
-		      , const bool bIgnoreLocks
-#endif
-                 )
+		      smsize_t len_hint, const vec_t& data, rid_t& new_rid,
+		      const bool bIgnoreLocks
+)
 {
 #if FILE_LOG_COMMENT_ON
     {
@@ -342,13 +322,7 @@ ss_m::create_mrbt_rec(const stid_t& fid, const vec_t& hdr,
     }
 #endif
     SM_PROLOGUE_RC(ss_m::create_mrbt_rec, in_xct,read_write, 0);
-
-    W_DO(_create_mrbt_rec(fid, hdr, len_hint, data, new_rid
-#ifdef SM_DORA
-			  , bIgnoreLocks
-#endif
-                     ));
-
+    W_DO(_create_mrbt_rec(fid, hdr, len_hint, data, new_rid, bIgnoreLocks));
     return RCOK;
 }
 
@@ -368,9 +342,8 @@ ss_m::create_mrbt_rec_in_page(const stid_t& fid, file_p& page, const vec_t& hdr,
     }
 #endif
     SM_PROLOGUE_RC(ss_m::create_mrbt_rec_in_page, in_xct,read_write, 0);
-
-    W_DO(_create_mrbt_rec_in_page(fid, page, hdr, len_hint, data, new_rid, space_found,
-				  bIgnoreLocks, bIgnoreLatches));
+    W_DO(_create_mrbt_rec_in_page(fid, page, hdr, len_hint, data, new_rid,
+				  space_found, bIgnoreLocks, bIgnoreLatches));
 
     return RCOK;
 }
@@ -390,11 +363,9 @@ ss_m::find_page_and_create_mrbt_rec(const stid_t& fid, const lpid_t& leaf, const
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    SM_PROLOGUE_RC(ss_m::find_page_and_create_mrbt_rec, in_xct,read_write, 0);
-    
+    SM_PROLOGUE_RC(ss_m::find_page_and_create_mrbt_rec, in_xct,read_write, 0);    
     W_DO(_find_page_and_create_mrbt_rec(fid, leaf, hdr, len_hint, data, new_rid,
 					bIgnoreLocks, bIgnoreLatches));
-
     return RCOK;
 }
 
@@ -402,21 +373,13 @@ ss_m::find_page_and_create_mrbt_rec(const stid_t& fid, const lpid_t& leaf, const
  *  ss_m::destroy_mrbt_rec()                                    *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::destroy_mrbt_rec(const rid_t& rid
-#ifdef SM_DORA
-		       , const bool bIgnoreLocks, const bool bIgnoreLatches
-#endif
-                  )
+ss_m::destroy_mrbt_rec(const rid_t& rid,
+		       const bool bIgnoreLocks, const bool bIgnoreLatches
+)
 {
     SM_PROLOGUE_RC(ss_m::destroy_mrbt_rec, in_xct,read_write, 0);
     DBG(<<"destroy_mrbt_rec " <<rid);
-
-    W_DO(_destroy_mrbt_rec(rid
-#ifdef SM_DORA
-                      , bIgnoreLocks, bIgnoreLatches
-#endif
-                      ));
-
+    W_DO(_destroy_mrbt_rec(rid, bIgnoreLocks, bIgnoreLatches));
     return RCOK;
 }
 
@@ -583,34 +546,23 @@ ss_m::_create_mrbt_file(vid_t vid, stid_t& fid,
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_create_mrbt_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint, 
-		       const vec_t& data, rid_t& new_rid
-#ifdef SM_DORA
-		       , const bool bIgnoreLocks
-#endif
-		       )
+		       const vec_t& data, rid_t& new_rid, const bool bIgnoreLocks
+)
 {
     FUNC(ss_m::_create_mrbt_rec);
     sdesc_t* sd;
 
     lock_mode_t lmode = IX;
-#ifdef SM_DORA
     if (bIgnoreLocks) lmode = NL;
-#endif
 
     W_DO( dir->access(fid, sd, lmode) );
 
     DBG( << "create in fid " << fid << " data.size " << data.size());
 
-    W_DO( fi->create_mrbt_rec(fid, len_hint, hdr, data, *sd, new_rid
-#ifdef SM_DORA
-			      , bIgnoreLocks
-#endif
-			      ) );
+    W_DO(fi->create_mrbt_rec(fid, len_hint, hdr, data, *sd, new_rid, bIgnoreLocks));
 
     // NOTE: new_rid need not be locked, since lock escalation
     // or explicit file/page lock might obviate it.
-
-    //cout << "sm create_rec " << new_rid << " size(hdr, data) " << hdr.size() <<  " " << data.size() << endl;
 
     return RCOK;
 }
@@ -683,26 +635,15 @@ ss_m::_find_page_and_create_mrbt_rec(const stid_t& fid, const lpid_t& leaf, cons
  *  ss_m::_destroy_mrbt_rec()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_destroy_mrbt_rec(const rid_t& rid
-#ifdef SM_DORA
-                   , const bool bIgnoreLocks, const bool bIgnoreLatches
-#endif
-                   )
+ss_m::_destroy_mrbt_rec(const rid_t& rid,
+			const bool bIgnoreLocks, const bool bIgnoreLatches
+)
 {
     DBG(<<"_destroy_rec " << rid);
-
-    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT
-#ifdef SM_DORA
-                  , 0, 0, 0, bIgnoreLocks // If set it will cause to bIgnoreParents
-#endif
-                  ));
-
-    W_DO(fi->destroy_rec(rid
-#ifdef SM_DORA
-			 , bIgnoreLatches
-#endif
-			 ));
-    //cout << "sm destroy_rec " << rid << endl;
+    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT,
+		  // If set it will cause to bIgnoreParents
+                  0, 0, 0, bIgnoreLocks));
+    W_DO(fi->destroy_rec(rid, bIgnoreLatches));
     return RCOK;
 }
 
@@ -1063,34 +1004,23 @@ ss_m::_destroy_n_swap_file(const stid_t& old_fid, const stid_t& new_fid)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint, 
-                  const vec_t& data, rid_t& new_rid
-#ifdef SM_DORA
-                  , const bool bIgnoreLocks
-#endif
-                 )
+                  const vec_t& data, rid_t& new_rid, const bool bIgnoreLocks
+)
 {
     FUNC(ss_m::_create_rec);
     sdesc_t* sd;
 
     lock_mode_t lmode = IX;
-#ifdef SM_DORA
     if (bIgnoreLocks) lmode = NL;
-#endif
 
     W_DO( dir->access(fid, sd, lmode) );
 
     DBG( << "create in fid " << fid << " data.size " << data.size());
 
-    W_DO( fi->create_rec(fid, len_hint, hdr, data, *sd, new_rid
-#ifdef SM_DORA
-                         , bIgnoreLocks
-#endif
-                         ) );
+    W_DO(fi->create_rec(fid, len_hint, hdr, data, *sd, new_rid, bIgnoreLocks));
 
     // NOTE: new_rid need not be locked, since lock escalation
     // or explicit file/page lock might obviate it.
-
-    //cout << "sm create_rec " << new_rid << " size(hdr, data) " << hdr.size() <<  " " << data.size() << endl;
 
     return RCOK;
 }
@@ -1099,22 +1029,13 @@ ss_m::_create_rec(const stid_t& fid, const vec_t& hdr, smsize_t len_hint,
  *  ss_m::_destroy_rec()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_destroy_rec(const rid_t& rid
-#ifdef SM_DORA
-                   , const bool bIgnoreLocks
-#endif
-                   )
+ss_m::_destroy_rec(const rid_t& rid, const bool bIgnoreLocks)
 {
     DBG(<<"_destroy_rec " << rid);
-
-    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT
-#ifdef SM_DORA
-                  , 0, 0, 0, bIgnoreLocks // If set it will cause to bIgnoreParents
-#endif
-                  ));
-
+    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT,
+		  // If set it will cause to bIgnoreParents
+                  0, 0, 0, bIgnoreLocks));
     W_DO(fi->destroy_rec(rid));
-    //cout << "sm destroy_rec " << rid << endl;
     return RCOK;
 }
 
@@ -1122,19 +1043,12 @@ ss_m::_destroy_rec(const rid_t& rid
  *  ss_m::_update_rec()                                                *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data
-#ifdef SM_DORA
-                  , const bool bIgnoreLocks
-#endif
-                  )
+ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data,
+                  const bool bIgnoreLocks
+)
 {
-#ifdef SM_DORA
     if (!bIgnoreLocks) W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
     W_DO(fi->update_rec(rid, start, data, bIgnoreLocks));
-#else
-    W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
-    W_DO(fi->update_rec(rid, start, data));
-#endif
     return RCOK;
 }
 
@@ -1142,20 +1056,13 @@ ss_m::_update_rec(const rid_t& rid, smsize_t start, const vec_t& data
  *  ss_m::_update_rec_hdr()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::_update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr
-#ifdef SM_DORA
-                      , const bool bIgnoreLocks
-#endif
-                      )
+ss_m::_update_rec_hdr(const rid_t& rid, smsize_t start, const vec_t& hdr,
+                      const bool bIgnoreLocks
+)
 {
-#ifdef SM_DORA
     if (!bIgnoreLocks) {
-#endif
         W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
-#ifdef SM_DORA
     }
-#endif
-
     W_DO(fi->splice_hdr(rid, u4i(start), hdr.size(), hdr));
     return RCOK;
 }
@@ -1168,8 +1075,6 @@ ss_m::_append_rec(const rid_t& rid, const vec_t& data)
 {
     sdesc_t* sd;
     W_DO( dir->access(rid.stid(), sd, IX) );
-    //cout << "sm append_rec " << rid << " size " << data.size() << endl;
-
     W_DO(lm->lock(rid, EX, t_long, WAIT_SPECIFIED_BY_XCT));
     W_DO(fi->append_rec(rid, data, *sd));
     return RCOK;

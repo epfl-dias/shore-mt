@@ -410,11 +410,8 @@ lock_m::_lock(
     duration_t              duration,
     timeout_in_ms           timeout, 
     bool                    force,
-    lockid_t**              nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    lockid_t**              nameInLockHead,
+    const bool              bIgnoreParents)
 {
     FUNC(lock_m::_lock);
     w_rc_t                 rc; // == RCOK
@@ -519,91 +516,87 @@ lock_m::_lock(
         // of the ancestors.
         int i = 1;
 
-#ifdef SM_DORA
         if (!bIgnoreParents) {
-#endif
 
-        if (xd->lock_cache_enabled() && !n.is_user_lock()) {
-            for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
-
-                if (!get_parent(h[i-1], h[i]))
-                    break;
-                DBGTHRD(<< "  get_parent true" << h[i-1] << " " << h[i]);
-
-                hmode[i] = 0;
-                {
-                lock_cache_elem_t* e = _core->search_cache(
-                        theLockInfo, h[i], true);
-                hmode[i] = e ? &e->mode : 0;
-
-                if (hmode[i] && supr[*hmode[i]][pmode] == *hmode[i])  {
-                    // cache hit
-                    DBGTHRD(<< "  " 
-                            << h[i] 
-                            << "(mode=" << int(*hmode[i]) << ") cache hit");
-                    theLastLockReq = e->req;
-                    INC_TSTAT(lock_cache_hit_cnt);
-
-                    if (h[i].lspace() == lockid_t::t_page)
-                        prev_pgmode = *hmode[i];
-
-                    if (! force)  {
-                        lmode_t held = *hmode[i];
-                        if (held == SH || held == EX || 
-                                held == UD || (held == SIX && m == SH))  {
-                            if (held == SIX && n.lspace() > h[i].lspace()) {
-                                // need to release the mutex, since 
-                                // _query_implicit acquires it
-                                // and it also makes it safe to 
-                                // use W_DO macros
-                                W_VOID(theLockInfo->lock_info_mutex.release());
-                                acquired = false;
-
-                                W_DO(_query_implicit(n, prev_mode, xd->tid()));
-                                if (n.lspace() == lockid_t::t_record && 
-                                        h[i].lspace() < lockid_t::t_page)  {
-                                    lpid_t        tmp_lpid;
-                                    n.extract_lpid(tmp_lpid);
-                                    lockid_t tmp_lockid(tmp_lpid);
-                                    W_DO( _query_implicit(tmp_lockid, 
-                                                prev_pgmode, xd->tid()) );
-                                }  else  {
-                                    prev_pgmode = prev_mode;
-                                }
-                            } else {
-                                prev_mode = held;
-                                prev_pgmode = held;
-                            }
-                            goto done;
-                        }
-                    }
-                    break;
-                }
+	    if (xd->lock_cache_enabled() && !n.is_user_lock()) {
+		for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
+		    
+		    if (!get_parent(h[i-1], h[i]))
+			break;
+		    DBGTHRD(<< "  get_parent true" << h[i-1] << " " << h[i]);
+		    
+		    hmode[i] = 0;
+		    {
+			lock_cache_elem_t* e =
+			    _core->search_cache(theLockInfo, h[i], true);
+			hmode[i] = e ? &e->mode : 0;
+			
+			if (hmode[i] && supr[*hmode[i]][pmode] == *hmode[i])  {
+			    // cache hit
+			    DBGTHRD(<< "  " 
+				    << h[i] 
+				    << "(mode=" << int(*hmode[i]) << ") cache hit");
+			    theLastLockReq = e->req;
+			    INC_TSTAT(lock_cache_hit_cnt);
+			    
+			    if (h[i].lspace() == lockid_t::t_page)
+				prev_pgmode = *hmode[i];
+			    
+			    if (! force)  {
+				lmode_t held = *hmode[i];
+				if (held == SH || held == EX || 
+				    held == UD || (held == SIX && m == SH))  {
+				    if (held == SIX && n.lspace() > h[i].lspace()) {
+					// need to release the mutex, since 
+					// _query_implicit acquires it
+					// and it also makes it safe to 
+					// use W_DO macros
+					W_VOID(theLockInfo->lock_info_mutex.release());
+					acquired = false;
+					
+					W_DO(_query_implicit(n, prev_mode, xd->tid()));
+					if (n.lspace() == lockid_t::t_record && 
+					    h[i].lspace() < lockid_t::t_page)  {
+					    lpid_t        tmp_lpid;
+					    n.extract_lpid(tmp_lpid);
+					    lockid_t tmp_lockid(tmp_lpid);
+					    W_DO( _query_implicit(tmp_lockid, 
+								  prev_pgmode, xd->tid()) );
+					}  else  {
+					    prev_pgmode = prev_mode;
+					}
+				    } else {
+					prev_mode = held;
+					prev_pgmode = held;
+				    }
+				    goto done;
+				}
+			    }
+			    break;
+			}
 #if W_DEBUG_LEVEL > 2
-                else if (hmode[i])  {
-                    DBGTHRD(<< "  " 
-                    << h[i] 
-                    << "(mode=" << int(*hmode[i]) 
-                            << ") cache hit/wrong mode");
-                }  else  {
-                  DBGTHRD(<< "  " << h[i] << " cache miss");
-                }
-#endif 
-                }
-            }
-        }  else  {
-            DBGTHRD(<< "  Lock cache disabled or is user lock. Initialize h[]");
-            // just initialize h[] when the cache is disabled
-            for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
-                if (!get_parent(h[i-1], h[i]))
-                    break;
-                DBGTHRD(<< "  get_parent true" << h[i-1] << " " << h[i]);
-            }
+			else if (hmode[i])  {
+			    DBGTHRD(<< "  " 
+				    << h[i] 
+				    << "(mode=" << int(*hmode[i]) 
+				    << ") cache hit/wrong mode");
+			}  else  {
+			    DBGTHRD(<< "  " << h[i] << " cache miss");
+			}
+#endif 			
+		    }
+		}
+	    }  else  {
+		DBGTHRD(<< "  Lock cache disabled or is user lock. Initialize h[]");
+		// just initialize h[] when the cache is disabled
+		for (i = 1; i < lockid_t::NUMLEVELS; i++)  {
+		    if (!get_parent(h[i-1], h[i]))
+			break;
+		    DBGTHRD(<< "  get_parent true" << h[i-1] << " " << h[i]);
+		}
+	    }
         }
-
-#ifdef SM_DORA
-        }
-#endif
+	
         DBGTHRD(<< "  i" << i << " is closest correctly-held ancestor :" << h[i]);
         DBGTHRD(<< "Entire array:");
         for(int ii=0;  ii < lockid_t::NUMLEVELS; ii++ ) {
@@ -961,11 +954,8 @@ lock_m::lock(
     timeout_in_ms        timeout,
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
-    lockid_t**           nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    lockid_t**           nameInLockHead,
+    const bool           bIgnoreParents)
 {
 #if W_DEBUG_LEVEL > 2
     w_assert3 (n.lspace() != lockid_t::t_bad);
@@ -974,11 +964,8 @@ lock_m::lock(
     lmode_t _prev_mode;
     lmode_t _prev_pgmode;
 
-    rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, false, nameInLockHead
-#ifdef SM_DORA
-                    , bIgnoreParents
-#endif
-                    );
+    rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, false,
+		    nameInLockHead, bIgnoreParents);
 
     if (prev_mode != 0)
         *prev_mode = _prev_mode;
@@ -995,20 +982,14 @@ lock_m::lock_force(
     timeout_in_ms        timeout,
     lmode_t*             prev_mode,
     lmode_t*             prev_pgmode,
-    lockid_t**           nameInLockHead
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    lockid_t**           nameInLockHead,
+    const bool           bIgnoreParents)
 {
     lmode_t _prev_mode;
     lmode_t _prev_pgmode;
 
-    rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, true, nameInLockHead
-#ifdef SM_DORA
-                    , bIgnoreParents
-#endif
-                    );
+    rc_t rc = _lock(n, m, _prev_mode, _prev_pgmode, duration, timeout, true,
+		    nameInLockHead, bIgnoreParents);
 
     if (prev_mode != 0)
         *prev_mode = _prev_mode;

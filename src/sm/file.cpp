@@ -220,12 +220,9 @@ file_m::create_rec(
     const vec_t&         hdr,
     const vec_t&         data,
     sdesc_t&             sd,
-    rid_t&               rid // output
-    // no forward_alloc
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    rid_t&               rid, // output
+    const bool bIgnoreParents
+)
 {
     file_p        page;
 
@@ -239,11 +236,7 @@ file_m::create_rec(
 
     W_DO(_create_rec( fid, pg_policy_t(policy), 
                       len_hint, sd, hdr, data, 
-                      rid, page
-#ifdef SM_DORA
-                      , bIgnoreParents
-#endif
-                      ));
+                      rid, page, bIgnoreParents ));
     DBG(<<"create_rec created " << rid);
     return RCOK;
 }
@@ -257,12 +250,9 @@ file_m::create_mrbt_rec(
     const vec_t&         hdr,
     const vec_t&         data,
     sdesc_t&             sd,
-    rid_t&               rid // output
-    // no forward_alloc
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    rid_t&               rid, // output
+    const bool bIgnoreParents
+)
 {
     file_mrbt_p        page;
 
@@ -276,11 +266,7 @@ file_m::create_mrbt_rec(
 
     W_DO(_create_mrbt_rec( fid, pg_policy_t(policy), 
 			   len_hint, sd, hdr, data, 
-			   rid, page
-#ifdef SM_DORA
-			   , bIgnoreParents
-#endif
-			   ));
+			   rid, page, bIgnoreParents ));
     DBG(<<"create_mrbt_rec created " << rid);
     return RCOK;
 }
@@ -353,10 +339,8 @@ file_m::_create_rec(
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid,
-    file_p&               page        // in-output
-#ifdef SM_DORA
-    , const bool          bIgnoreParents
-#endif
+    file_p&               page,        // in-output
+    const bool            bIgnoreParents
 )
 {
     smsize_t        space_needed;
@@ -425,14 +409,11 @@ file_m::_create_rec(
 #endif
             }
         } 
-
+	
         if(!have_page) {
             W_DO(_find_slotted_page_with_space(fid, policy, sd, 
-                                               space_needed, page, slot
-#ifdef SM_DORA
-                                               , bIgnoreParents
-#endif
-                                               ));
+                                               space_needed, page, slot,
+                                               bIgnoreParents));
             hu.replace_page(&page);
         }
 
@@ -478,10 +459,8 @@ file_m::_create_mrbt_rec(
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid,
-    file_mrbt_p&               page        // in-output
-#ifdef SM_DORA
-    , const bool          bIgnoreParents
-#endif
+    file_mrbt_p&          page,        // in-output
+    const bool            bIgnoreParents
 )
 {
     smsize_t        space_needed;
@@ -553,11 +532,8 @@ file_m::_create_mrbt_rec(
 
         if(!have_page) {
             W_DO(_find_slotted_mrbt_page_with_space(fid, policy, sd, 
-						    space_needed, page, slot
-#ifdef SM_DORA
-						    , bIgnoreParents
-#endif
-						    ));
+						    space_needed, page, slot,
+						    bIgnoreParents));
             hu.replace_page(&page);
         }
 
@@ -1137,10 +1113,8 @@ file_m::_find_slotted_page_with_space(
     sdesc_t&            sd,
     smsize_t            space_needed, 
     file_p&             page,        // output
-    slotid_t&           slot        // output
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
+    slotid_t&           slot,        // output
+    const bool bIgnoreParents
 )
 {
     uint4_t         policy = uint4_t(mask);
@@ -1164,11 +1138,8 @@ file_m::_find_slotted_page_with_space(
         while(!found) {
             pginfo_t        info;
             DBG(<<"looking in cache");
-            W_DO(h->find_page(space_needed, found, info, &page, slot
-#ifdef SM_DORA
-                              , bIgnoreParents
-#endif
-                              ));
+            W_DO(h->find_page(space_needed, found, info, &page, slot,
+			      bIgnoreParents));
 
             if(found) {
                 w_assert2(page.is_fixed());
@@ -1391,11 +1362,9 @@ file_m::_find_slotted_mrbt_page_with_space(
     // mask & t_append == t_append means strict append semantics.
     sdesc_t&            sd,
     smsize_t            space_needed, 
-    file_mrbt_p&             page,        // output
-    slotid_t&           slot        // output
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
+    file_mrbt_p&        page,        // output
+    slotid_t&           slot,        // output
+    const bool          bIgnoreParents
 )
 {
     uint4_t         policy = uint4_t(mask);
@@ -1419,11 +1388,8 @@ file_m::_find_slotted_mrbt_page_with_space(
         while(!found) {
             pginfo_t        info;
             DBG(<<"looking in cache");
-            W_DO(h->find_page(space_needed, found, info, &page, slot
-#ifdef SM_DORA
-                              , bIgnoreParents
-#endif
-                              ));
+            W_DO(h->find_page(space_needed, found, info, &page, slot,
+			      bIgnoreParents));
 
             if(found) {
                 w_assert2(page.is_fixed());
@@ -3509,11 +3475,9 @@ rc_t
 file_p::_find_and_lock_free_slot(
     bool                     append_only,
     uint4_t                  space_needed,
-    slotid_t&                idx
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
-    )
+    slotid_t&                idx,
+    const bool               bIgnoreParents
+)
 {
     FUNC(find_and_lock_free_slot);
     w_assert3(is_file_p() || is_file_mrbt_p());
@@ -3538,11 +3502,7 @@ file_p::_find_and_lock_free_slot(
         rid_t rid(pid(), idx);
 
         // IP: For DORA it may ignore to acquire other locks than the RID
-    rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE
-#ifdef SM_DORA
-                      , 0, 0, 0, bIgnoreParents
-#endif
-                      );
+	rc = lm->lock(rid, EX, t_long, WAIT_IMMEDIATE, 0, 0, 0, bIgnoreParents);
 
         if (rc.is_error())  {
             if (rc.err_num() == eLOCKTIMEOUT) {

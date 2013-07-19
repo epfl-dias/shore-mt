@@ -259,18 +259,11 @@ ss_m::print_md_index(stid_t stid)
  *  ss_m::create_assoc()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
-#ifdef SM_DORA
-                   , const bool bIgnoreLocks
-#endif
-        )
+ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el,
+		   const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::create_assoc, in_xct, read_write, 0);
-    W_DO(_create_assoc(stid, key, el
-#ifdef SM_DORA
-                       , bIgnoreLocks
-#endif
-                       ));
+    W_DO(_create_assoc(stid, key, el, bIgnoreLocks));
     return RCOK;
 }
 
@@ -278,18 +271,11 @@ ss_m::create_assoc(stid_t stid, const vec_t& key, const vec_t& el
  *  ss_m::destroy_assoc()                                        *
  *--------------------------------------------------------------*/
 rc_t
-ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el
-#ifdef SM_DORA
-                   , const bool bIgnoreLocks
-#endif
-                    )
+ss_m::destroy_assoc(stid_t stid, const vec_t& key, const vec_t& el,
+		    const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::destroy_assoc, in_xct, read_write, 0);
-    W_DO(_destroy_assoc(stid, key, el
-#ifdef SM_DORA
-                        , bIgnoreLocks
-#endif
-                        ));
+    W_DO(_destroy_assoc(stid, key, el, bIgnoreLocks));
     return RCOK;
 }
 
@@ -311,18 +297,11 @@ ss_m::destroy_all_assoc(stid_t stid, const vec_t& key, int& num)
  *--------------------------------------------------------------*/
 rc_t
 ss_m::find_assoc(stid_t stid, const vec_t& key, 
-                 void* el, smsize_t& elen, bool& found
-#ifdef SM_DORA
-                 , const bool bIgnoreLocks
-#endif
-              )
+                 void* el, smsize_t& elen, bool& found,
+                 const bool bIgnoreLocks)
 {
     SM_PROLOGUE_RC(ss_m::find_assoc, in_xct, read_only, 0);
-    W_DO(_find_assoc(stid, key, el, elen, found
-#ifdef SM_DORA
-                     , bIgnoreLocks
-#endif
-                     ));
+    W_DO(_find_assoc(stid, key, el, elen, found, bIgnoreLocks));
     return RCOK;
 }
 
@@ -2267,11 +2246,8 @@ rc_t
 ss_m::_create_assoc(
     const stid_t&        stid, 
     const vec_t&         key, 
-    const vec_t&         el
-#ifdef SM_DORA
-    , const bool bIgnoreLocks
-#endif
-)
+    const vec_t&         el,
+    const bool bIgnoreLocks)
 {
     // usually we will do kvl locking and already have an IX lock
     // on the index
@@ -2280,31 +2256,25 @@ ss_m::_create_assoc(
     // determine if we need to change the settins of cc and index_mode
     concurrency_t cc = t_cc_bad;
 
-#ifdef SM_DORA
     // IP: DORA inserts using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
-      cc = t_cc_none;
-      index_mode = NL;
+	cc = t_cc_none;
+	index_mode = NL;
     } else {
-#endif
-
-    xct_t* xd = xct();
-    if (xd)  {
-        lock_mode_t lock_mode;
-        W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
-        // cc is off if file is EX/SH/UD/SIX locked
-        if (lock_mode == EX) {
-            cc = t_cc_none;
-        } else if (lock_mode == IX || lock_mode >= SIX) {
-            // no changes needed
-        } else {
-            index_mode = IX;
-        }
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode == EX) {
+		cc = t_cc_none;
+	    } else if (lock_mode == IX || lock_mode >= SIX) {
+		// no changes needed
+	    } else {
+		index_mode = IX;
+	    }
+	}
     }
-
-#ifdef SM_DORA
-    }
-#endif
 
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );
@@ -2341,44 +2311,34 @@ rc_t
 ss_m::_destroy_assoc(
     const stid_t  &      stid, 
     const vec_t&         key, 
-    const vec_t&         el
-#ifdef SM_DORA
-    , const bool bIgnoreLocks
-#endif
-    )
+    const vec_t&         el,
+    const bool bIgnoreLocks)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IX lock
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
 
-#ifdef SM_DORA
     // IP: DORA deletes using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
-      cc = t_cc_none;
-      index_mode = NL;
+	cc = t_cc_none;
+	index_mode = NL;
+    } else {
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode == EX) {
+		cc = t_cc_none;
+	    } else if (lock_mode == IX || lock_mode >= SIX) {
+		// no changes needed
+	    } else {
+		index_mode = IX;
+	    }
+	}
     }
-    else {
-#endif
-
-    // determine if we need to change the settins of cc and index_mode
-    xct_t* xd = xct();
-    if (xd)  {
-        lock_mode_t lock_mode;
-        W_DO( lm->query(stid, lock_mode, xd->tid(), true) );
-        // cc is off if file is EX/SH/UD/SIX locked
-        if (lock_mode == EX) {
-            cc = t_cc_none;
-        } else if (lock_mode == IX || lock_mode >= SIX) {
-            // no changes needed
-        } else {
-            index_mode = IX;
-        }
-    }
-
-#ifdef SM_DORA
-    }
-#endif
 
     DBG(<<"");
 
@@ -2461,48 +2421,38 @@ ss_m::_find_assoc(
     const vec_t&          key, 
     void*                 el, 
     smsize_t&             elen, 
-    bool&                 found
-#ifdef SM_DORA
-    , const bool bIgnoreLocks
-#endif
-    )
+    bool&                 found,
+    const bool bIgnoreLocks)
 {
     concurrency_t cc = t_cc_bad;
     // usually we will to kvl locking and already have an IS lock
     // on the index
     lock_mode_t                index_mode = NL;// lock mode needed on index
 
-#ifdef SM_DORA
     // IP: DORA does the dir access and the index lookup 
     //     using the lowest concurrency and lock mode
     if (bIgnoreLocks) {
-      cc = t_cc_none;
-      index_mode = NL;
+	cc = t_cc_none;
+	index_mode = NL;
+    } else {
+	// determine if we need to change the settins of cc and index_mode
+	xct_t* xd = xct();
+	if (xd)  {
+	    lock_mode_t lock_mode;
+	    W_DO( lm->query(stid, lock_mode, xd->tid(), true, true) );
+	    // cc is off if file is EX/SH/UD/SIX locked
+	    if (lock_mode >= SH) {
+		cc = t_cc_none;
+	    } else if (lock_mode >= IS) {
+		// no changes needed
+	    } else {
+		// Index isn't already locked; have to grab IS lock
+		// on it below, via access()
+		index_mode = IS;
+	    }
+	}
     }
-    else {
-#endif
-
-    // determine if we need to change the settins of cc and index_mode
-    xct_t* xd = xct();
-    if (xd)  {
-        lock_mode_t lock_mode;
-        W_DO( lm->query(stid, lock_mode, xd->tid(), true, true) );
-        // cc is off if file is EX/SH/UD/SIX locked
-        if (lock_mode >= SH) {
-            cc = t_cc_none;
-        } else if (lock_mode >= IS) {
-            // no changes needed
-        } else {
-            // Index isn't already locked; have to grab IS lock
-            // on it below, via access()
-            index_mode = IS;
-        }
-    }
-
-#ifdef SM_DORA
-    }
-#endif
-
+    
     sdesc_t* sd;
     W_DO( dir->access(stid, sd, index_mode) );
     if (sd->sinfo().stype != t_index)   return RC(eBADSTORETYPE);

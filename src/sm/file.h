@@ -106,11 +106,8 @@ public:
     rc_t                _find_and_lock_free_slot(
         bool                       append_only,
         uint4_t                    space_needed,
-        slotid_t&                  idx
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
-        );
+        slotid_t&                  idx,
+        const bool                 bIgnoreParents = false);
 
 #define DUMMY_CLUSTER_ID 0
 
@@ -224,11 +221,8 @@ public:
                         const vec_t&     hdr,
                         const vec_t&     data,
                         sdesc_t&         sd,
-                        rid_t&           rid // output
-#ifdef SM_DORA
-                        , const bool     bIgnoreParents = false
-#endif
-                    );
+                        rid_t&           rid, // output
+                        const bool       bIgnoreParents = false);
 
     static rc_t create_mrbt_rec(
                         const stid_t&    fid,
@@ -237,11 +231,8 @@ public:
                         const vec_t&     hdr,
                         const vec_t&     data,
                         sdesc_t&         sd,
-                        rid_t&           rid // output
-#ifdef SM_DORA
-                        , const bool     bIgnoreParents = false
-#endif
-                    );
+                        rid_t&           rid, // output
+                        const bool       bIgnoreParents = false);
 
     static rc_t create_rec_at_end(
                         file_p&                page, // in-out 
@@ -394,23 +385,17 @@ protected:
                                 sdesc_t&        sd,
                                 smsize_t        space_needed, 
                                 file_p&         page,       // output
-                                slotid_t&       slot        // output
-#ifdef SM_DORA
-                                , const bool    bIgnoreParents = false
-#endif
-                    );
+                                slotid_t&       slot,       // output
+                                const bool      bIgnoreParents = false);
 
     static rc_t _find_slotted_mrbt_page_with_space(
                                 const stid_t&   fid,
                                 pg_policy_t     mask,
                                 sdesc_t&        sd,
                                 smsize_t        space_needed, 
-                                file_mrbt_p&         page,       // output
-                                slotid_t&       slot        // output
-#ifdef SM_DORA
-                                , const bool    bIgnoreParents = false
-#endif
-                    );
+                                file_mrbt_p&    page,       // output
+                                slotid_t&       slot,       // output
+                                const bool    bIgnoreParents = false);
 
     static rc_t _create_rec(
                                 const stid_t&       fid,
@@ -420,11 +405,8 @@ protected:
                                 const vec_t&        hdr,
                                 const vec_t&        data,
                                 rid_t&              rid,
-                                file_p&             page        // in-output
-#ifdef SM_DORA
-                                , const bool        bIgnoreParents = false
-#endif
-                    );
+                                file_p&             page,       // in-output
+                                const bool        bIgnoreParents = false);
 
     static rc_t _create_mrbt_rec(
                                 const stid_t&       fid,
@@ -434,11 +416,8 @@ protected:
                                 const vec_t&        hdr,
                                 const vec_t&        data,
                                 rid_t&              rid,
-                                file_mrbt_p&             page        // in-output
-#ifdef SM_DORA
-                                , const bool        bIgnoreParents = false
-#endif
-                    );
+                                file_mrbt_p&        page,       // in-output
+                                const bool        bIgnoreParents = false);
     
     static rc_t _create_rec_given_page(
                                 const stid_t        fid, 

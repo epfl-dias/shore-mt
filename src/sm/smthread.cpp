@@ -260,7 +260,6 @@ smthread_t::new_xct(xct_t *x)
 }
 
 
-#ifdef SM_DORA
 void
 smthread_t::alloc_sdesc_cache()
 {
@@ -272,7 +271,6 @@ smthread_t::free_sdesc_cache()
     xct_t::delete_sdesc_cache_t(tcb()._sdesc_cache);
     tcb()._sdesc_cache = 0;
 }
-#endif
 
 /*********************************************************************
  *

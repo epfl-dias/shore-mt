@@ -698,10 +698,8 @@ histoid_t::find_page(
     bool&            found,
     pginfo_t&        info, 
     file_p*          pagep,     // input
-    slotid_t&        idx    // output iff found
-#ifdef SM_DORA
-    , const bool     bIgnoreParents
-#endif
+    slotid_t&        idx,    // output iff found
+    const bool       bIgnoreParents
 ) const
 {
     DBGTHRD(<<"histoid_t::find_page in store " << cmp.key
@@ -768,12 +766,8 @@ histoid_t::find_page(
             if(success) {
                 success=false;
                 W_DO(latch_lock_get_slot(pg, pagep, space_needed,
-                    false, // not append-only
-                    success, idx
-#ifdef SM_DORA
-                                         , bIgnoreParents
-#endif
-                                         ));
+					 false, // not append-only
+					 success, idx, bIgnoreParents));
                 if(success) {
                     // checking here ONLY so we can tell the path taken 
                     w_assert2(pagep->pid().page == pg);
@@ -818,10 +812,8 @@ histoid_t::latch_lock_get_slot(
     smsize_t     space_needed,
     bool         append_only,
     bool&        success,
-    slotid_t&    idx    // only meaningful if success
-#ifdef SM_DORA
-    , const bool bIgnoreParents
-#endif
+    slotid_t&    idx,   // only meaningful if success
+    const bool   bIgnoreParents
 ) const 
 {
     success    = false;
@@ -914,11 +906,8 @@ histoid_t::latch_lock_get_slot(
         DBGTHRD(<<"Try to acquire slot & lock ");
 
         rc = pagep->_find_and_lock_free_slot(append_only,
-                                             space_needed, idx
-#ifdef SM_DORA
-                                             , bIgnoreParents
-#endif
-                                             );
+                                             space_needed, idx,
+                                             bIgnoreParents);
         DBGTHRD(<<"rc=" <<rc);
 
         if(rc.is_error()) {

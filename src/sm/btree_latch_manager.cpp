@@ -91,7 +91,8 @@ btree_latch_manager::btree_latch_manager()
 {
 }
 
-latch_t &btree_latch_manager::find_latch(lpid_t const &root, bool bIgnoreLatches) 
+latch_t &btree_latch_manager::find_latch(lpid_t const &root,
+					 bool /*bIgnoreLatches*/) 
 {
     long socket = cpu_info::socket_self();
     latch_t *latch=NULL;

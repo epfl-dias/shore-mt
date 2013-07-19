@@ -346,11 +346,8 @@ public:
      * The portion of the record containing the start byte need not
      * be pinned before this is called.
      */
-    rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0
-#ifdef SM_DORA
-                       , const bool bIgnoreLocks = false
-#endif
-                       );
+    rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0,
+                       const bool bIgnoreLocks = false);
 
     rc_t    update_mrbt_rec(smsize_t start, const vec_t& data, int* old_value = 0,
 			    const bool bIgnoreLocks = false,
@@ -363,11 +360,8 @@ public:
      * @param[in] hdr A vector containing the data to place in the header
      * at location \a start.
      */
-    rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr
-#ifdef SM_DORA
-                           , const bool bIgnoreLocks = false
-#endif 
-                           );
+    rc_t    update_rec_hdr(smsize_t start, const vec_t& hdr,
+                           const bool bIgnoreLocks = false);
 
     /**\brief Append to a pinned record.
      * \details
@@ -425,11 +419,8 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m,
                      const bool bIgnoreLatches = false);
 
-    rc_t        _repin(lock_mode_t lmode, int* old_value = 0
-#ifdef SM_DORA
-                       , const bool bIgnoreLocks = false
-#endif
-                       );
+    rc_t        _repin(lock_mode_t lmode, int* old_value = 0,
+                       const bool bIgnoreLocks = false);
 
     file_p*     _get_hdr_page_no_lsn_check() const {
                         return pinned() ? &_hdr_page() : 0;}

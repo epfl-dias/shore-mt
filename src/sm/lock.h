@@ -108,11 +108,8 @@ public:
         timeout_in_ms               timeout = WAIT_SPECIFIED_BY_XCT,
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
-        lockid_t**                  nameInLockHead = 0
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
-        );
+        lockid_t**                  nameInLockHead = 0,
+        const bool                  bIgnoreParents = false);
      
 	/* force the core to acquire a lock, regardless of 
 	 * subsuming  parent locks
@@ -124,11 +121,8 @@ public:
         timeout_in_ms               timeout = WAIT_SPECIFIED_BY_XCT,
         lmode_t*                    prev_mode = 0,
         lmode_t*                    prev_pgmode = 0,
-        lockid_t**                  nameInLockHead = 0
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
-        );
+        lockid_t**                  nameInLockHead = 0,
+        const bool                  bIgnoreParents = false);
 
     rc_t                        unlock(const lockid_t& n);
 
@@ -175,11 +169,8 @@ private:
         duration_t                   duration,
         timeout_in_ms                timeout,
         bool                         force,
-        lockid_t**                   nameInLockHead
-#ifdef SM_DORA
-        , const bool                bIgnoreParents = false
-#endif
-        );
+        lockid_t**                   nameInLockHead,
+        const bool                   bIgnoreParents = false);
 
     rc_t                        _query_implicit(
         const lockid_t&              n,
