@@ -153,8 +153,12 @@ main(int /*argc*/, char* /*argv*/[])
         <<  "\t store " << stor << endl
         <<  "\t page " << page << endl
         <<  "\t rec " << rec << endl
-        <<  "\t kvl " << kvl << endl
-        <<  "\t extent " << extent << endl
+#if 0
+      // Removed b/c it's hash-based and makes the -out files differ
+      // and I do want to compare...
+	 <<  "\t kvl " << kvl << endl
+#endif
+	<<  "\t extent " << extent << endl
         <<  "\t u1 " << u1 << endl
         <<  "\t u2 " << u2 << endl
         <<  "\t u3 " << u3 << endl
@@ -185,11 +189,15 @@ main(int /*argc*/, char* /*argv*/[])
         dump(l);
         cout << "}" << endl;
     }
+#if 0
+    // Removed b/c it's hash-based and makes the -out files differ
+    // and I do want to compare...
     {
         lockid_t l(kvl);
         cout << "Kvl lock " << l << endl;
         cout << "}" << endl;
     }
+#endif    
     {
         lockid_t l(extent);
         cout << "Extent lock " << l << endl;

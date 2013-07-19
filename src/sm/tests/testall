@@ -1,8 +1,8 @@
-#!/bin/ksh 
+#!/bin/bash 
 
 # <std-header style='shell' orig-src='shore'>
 #
-#  $Id: testall,v 1.6 2010/06/18 21:22:59 nhall Exp $
+#  $Id: testall,v 1.13 2010/12/08 17:37:49 nhall Exp $
 #
 # SHORE -- Scalable Heterogeneous Object REpository
 #
@@ -28,52 +28,10 @@
 # Rome Research Laboratory Contract No. F30602-97-2-0247.
 #
 #   -- do not edit anything above this line --   </std-header>
-function execute  {
-# make sure "." is in the path:
-    OLD_PATH=$PATH
-    PATH=$PATH:.
 
-    if [[ -z $3 ]]; then
-        # no comparison file
-		echo >> /dev/null
-    elif [[ -a $3 ]]; then
-		echo >> /dev/null
-    else
-        # given argument doesn't exist
-        print "Error: comparison file $3 doesn't exist" 
-        exit -1
-    fi
-
-    print -n "$1\t--> running --> "
-    print "running $1" >> $2
-
-
-    if [[ -n $3 ]]; then
-        # already checked that comparison file exists above
-        of=/tmp/$$
-        if $1 1> $of 2> $of.err ; then
-            if diff $of $3 >> $2; then
-                print "ok"
-            else
-                print "diff failed; results in " $of " and " $of.err 
-                print "  expected results in " $3
-                print "  All diffs in " $2
-                exit 1
-            fi
-        else
-            print "failed to execute $1 ( $? )"
-            exit 1
-        fi
-        cat $of >> $2
-        rm $of
-    elif $1 >> $2 2>&1; then
-        print "ok"
-    else
-        print "failed to execute $1 ( $? )"
-        exit 1
-    fi
-    PATH=$OLD_PATH
-}
+PATH=.:$PATH
+vg="valgrind -v --tool=memcheck --log-file=memchk.out.%p --suppressions=$HOME/.valgrind.supp"
+vg=""
 
 function file_scan_test  {
     echo "{---------------------------------------FILE SCAN TEST -----"
@@ -114,9 +72,109 @@ function file_scan_test  {
     echo "------------------------------------------------------------}"
 }
 
+function mrbtrees_test_all {
+    echo "{-------------------------------------- MRBTREES TEST -----"
+    echo creating log directory
+    mkdir -p ./log
+    echo creating volume  directory
+    mkdir -p ./volumes
 
-numrecs=55
-numthreads=6
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 0
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 0"
+    execute "mrbtrees_test -i -t 0 " mrbtrees-out-0
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 1
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 1"
+    execute "mrbtrees_test -i -t 1 " mrbtrees-out-1
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 2
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 2"
+    execute "mrbtrees_test -i -t 2 " mrbtrees-out-2
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 3
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 3"
+    execute "mrbtrees_test -i -t 3 " mrbtrees-out-3
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 4
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 4"
+    execute "mrbtrees_test -i -t 4 " mrbtrees-out-4
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 5
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 5"
+    execute "mrbtrees_test -i -t 5 " mrbtrees-out-5
+    echo "------------------------------------------cleanup------------"
+    echo blowing away log and volumes before test 6
+    /bin/rm -f ./log/* ./volumes/*
+    echo "------------------------------------------------------------}"
+    echo "running mrbtrees_test -- test 6"
+    execute "mrbtrees_test -i -t 6 " mrbtrees-out-6
+
+    echo "------------------------------------------cleanup------------"
+    echo removing log dir and volume dir after test
+    /bin/rm -rf ./log ./volumes
+    echo "------------------------------------------------------------}"
+}
+
+function print  {
+    echo $*
+}
+function execute  {
+# make sure "." is in the path:
+
+    if [[ -z $3 ]]; then
+        # no comparison file
+        echo >> /dev/null
+    elif [[ -a $3 ]]; then
+        echo >> /dev/null
+    else
+        # given argument doesn't exist
+        print "Error: comparison file $3 doesn't exist" 
+        exit -1
+    fi
+
+    print -n "$vg $1    --> running --> "
+    print "running $vg $1" >> $2
+
+
+    if [[ -n $3 ]]; then
+        # already checked that comparison file exists above
+        of=/tmp/$$
+        if $vg $1 1> $of 2> $of.err ; then
+            if diff $of $3 >> $2; then
+                print "ok"
+            else
+                print "diff failed; results in " $of " and " $of.err 
+                print "  expected results in " $3
+                print "  All diffs in " $2
+                exit 1
+            fi
+        else
+            print "failed to execute $vg $1 ( $? )"
+            exit 1
+        fi
+        cat $of >> $2
+        rm $of
+    elif $vg $1 >> $2 2>&1; then
+        print "ok"
+    else
+        print "failed to execute $vg $1 ( $? )"
+        exit 1
+    fi
+}
+
 
 echo "---------------------------------------------------------"
 echo "running create_rec test"
@@ -127,18 +185,28 @@ mkdir -p ./volumes
 echo blowing away log and volumes
 /bin/rm -f ./log/* ./volumes/* tmp-out
 ##
+## startstop is so minimal that it doesn't get user-defined
+## options.  So it might use a different-sized log than the others.
+## Run it first, and blow away the log and volume afterward.
+echo "---------------------------------------------------------"
+echo "running startstop"
+execute "startstop" tmp-out
+
+echo blowing away log and volumes
+/bin/rm -f ./log/* ./volumes/* tmp-out
+##
 ## create_rec tests cannot diff with -out file because
 ## numbers will differ each time.  We just stuff the results
 ## into create_rec-out
-execute "create_rec -i " create_rec-out
+execute "create_rec -i " tmp-out
 
 echo "---------------------------------------------------------"
 ##
 ## sort_stream test cannot diff with -out file because
 ## numbers will differ each time.  We just stuff the results
 ## into sort_stream-out
-execute "sort_stream -i " sort_stream-i-out
-execute "sort_stream " sort_stream-out
+execute "sort_stream -i " tmp-out
+execute "sort_stream " tmp-out
 
 echo "---------------------------------------------------------"
 echo "running lockid_test "
@@ -151,16 +219,18 @@ echo "running lock_cache_test "
 execute "lock_cache_test" tmp-out  
 
 echo "---------------------------------------------------------"
-echo "running startstop"
-execute "startstop" tmp-out
-
-echo "---------------------------------------------------------"
-echo "running file_scan test"
-file_scan_test file_scan "-n $numrecs" "-n $numrecs"
-echo "---------------------------------------------------------"
+numrecs=55
+numthreads=6
 echo "running file_scan_many test"
 file_scan_test file_scan_many "-t $numthreads -A -n $numrecs" "-t $numthreads"
 
+#
+# NOTE: re: htab tests: when you change the page sizes, 
+# you will get different numbers here.
+# so "make check" will fail if page size is not 8K.
+# If it fails on the htab tests, that's ok. 
+# These are the last tests in the bunch.
+#
 echo "---------------------------------------------------------"
 echo "running hash table tests"
 echo "NOTE : These hash table test can fail with diffs in"
@@ -176,28 +246,8 @@ execute "htab -n 10000 -R" tmp-out
 execute "htab -n 100000 -R" tmp-out 
 
 
-##
-## log_exceed -i : run out of log space; show what happens
-## with the callbacks.
-## echo "---------------------------------------------------------"
-## echo "running log_exceed test"
-## echo creating log directory
-## mkdir -p ./log
-## echo creating volume  directory
-## mkdir -p ./volumes
-## echo blowing away log and volumes
-## /bin/rm -f ./log/* ./volumes/* tmp-out
-## execute "log_exceed " log_exceed-out
-
-
 echo "---------------------------------------------------------"
-echo "running multi-rooted btrees tests"
-execute "multi_rooted_btrees_test -i " multi-rooted-out
+echo "running mrbtrees_test"
+mrbtrees_test_all
 
-echo "---------------------------------------------------------"
-echo "running multi-rooted btrees tests with second design"
-execute "multi_rooted_btrees_test2 -i " multi-rooted-out2
 
-echo "---------------------------------------------------------"
-echo "running multi-rooted btrees tests with third design"
-execute "multi_rooted_btrees_test3 -i " multi-rooted-out3
