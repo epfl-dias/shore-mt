@@ -88,7 +88,7 @@ if COMPILER_IS_SUNCC
 TARGET_FLAGS = -m64 -DARCH_LP64
 ALWAYS_FLAGS += $(TARGET_FLAGS)
 ## Assembler flags... for atomic_ops
-AM_LDFLAGS =  -m64
+AM_LDFLAGS =  -m64 -lkstat
 TUNE_FLAGS = -xtarget=native
 
 else
@@ -118,7 +118,7 @@ TUNE_FLAGS = -mtune=generic
 endif
 
 ALWAYS_FLAGS += $(TARGET_FLAGS) -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 
-AM_LDFLAGS =  -m32
+AM_LDFLAGS =  -m32 -lkstat
 endif
 
 AM_CCASFLAGS += $(TARGET_FLAGS)

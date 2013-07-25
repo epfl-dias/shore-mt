@@ -236,7 +236,7 @@ echo "running hash table tests"
 echo "NOTE : These hash table test can fail with diffs in"
 echo "       counters (based on build optimization level)"
 echo "---------------------------------------------------------"
-execute "htab -n 500 " tmp-out htab-n500-out
+execute "htab -n 500 " tmp-out htab-n500-out.`uname -m`
 # We are seeing slightly different performance statistics
 # here so we will remove the comparison with output file
 # for the moment.
