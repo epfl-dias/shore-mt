@@ -195,44 +195,65 @@ void cpu_info::init_impl() {
 #ifdef __linux__
 #include <set>
 #include <fcntl.h>
-void cpu_info::helper::compute_counts(long* ccount, long* scount) {
-    int fd = open("/proc/cpuinfo", O_RDONLY);
-    int bufmax = 100;
-    char buf[bufmax+1];
-    int bufsize=0;
-    std::set<int> cpus, sockets;
-    int count;
-    while( (count=read(fd, buf+bufsize, bufmax-bufsize)) > 0) {
-	bufsize += count;
-	buf[bufsize] = 0;
-	
+#include <fstream>
 #define IF_MATCH(str, theSet)				\
-	if ( (pos=strstr(buf, str)) ) {			\
-	    int id;					\
-	    if (1 == sscanf(pos, str "%d", &id)) {	\
-		theSet.insert(id);			\
-	    }						\
-	    pos += sizeof(str);				\
-	}
-	
-	char* pos;
-	IF_MATCH("processor	: ", cpus)
-	else IF_MATCH("physical id	: ", sockets)
-	else {
-	    pos = buf + bufsize/2;
-	}
-#undef IF_MATCH
-	bufsize = buf+bufsize - pos;
-	memmove(buf, pos, bufsize);
-    }
-    if(cpus.empty() || sockets.empty()) {
-	fprintf(stderr, "Unable to read /proc/cpuinfo\n");
-	exit(-1);
-    }
-    std::fprintf(stderr, "cpu_info sees %ld sockets and %ld cores\n",
-		 sockets.size(), cpus.size());
-    *ccount = cpus.size();
-    *scount = sockets.size();
+  if ( (pos=strstr(line.c_str(), str)) ) {		\
+    int id;						\
+    if (1 == sscanf(pos, str "%d", &id)) {		\
+      theSet.insert(id);				\
+    }							\
+  }
+void cpu_info::helper::compute_counts(long* ccount, long* scount) {
+  std::ifstream infile("/proc/cpuinfo");
+  std::string line;
+  std::set<int> cpus, sockets;
+  while(std::getline(infile, line)) {    
+    const char* pos;
+    IF_MATCH("processor	: ", cpus);
+    IF_MATCH("physical id	: ", sockets);
+  }
+  // pin: the maximum buffer size set below sometimes leads to the buffer
+  //      having something like "physical id :" in the end (the searched
+  //      keyword without its corresponding value) and this was leading
+  //      segfaults. so I changed this function to read the cpuinfo file
+  //      line by line.
+  //    int fd = open("/proc/cpuinfo", O_RDONLY);
+  //    int bufmax = 100;
+  //    char buf[bufmax+1];
+  //    int bufsize=0;
+  //    std::set<int> cpus, sockets;
+  //    int count;
+  //    while( (count=read(fd, buf+bufsize, bufmax-bufsize)) > 0) {
+  //	bufsize += count;
+  //	buf[bufsize] = 0;
+  //	
+  //#define IF_MATCH(str, theSet)			\
+  //	if ( (pos=strstr(buf, str)) ) {			\
+  //	    int id;					\
+  //	    if (1 == sscanf(pos, str "%d", &id)) {	\
+  //		theSet.insert(id);			\
+  //	    }						\
+  //	    pos += sizeof(str);				\
+  //	}
+  //	
+  //	char* pos;
+  //	IF_MATCH("processor	: ", cpus)
+  //	else IF_MATCH("physical id	: ", sockets)
+  //	else {
+  //	    pos = buf + bufsize/2;
+  //	}
+  //#undef IF_MATCH
+  //	bufsize = buf+bufsize - pos;
+  //	memmove(buf, pos, bufsize);
+  //    }
+  if(cpus.empty() || sockets.empty()) {
+    fprintf(stderr, "Unable to read /proc/cpuinfo\n");
+    exit(-1);
+  }
+  std::fprintf(stderr, "cpu_info sees %ld sockets and %ld cores\n",
+	       sockets.size(), cpus.size());
+  *ccount = cpus.size();
+  *scount = sockets.size();
 }
 #elif defined(__SVR4)
 #include <kstat.h>
