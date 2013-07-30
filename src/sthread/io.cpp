@@ -268,9 +268,13 @@ w_rc_t sthread_t::set_bufsize_normal(
     //
     //  GET PAGE SIZES
     //
+    // If the SM pagesize is larger than the largest system page size,
+    // align everything on the former (safe and is less confusing).
+    //
     // ***********************************************************
     long max_page_size = get_max_page_size(system_page_size);
-    w_assert1(system_page_size <= max_page_size); 
+    w_assert1(system_page_size <= max_page_size);
+    long align_page_size = (SM_PAGESIZE > max_page_size)? SM_PAGESIZE : max_page_size;
 
     // ***********************************************************
     //
@@ -295,34 +299,31 @@ w_rc_t sthread_t::set_bufsize_normal(
     //
     // ***********************************************************
     int flags1 = MAP_PRIVATE;
-    int flags2 = MAP_PRIVATE;
+    size_t extra_align = align_page_size;
+    size_t align_arg = 0;
 
 #if HAVE_DECL_MAP_ANONYMOUS==1
     flags1  |= MAP_ANONYMOUS;
-    flags2  |= MAP_ANONYMOUS;
 #elif HAVE_DECL_MAP_ANON==1
     flags1  |= MAP_ANON;
-    flags2  |= MAP_ANON;
 #else
 #endif
 
 #if HAVE_DECL_MAP_NORESERVE==1
     flags1  |= MAP_NORESERVE;
 #endif
-#if HAVE_DECL_MAP_FIXED==1
-    flags2  |= MAP_FIXED;
-#endif
 
 #if HAVE_DECL_MAP_ALIGN==1
     flags1 |= MAP_ALIGN;
+    extra_align = 0;
+    align_arg = align_page_size;
 #endif
-    // add one SM_PAGESIZE to the size requested before alignment,
-    // and then do our own alignment at the end
-    // In the case of MAP_ALIGN this shouldn't be necessary, but
-    // we have so many different cases, it's going to be unreadable
-    // if we try to avoid this in the one case, so do it in every case.
-    size += SM_PAGESIZE;
-    align_bufsize(size, system_page_size, max_page_size);
+    
+    // add the extra alignment to the size requested before alignment,
+    // and then do our own alignment at the end In the case of
+    // MAP_ALIGN this is unnecessary, and the extra alignment is zero.
+    size += extra_align;
+    align_bufsize(size, system_page_size, align_page_size);
 
     // ***********************************************************
     //
@@ -335,7 +336,7 @@ w_rc_t sthread_t::set_bufsize_normal(
     // ***********************************************************
 
     errno = 0;
-    _disk_buffer = (char*) mmap(0, _disk_buffer_size,
+    _disk_buffer = (char*) mmap((char*)align_arg, _disk_buffer_size,
                PROT_NONE,
                flags1,
                fd,   /* fd */
@@ -369,58 +370,40 @@ w_rc_t sthread_t::set_bufsize_normal(
     }
 #endif
 
-
     // ***********************************************************
     //
-    // RE-MMAP: break up the mapped region into max_page_size
-    // chunks and remap them.
+    // RE-MMAP: manually align the region and give the useful part R/W
+    // permissions. 
     //
     // ***********************************************************
-    int nchunks = _disk_buffer_size / max_page_size;
-    w_assert1(size_t(nchunks * max_page_size) == _disk_buffer_size);
-
-
-    for(int i=0; i < nchunks; i++)
-    {
-        char *addr = _disk_buffer + (i * max_page_size); 
-        char *sub_buffer = (char*) mmap(addr, 
-               max_page_size,
-                       PROT_READ | PROT_WRITE, /* prot */
-                       flags2,
-                       fd,   /* fd */
-                       0     /* off_t */
-                       );
-
-        if (sub_buffer == MAP_FAILED) {
-            cerr 
-                << __LINE__ << " " 
-                << "mmap (addr=" << long(addr )
-                << ", size=" << max_page_size << ") returns -1;"
-                << " errno is " <<  errno  << " " << strerror(errno)
-                << " flags " <<  flags2  
-                << " fd " <<  fd  
-                << endl;
-            do_unmap();
-            return RC(fcMMAPFAILED);
-        }
-        w_assert1(sub_buffer == addr);
+    _disk_buffer = (char*)alignon(_disk_buffer, align_page_size);
+    if (mprotect(_disk_buffer, requested_size, PROT_READ|PROT_WRITE)) {
+        cerr 
+            << __LINE__ << " " 
+            << "mprotect (addr=" << long(_disk_buffer)
+            << ", size=" << requested_size << ") returns -1;"
+            << " errno is " <<  errno  << " " << strerror(errno)
+            << endl;
+        do_unmap();
+        return RC(fcMMAPFAILED);
+    }
+    
 #ifdef HAVE_MEMCNTL
-        struct memcntl_mha info;
-        info.mha_cmd = MHA_MAPSIZE_VA;
-        info.mha_flags = 0;
-        info.mha_pagesize = max_page_size;
-        // Ask the kernel to use the max page size here
-        if(memcntl(sub_buffer, max_page_size, MC_HAT_ADVISE, (char *)&info, 0, 0) < 0)
+    struct memcntl_mha info;
+    info.mha_cmd = MHA_MAPSIZE_VA;
+    info.mha_flags = 0;
+    info.mha_pagesize = max_page_size;
+    // Ask the kernel to use the max page size here
+    if(memcntl(_disk_buffer, requested_size, MC_HAT_ADVISE, (char *)&info, 0, 0) < 0)
        
         {
             cerr << "memcntl (chunk " << i << ") returns -1;"
-                << " errno is " <<  errno  << " " << strerror(errno)
-                << " requested size " <<  max_page_size  << endl;
+                 << " errno is " <<  errno  << " " << strerror(errno)
+                 << " requested size " <<  max_page_size  << endl;
             do_unmap();
             return RC(fcMMAPFAILED);
         }
 #endif
-    }
 
     align_for_sm(requested_size);
     buf_start = _disk_buffer;
