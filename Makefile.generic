@@ -34,12 +34,11 @@ BUILT_SOURCES = $(GENFILES)
 # (Actually, you're supposed to get them both with _POSIX_C_SOURCE > 199506L
 # but I'm not that trusting.)
 
-ALWAYS_FLAGS = -DNO_FASTNEW \
-	 -D_REENTRANT -D_POSIX_PTHREAD_SEMANTICS
+ALWAYS_FLAGS = -DNO_FASTNEW 
 
 if COMPILER_IS_SUNCC
 ALWAYS_FLAGS +=  -features=extensions,zla -xdebugformat=stabs
-ALWAYS_FLAGS += -DSOLARIS2 -library=stlport4  -mt -lpthread
+ALWAYS_FLAGS += -DSOLARIS2 -library=stlport4
 #  CC turns on inlining based on optimization level.  at O0 it should
 #  do no inlining at less than O3.  There is no way to force inlining to
 #  be off (well, +d does except when the optimization level overrides it); 
@@ -56,7 +55,7 @@ if COMPILER_IS_GCC
 # or system include file uses long long, in which case we will have to.
 #
 #
-ALWAYS_FLAGS += -Wextra -Wall -Wno-long-long -pthread
+ALWAYS_FLAGS += -Wextra -Wall -Wno-long-long
 # NO_INLINE_FLAGS =  -fno-inline
 NO_INLINE_FLAGS =  
 YES_INLINE_FLAGS =  -finline-functions

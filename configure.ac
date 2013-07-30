@@ -7,6 +7,7 @@ AC_CONFIG_HEADERS([config/shore-config.h:config/shore-config-h.in])
 AC_CONFIG_SRCDIR([config/shore.def])
 AC_COPYRIGHT(COPYRIGHT-NOTICE)
 AC_CONFIG_AUX_DIR(config)
+AC_CONFIG_MACRO_DIRS([m4])
 
 # clobber the annoying '-g -O2' automake likes to insert
 CXXFLAGS=
@@ -267,6 +268,10 @@ AC_SEARCH_LIBS([gethostbyname],
         [nsl],
         [AC_MSG_RESULT([$ac_cv_search])],
         [AC_MSG_ERROR([$ac_cv_search])])
+
+AX_PTHREAD
+LIBS="$PTHREAD_LIBS $LIBS"
+CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS"
 
 AH_TEMPLATE(HAVE_GCC_ATOMIC_BUILTINS, [gcc-style __sync_* builtins])
 AC_MSG_CHECKING([if compiler supports gcc atomic builtins])
