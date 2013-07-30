@@ -21,7 +21,7 @@ atomic_ops_keep_symtab_nonempty:
 #include "asm_linkage/usr/src/lib/libbc/sparc/inc/sparc/asm_linkage.h"
 #include "atomic_ops/sparcv9/atomic.s"
 
-#elif defined(__i386__) || defined(i386) || defined(amd64) || defined(x86_64)
+#elif defined(__i386__) || defined(i386) || defined(amd64) || defined(x86_64) || defined(__x86_64__)
 #include "atomic_ops/amd64/atomic.s"
 
 #elif defined(IA64)

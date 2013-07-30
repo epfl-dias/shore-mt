@@ -40,16 +40,21 @@ typedef long   long_t;
 #include <atomic.h>
 #else
 
-#if defined(__GLIBC_HAVE_LONG_LONG) && __GLIBC_HAVE_LONG_LONG!=0
+// FRJ: unnecessary, given that shore-mt requires 64-bit ...
+//#if defined(__GLIBC_HAVE_LONG_LONG) && __GLIBC_HAVE_LONG_LONG!=0
 
 #ifndef _INT64_TYPE
 #define _INT64_TYPE
 #define _INT64_TYPE_DEFINED
 #endif
 
-#endif
+//#endif
 
+#ifdef HAVE_GCC_ATOMIC_BUILTINS
+#include "atomic_ops_builtin.h"
+#else
 #include "atomic_ops_impl.h"
+#endif
 
 // Clean up after defining these
 #ifdef _INT64_TYPE_DEFINED

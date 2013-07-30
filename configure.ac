@@ -258,6 +258,15 @@ else
     AM_CONDITIONAL([NOPEDANTIC], [test -n "1"])
 
 fi
+
+AH_TEMPLATE(HAVE_GCC_ATOMIC_BUILTINS, [gcc-style __sync_* builtins])
+AC_MSG_CHECKING([if compiler supports gcc atomic builtins])
+AC_LINK_IFELSE([AC_LANG_PROGRAM(
+[[void inc(int*ptr) { __sync_fetch_and_add(ptr, 1); }
+]])],
+[AM_CONDITIONAL([HAVE_GCC_ATOMIC_BUILTINS], [true]) AC_DEFINE([HAVE_GCC_ATOMIC_BUILTINS], [1]) AC_MSG_RESULT([yes])],
+[AM_CONDITIONAL([HAVE_GCC_ATOMIC_BUILTINS], [false]) AC_DEFINE([HAVE_GCC_ATOMIC_BUILTINS], [0]) AC_MSG_RESULT([no])],
+)
 AC_LANG_POP(C++)
 
 ## AC_PROG_INSTALL 
@@ -1249,6 +1258,9 @@ then
 else
      AC_MSG_RESULT(no)
 fi
+
+
+AC_SUBST(HAVE_GCC_ATOMIC_BUILTINS)
 
 
 AC_CONFIG_FILES([Makefile])
