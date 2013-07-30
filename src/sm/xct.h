@@ -55,6 +55,9 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include "w_defines.h"
 
+// see http://gcc.gnu.org/bugzilla/show_bug.cgi?id=58022
+#include "xct_dependent.h"
+
 /*  -- do not edit anything above this line --   </std-header>*/
 
 #ifdef __GNUG__
