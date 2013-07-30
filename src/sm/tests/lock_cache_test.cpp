@@ -47,7 +47,7 @@ vid_t    vol(1000);
 stid_t   stor(vol,900);
 lpid_t   page(stor, 50);
 rid_t    rec(page, 6);
-extid_t  extent;
+extid_t  _extent;
 typedef lockid_t::user1_t user1_t;
 typedef lockid_t::user2_t user2_t;
 typedef lockid_t::user3_t user3_t;
@@ -186,8 +186,8 @@ testit(lockid_t &l, int line)
 int
 main(int /*argc*/, char* /*argv*/[])
 {
-    extent.vol = vol;
-    extent.ext = 33;
+    _extent.vol = vol;
+    _extent.ext = 33;
 
     const char     *keybuf = "Admiral Richard E. Byrd";
     const char     *elembuf= "Most of the confusion in the world comes from not knowing how little we need.";
@@ -199,7 +199,7 @@ main(int /*argc*/, char* /*argv*/[])
         <<  "\t store " << stor << endl
         <<  "\t page " << page << endl
         <<  "\t rec " << rec << endl
-        <<  "\t extent " << extent << endl
+        <<  "\t extent " << _extent << endl
         <<  "\t u1 " << u1 << endl
         <<  "\t u2 " << u2 << endl
         <<  "\t u3 " << u3 << endl
@@ -210,7 +210,7 @@ main(int /*argc*/, char* /*argv*/[])
     lockid_t lstor(stor);
     lockid_t lpage(page);
     lockid_t lrec(rec);
-    lockid_t lx(extent);
+    lockid_t lx(_extent);
     lockid_t l1(u1);
     lockid_t l2(u2);
     lockid_t l3(u3);
