@@ -195,6 +195,7 @@ w_rc_t    sdisk_unix_t::open(const char *name, int flags, int mode)
         return RC(stBADFD);    /* XXX in use */
 
     _fd = ::os_open(name, convert_flags(flags), mode);
+    _flags = flags;
     if (_fd == -1) {
         w_rc_t rc = RC(fcOS);
         RC_APPEND_MSG(rc, << "Offending file: " << name);
@@ -416,6 +417,8 @@ w_rc_t    sdisk_unix_t::sync()
 {
     if (_fd == FD_NONE)
         return RC(stBADFD);
+    if (modeBits(_flags) == OPEN_RDONLY)
+        return RCOK; // nothing to sync when read-only
 
     INC_STH_STATS(num_io);
     int n = os_fsync(_fd);

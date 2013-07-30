@@ -48,6 +48,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 /**\cond skip */
 class sdisk_unix_t : public sdisk_t {
     int    _fd;
+    int _flags;
     char _path[256];
 
     enum    { FD_NONE = -1 };
