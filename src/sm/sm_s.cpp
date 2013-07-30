@@ -73,8 +73,9 @@ const lpid_t lpid_t::null;
 char const* 
 db_pretty_print(lsn_t const* lsn, int /*i=0*/, char const* /* s=0 */) 
 {
-  char *tmp = (char *) ::valloc(100);
-  snprintf(tmp, sizeof(tmp), "%d.%lld", lsn->hi(), (long long int)(lsn->lo()));
+  size_t nbytes = 100;
+  char *tmp = (char *) ::valloc(nbytes);
+  snprintf(tmp, nbytes, "%d.%lld", lsn->hi(), (long long int)(lsn->lo()));
   return tmp;
 }
 

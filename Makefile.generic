@@ -1,4 +1,4 @@
-# -*- mode:Makefile -*-
+# -*- mode:makefile-automake -*-
 # rules, macros generic to all Makefile.am
 AUTOMAKE_OPTIONS = check-news dist-bzip2 readme-alpha
 
@@ -144,10 +144,6 @@ endif
 LOCALCLEAN = 
 # CXX flags that go on the compiles for pure products
 PURE_CXXFLAGS =
-# This clearing of CXXFLAGS is necessary to override the
-# annoying -g -O2 that autoconf stuffs in there, and which
-# I cannot find any other way to control.
-CXXFLAGS =
 CFLAGS =
 GCC_WARN_FLAGS =
 AM_CXXFLAGS = $(PEDANTIC)  $(TUNE_FLAGS)
@@ -306,7 +302,8 @@ endif
 
 # Initialize LOCALLDADD 
 # Note: on solaris -lnsl may be needed for gethostbyname()
-LOCALLDADD = $(top_srcdir)/src/atomic_ops/libatomic_ops.a -lnsl
+FRJ: if -lnsl is really necessary, add a proper configure check
+LOCALLDADD = $(top_srcdir)/src/atomic_ops/libatomic_ops.a
 
 # --------------------------------------------------------
 #

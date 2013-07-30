@@ -1056,7 +1056,7 @@ struct histo {
     }
     long &operator[](long idx) {
 	// log base 2 indexing ...
-	return _buckets[ilogbl(double(idx))];
+	return _buckets[ilogb(double(idx))];
     }
     
     void print() const {
@@ -2036,8 +2036,9 @@ void log_core::_acquire_buffer_space(insert_info* info, long recsize)
 {
    INC_TSTAT(log_inserts);
 
-   if (not use_combination_array)
+   if (not use_combination_array) {
        w_assert2((unsigned long)(recsize) <= sizeof(logrec_t));
+   }
    w_assert2(recsize > 0);
 
 
@@ -2518,7 +2519,7 @@ rc_t log_core::insert(logrec_t &rec, lsn_t* rlsn) {
     
     if(!acquired) {
 	// need to consolidate
-	long idx =  pthread_self();
+	long idx =  (long)pthread_self();
 	long old_count;
 	info = _join_slot(idx, old_count, size);
 

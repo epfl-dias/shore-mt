@@ -8,6 +8,8 @@ AC_CONFIG_SRCDIR([config/shore.def])
 AC_COPYRIGHT(COPYRIGHT-NOTICE)
 AC_CONFIG_AUX_DIR(config)
 
+# clobber the annoying '-g -O2' automake likes to insert
+CXXFLAGS=
 
 echo configure args: $* > tmpcfg.txt
 
@@ -23,6 +25,7 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 ## This package uses an assembler.
 ## Define CCAS and CCASFLAGS 
 AM_PROG_AS
+AM_PROG_AR
 
 # Checks for programs.
 ## preprocessor required
@@ -544,6 +547,7 @@ AC_LANG_PUSH(C++)
 
 AC_MSG_CHECKING([architecture])
 AC_SUBST([uname_machine], [`uname -m`])
+AC_MSG_RESULT($uname_machine)
 
 AC_PREPROC_IFELSE([AC_LANG_PROGRAM(
 [[#if defined(__SVR4) && defined(sparc) && defined(sun)
