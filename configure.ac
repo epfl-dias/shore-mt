@@ -262,6 +262,12 @@ else
 
 fi
 
+#AC_MSG_CHECKING([extra library needed for gethostbyname])
+AC_SEARCH_LIBS([gethostbyname],
+        [nsl],
+        [AC_MSG_RESULT([$ac_cv_search])],
+        [AC_MSG_ERROR([$ac_cv_search])])
+
 AH_TEMPLATE(HAVE_GCC_ATOMIC_BUILTINS, [gcc-style __sync_* builtins])
 AC_MSG_CHECKING([if compiler supports gcc atomic builtins])
 AC_LINK_IFELSE([AC_LANG_PROGRAM(
