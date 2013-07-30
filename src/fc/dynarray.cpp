@@ -32,7 +32,7 @@
 #include <cstdio>
 
 // no system I know of *requires* larger pages than this
-static size_t const MM_PAGE_SIZE = 8192;
+static size_t const MM_PAGE_SIZE = 65536;
 // most systems can't handle bigger than this, and we need a sanity check
 static size_t const MM_MAX_CAPACITY = MM_PAGE_SIZE*1024*1024*1024;
 
@@ -49,6 +49,7 @@ int dynarray::init(size_t max_size, size_t align)
 {
     // round up to the nearest page boundary
     max_size = align_up(max_size, MM_PAGE_SIZE);
+    align = align_up(align, MM_PAGE_SIZE);
     
     // validate inputs
     if(max_size > MM_MAX_CAPACITY)
@@ -71,16 +72,15 @@ int dynarray::init(size_t max_size, size_t align)
     /*
       The magical incantation below tells mmap to reserve address
       space within the process without actually allocating any
-      memory. We are then free to re-map any subset of that
-      reservation using MAP_FIXED (using MAP_FIXED without a
-      reservation always fails).
+      memory. We can then use mprotect() to make bits of that address
+      space usable.
 
-      Note that MAP_FIXED is smart enough to mix and match different
+      Note that mprotect() is smart enough to mix and match different
       sets of permissions, so we can extend the array simply by
-      remapping 0..new_size with R/W permissions, and can blow
-      everything away by unmapping 0..reserved_size.
+      updating 0..new_size to have R/W permissions. Similarly, we can
+      blow everything away by unmapping 0..reserved_size.
 
-      Tested on both Linux-2.6.18/x86 and Solaris-10/Sparc.
+      Tested on Cygwin/x86_64, Linux-2.6.18/x86 and Solaris-10/Sparc.
     */
 
     static int const PROTS = PROT_NONE;
@@ -94,7 +94,7 @@ int dynarray::init(size_t max_size, size_t align)
     flags |= MAP_ALIGN;
 #else
     char* align_arg = 0;
-    size_t align_extra = align - MM_PAGE_SIZE;
+    size_t align_extra = align;
 #endif
     union { void* v; uintptr_t n; char* c; }
     	u={mmap(align_arg, max_size+align_extra, PROTS, flags, -1, 0)};
@@ -119,7 +119,7 @@ int dynarray::init(size_t max_size, size_t align)
        request more than needed, then chop off the extra in a way that
        gives us the desired alignment. That extra could be the
        little bit that pushes the system over the edge and gives us
-       ENOMEM, but we're kind of stuck.
+       ENOMEM, but we have no other alternative.
      */
 #ifdef TEST_ME
     std::fprintf(stderr, "start: %p	end:%p\n", u.c, u.c+max_size+align_extra);
@@ -184,11 +184,9 @@ int dynarray::resize(size_t new_size) {
     }
 
     static int const PROTS = PROT_READ | PROT_WRITE;
-    static int const FLAGS = MAP_FIXED | MAP_ANON | MAP_PRIVATE;
 
-    // remap the new range as RW. Don't mess w/ the existing region!!
-    void* result = mmap(_base+_size, new_size-_size, PROTS, FLAGS, -1, 0);
-    if(result == MAP_FAILED)
+    // mark the new range as RW. Don't mess w/ the existing region!!
+    if (mprotect(_base+_size, new_size-_size, PROTS))
     {
 	return errno;
     }
