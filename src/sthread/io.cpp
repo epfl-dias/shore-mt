@@ -397,7 +397,7 @@ w_rc_t sthread_t::set_bufsize_normal(
     if(memcntl(_disk_buffer, requested_size, MC_HAT_ADVISE, (char *)&info, 0, 0) < 0)
        
         {
-            cerr << "memcntl (chunk " << i << ") returns -1;"
+            cerr << "memcntl returns -1;"
                  << " errno is " <<  errno  << " " << strerror(errno)
                  << " requested size " <<  max_page_size  << endl;
             do_unmap();
