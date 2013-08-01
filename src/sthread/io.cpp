@@ -377,6 +377,7 @@ w_rc_t sthread_t::set_bufsize_normal(
     //
     // ***********************************************************
     _disk_buffer = (char*)alignon(_disk_buffer, align_page_size);
+    alignon(requested_size, system_page_size);
     if (mprotect(_disk_buffer, requested_size, PROT_READ|PROT_WRITE)) {
         cerr 
             << __LINE__ << " " 
