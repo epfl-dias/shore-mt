@@ -3,56 +3,15 @@
 echo /bin/rm -f config/shore-config.h
 /bin/rm -f config/shore-config.h
 
-# aclocal: find macros needed by automake
-# output: aclocal.m4 files
-echo aclocal  --force  ...
-aclocal  --force 
-
-# Insert activities of your choice for morning and afternoon.
-am="meditate"
-pm="take a break"
-
 OS=`uname`
 
 if [ "$OS" = "SunOS" ] ; then
-    echo "Running autoheader. Don't expect lightning speed ..."
+    echo "Running autoreconf. Don't expect lightning speed ..."
 fi
 
-# autoheader:  create template file of #define statements
-# for ./configure to use.
-# input: configure.ac
-# output: config/shore-config-h.in
-#       (unfortunately for debugging, the output is in alphabetic order)
+echo autoreconf --install --force
+autoreconf --install --force
 
-echo autoheader  --force  ...
-autoheader  --force 
-
-if [ "$OS" = "SunOS" ] ; then
-    t=`date +%H`
-	if test $t -gt 16 -a $t -lt 22; then
-		act=$pm
-	else
-		act=$am
-	fi
-    echo "Running autoconf.  Go $act and come back later."
-fi
-
-# autoconf: produce the shore-config.h file for make to use
-# input: configure.ac
-# input: config/shore-config-h.in
-# output: ./configure, ./configure.status (slave)
-echo autoconf --force  ...
-autoconf --force 
-
-# automake: create the Makefile.in files
-# input: configure.ac
-# input: <dirs>/Makefile.am
-# output: <dirs>/Makefile.in
-if [ "$OS" = "SunOS" ] ; then
-    echo "Running autoconf. This is like watching paint dry.  Go $act again."
-fi
-echo automake  -a --include-deps ...
-automake  -a --include-deps
 
 # configure: generate the Makefiles
 # input: ./configure.status
