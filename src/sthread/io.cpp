@@ -401,8 +401,6 @@ w_rc_t sthread_t::set_bufsize_normal(
             cerr << "memcntl returns -1;"
                  << " errno is " <<  errno  << " " << strerror(errno)
                  << " requested size " <<  max_page_size  << endl;
-            do_unmap();
-            return RC(fcMMAPFAILED);
         }
 #endif
 
