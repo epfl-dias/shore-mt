@@ -226,6 +226,7 @@ void cpu_info::helper::compute_counts(long* ccount, long* scount) {
   std::fprintf(stderr, "cpu_info sees %ld sockets and %ld cores\n",
 	       *scount, *ccount);
 }
+
 #elif defined(__SVR4)
 #include <kstat.h>
 void cpu_info::helper::compute_counts(long* ccount, long* scount) {
@@ -245,6 +246,48 @@ void cpu_info::helper::compute_counts(long* ccount, long* scount) {
     *ccount = cpu_count;
     *scount = socket_count;
 }
+
+#elif defined(__APPLE__)
+// See: http://developer.apple.com/library/mac/#documentation/Darwin/Reference/ManPages/man3/sysctlbyname.3.html
+// $ sysctl hw.physicalcpu | awk '{print $2}'
+// 4
+// $ sysctl hw.ncpu | awk '{print $2}'
+// 8
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+// Define to use physical instead of (hyperthreaded) logical CPUs
+#define USE_PHYSICAL_CPUS
+
+void compute_counts(long* ccount, long* scount) 
+{
+   // By default assume one socket and one cpu
+   long socket_count = 1;
+   long cpu_count = 1;
+
+   // int sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+   // To set a new value, newp is set to point to a buffer of length newlen from which the requested value is
+   //    to be taken.  If a new value is not to be set, newp should be set to NULL and newlen set to 0.
+#ifdef USE_PHYSICAL_CPUS
+   int nphysical=0;
+   *ccount = cpu_count;
+   size_t nphysical_size = sizeof(nphysical);
+   sysctlbyname("hw.physicalcpu", &nphysical, &nphysical_size, NULL, 0);
+   cpu_count = nphysical;
+#else
+   int ncpus=0;
+   size_t ncpus_size = sizeof(ncpus);
+   sysctlbyname("hw.ncpu", &ncpus, &ncpus_size, NULL, 0);
+   cpu_count = ncpus;
+#endif
+
+   *ccount = cpu_count;
+   *scount = socket_count;
+
+   std::fprintf(stderr, "cpu_info sees %ld sockets and %ld cores\n",
+                socket_count, cpu_count);
+}
+
 #else
 #error Sorry, no way to identify the number of sockets in this machine
 #endif
