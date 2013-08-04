@@ -44,6 +44,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 // for _SC_PTHREAD_THREAD_MAX:
 #include <unistd.h>
 
+#include "macpthread_barrier.h" // For pthread_barrier_t in MacOS
+
 static pthread_barrier_t b;
 
 class simple_thread_t : public sthread_t {

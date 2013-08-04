@@ -48,7 +48,7 @@ typedef w_descend_list_t<elem3_t, unsafe_list_dummy_lock_t, int>  elem_descend_l
 int main()
 {
     elem3_t array[10];
-    elem3_t* p;
+    elem3_t* p = NULL;
 
     int i;
     for (i = 0; i < 10; i++)

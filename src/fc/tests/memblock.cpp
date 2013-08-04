@@ -297,7 +297,11 @@ void test_block() {
     block __attribute__((aligned(8*sizeof(block_bits::bitmap)*sizeof(int))))
     b(chip_size,chip_count, block_size);
 #else
+#if defined(__APPLE__)
+    block* bptr = new (malloc(8*sizeof(block_bits::bitmap)*sizeof(int)))
+#else
     block* bptr = new (memalign(8*sizeof(block_bits::bitmap)*sizeof(int), block_size))
+#endif
     block(chip_size, chip_count, block_size);
     block &b = *bptr;
 #endif

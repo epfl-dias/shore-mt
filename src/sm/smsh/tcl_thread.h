@@ -40,6 +40,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include "tcl_workaround.h"
 
+#include "macpthread_barrier.h" // For pthread_barrier_t in MacOS
+
 extern "C" int num_tcl_threads_running();
 extern bool interactive; 
 extern const char *argv0;  // the REAL argv[0]
