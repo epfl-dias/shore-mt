@@ -259,7 +259,7 @@ void cpu_info::helper::compute_counts(long* ccount, long* scount) {
 // Define to use physical instead of (hyperthreaded) logical CPUs
 #define USE_PHYSICAL_CPUS
 
-void compute_counts(long* ccount, long* scount) 
+void cpu_info::helper::compute_counts(long* ccount, long* scount) 
 {
    // By default assume one socket and one cpu
    long socket_count = 1;
