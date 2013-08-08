@@ -3550,6 +3550,8 @@ public:
      */
     static rc_t            lock_cache_enabled(bool& enabled);
 
+    static option_group_t *get_options() { return _options; }
+
 private:
 
     static int _instance_cnt;
