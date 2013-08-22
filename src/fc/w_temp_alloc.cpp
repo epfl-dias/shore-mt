@@ -31,6 +31,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <memory>
+#include <inttypes.h>
 
 #if !HAVE_DECL_MAP_ANONYMOUS
 #if HAVE_DECL_MAP_ANON

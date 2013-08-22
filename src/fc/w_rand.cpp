@@ -25,13 +25,15 @@
 
 #include <utility>
 #include <unistd.h>
+#include <pthread.h>
 
 w_rand::w_rand()
     : _state(0)
 {
     uint32_t s[] = {
         (uint32_t) (uintptr_t) &_state,
-        (uint32_t) getpid()
+        (uint32_t) getpid(),
+        (uint32_t) (uintptr_t) pthread_self(),
     };
     seed(s);
 }
@@ -99,7 +101,7 @@ uint32_t w_rand::randn(uint32_t a, uint32_t b) {
    assemble a double directly, using the IEEE 754 specification:
 
    |S|EEEEEEEEEEE|FFFFFF....F|
-   (11 bits)   (52 bits)
+       (11 bits)   (52 bits)
 
    The value is then (-1)**S * 2**(E-1023) * 1.F; in other words,
    F is the fractional part of an implied 53-bit fixed-point
@@ -121,7 +123,7 @@ double w_rand::drand() {
     return u.d - double(1<<bits);
 }
 
-#ifdef TESTME
+#ifdef TEST_W_RAND
 #include <cstdio>
 
 void __attribute__((noinline)) once(w_rand &rng) {
