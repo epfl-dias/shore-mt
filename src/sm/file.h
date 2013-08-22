@@ -86,8 +86,9 @@ class file_p : public page_p {
 
 public:
     // free space on file_p is page_p less file_p header slot
-    enum { data_sz = page_p::data_sz - align(sizeof(file_p_hdr_t)) - 
-                                                     sizeof(slot_t),
+    enum { data_sz = page_p::data_sz
+           - static_align<sizeof(file_p_hdr_t)>::value
+           - sizeof(slot_t),
            min_rec_size = sizeof(rectag_t) + sizeof(slot_t)
            };
 
@@ -504,7 +505,7 @@ class file_mrbt_p : public file_p {
 
 public:
     // free space on file_mrbt_p is file_p less file_mrbt_p owner btree leaf page id
-    enum { data_sz = file_p::data_sz - align(sizeof(lpid_t)) };
+    enum { data_sz = file_p::data_sz - static_align<sizeof(lpid_t)>::value };
 
     MAKEPAGE(file_mrbt_p, file_p, 1);          // Macro to install basic functions from page_p.
 

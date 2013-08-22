@@ -896,7 +896,7 @@ btree_p::max_entry_size = // must be able to fit 2 entries to a page
         overhead_requirement_per_entry
     ) 
     // round down to aligned size
-    & ~ALIGNON1 
+    & -ALIGNON
     ;
 
 /*

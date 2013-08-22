@@ -36,11 +36,6 @@ static size_t const MM_PAGE_SIZE = 65536;
 // most systems can't handle bigger than this, and we need a sanity check
 static size_t const MM_MAX_CAPACITY = MM_PAGE_SIZE*1024*1024*1024;
 
-static size_t align_up(size_t bytes, size_t align) {
-    size_t mask = align - 1;
-    return (bytes+mask) &~ mask;
-}
-
 #if HAVE_DECL_MAP_ALIGN 
 #define USE_MAP_ALIGN 1
 #endif
@@ -48,8 +43,8 @@ static size_t align_up(size_t bytes, size_t align) {
 int dynarray::init(size_t max_size, size_t align) 
 {
     // round up to the nearest page boundary
-    max_size = align_up(max_size, MM_PAGE_SIZE);
-    align = align_up(align, MM_PAGE_SIZE);
+    max_size = alignon(max_size, MM_PAGE_SIZE);
+    align = alignon(align, MM_PAGE_SIZE);
     
     // validate inputs
     if(max_size > MM_MAX_CAPACITY)
@@ -125,7 +120,7 @@ int dynarray::init(size_t max_size, size_t align)
     std::fprintf(stderr, "start: %p	end:%p\n", u.c, u.c+max_size+align_extra);
 #endif // TEST ME
 
-    long aligned_base = align_up(u.n, align);
+    long aligned_base = alignon(u.n, align);
     if(long extra=aligned_base-u.n) {
 
 #ifdef TEST_ME
@@ -175,7 +170,7 @@ int dynarray::fini() {
 
 int dynarray::resize(size_t new_size) {
     // round up to the nearest page boundary
-    new_size = align_up(new_size, MM_PAGE_SIZE);
+    new_size = alignon(new_size, MM_PAGE_SIZE);
 
     // validate
     if(_size > new_size)
@@ -196,7 +191,7 @@ int dynarray::resize(size_t new_size) {
 }
 
 int dynarray::ensure_capacity(size_t min_size) {
-    min_size  = align_up(min_size, MM_PAGE_SIZE);
+    min_size  = alignon(min_size, MM_PAGE_SIZE);
     int err = 0;
     if(size() < min_size) {
 	size_t next_size = std::max(min_size, 2*size());

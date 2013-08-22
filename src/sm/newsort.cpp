@@ -252,19 +252,8 @@ private:
     void _create_buf();
 
 public:
-    /* XXX really want alignment to align(_d_scratch) */
-    /* XXXX these should use the align tools */        
-    static smsize_t   _align(smsize_t amt) { /* align to 8 bytes */
-        if(amt & 0x7) { amt &= ~0x7; amt += 0x8; }
-        return amt;
-    }
     static char *   _alignAddr(char *cp) { /* align to 8 bytes */
-        ptrdiff_t arith = (ptrdiff_t) cp;
-        if (arith & 0x7) {
-                arith &= ~0x7;
-                arith += 0x8;
-        }
-        return (char *) arith;
+        return (char*) align(cp);
     }
 
     NORET limited_space(smsize_t buffer_sz) : 
@@ -362,7 +351,7 @@ w_rc_t
 limited_space::give_buf(smsize_t amt, char *where) 
 {
     // DBG(<<"give buf where=" << (void *)where << " amt=" << amt);
-    amt = _align(amt);
+    amt = align(amt);
     if(where + amt != _scratch) {
         return RC(eBADSTART);
     }
@@ -376,7 +365,7 @@ w_rc_t
 limited_space::get_buf(smsize_t amt, char *&result) 
 {
     // DBG(<<"get_buf " << amt);
-    amt = _align(amt);
+    amt = align(amt);
     if(smsize_t((_scratch + amt) - (char *)_d_scratch) > _buffer_sz) {
         DBG(<<"");
         return RC(eINSUFFICIENTMEM);
@@ -399,7 +388,7 @@ limited_space::keep_buf(smsize_t amt, const char * W_IFDEBUG3(b))
 
     smsize_t lost_to_alignment = smsize_t(newscratch - _scratch);
     
-    amt = _align(amt);
+    amt = align(amt);
 
     if(smsize_t((newscratch + amt) - (char *)_d_scratch) > _buffer_sz) {
         DBG(<<"");
@@ -3253,17 +3242,15 @@ tape_t::prime_record(
          * header & body that we read from the temp object.
          */
         char *buf = 0;
-        smsize_t whole_len = 
-                limited_space::_align(header_length) + 
-                limited_space::_align(body_length);
+        smsize_t whole_len = align(header_length) + align(body_length);
 
         // See if we can re-use the space already allocated,
         // if any is there.
         factory_t *f = &fact;
         bool must_alloc = true;
         if(object.is_valid() && !object.is_in_buffer_pool()) {
-            if((object.body_size() >= limited_space::_align(body_length))
-             && (object.hdr_size() >= limited_space::_align(header_length)) )
+            if((object.body_size() >= align(body_length))
+             && (object.hdr_size() >= align(header_length)) )
             {
                 // YES we can re-use the space
                 must_alloc = false;
@@ -3286,7 +3273,7 @@ tape_t::prime_record(
                     // header allocated from f
                     buf, header_length, f,
                     // body is within header so don't deallocate
-                    buf + limited_space::_align(header_length),
+                    buf + align(header_length),
                     body_length, factory_t::none);
                     
         }

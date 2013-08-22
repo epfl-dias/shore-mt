@@ -328,31 +328,6 @@ public:
     static const uint4_t    uint4_max, uint4_min;
     static const uint8_t    uint8_max, uint8_min;
 
-    /*
-     *  miscellaneous
-     */
-    enum { align_on = 0x8, align_mod = align_on - 1 };
-
-    /*
-    // NEH: turned into a macro for the purpose of folding
-    // static uint4_t        align(uint4_t sz);
-    */
-#ifndef align
-/// helper for alignon
-#define alignonarg(a) (((ptrdiff_t)(a))-1)
-/// aligns a pointer p on a size a
-#define alignon(p,a) (((ptrdiff_t)((char *)(p) + alignonarg(a))) & ~alignonarg(a))
-
-
-///  We now support only 8-byte alignment of records
-#define ALIGNON 0x8
-
-/// helper for align(sz)
-#define ALIGNON1 (ALIGNON-1)
-/// align to 8-byte boundary
-#define align(sz) ((size_t)((sz + ALIGNON1) & ~ALIGNON1))
-#endif /* align */
-
     static bool        is_aligned(size_t sz);
     static bool        is_aligned(const void* s);
 

@@ -150,7 +150,7 @@ public:
               + sizeof(w_base_t::uint4_t) // _private_store_flags
               + sizeof(w_base_t::uint4_t) // page_flags
               + 0),
-        hdr_sz = (_hdr_sz + align(footer_sz)),
+        hdr_sz = (_hdr_sz + static_align<footer_sz>::value),
         data_sz = smlevel_0::page_sz - hdr_sz,
         max_slot = data_sz / sizeof(slot_t) + 2
     };

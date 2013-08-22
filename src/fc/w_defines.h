@@ -163,15 +163,42 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include <sys/types.h>
 using namespace std;
 
+/* Alignment functions.
+
+   WARNING: undefined behavior results if k is zero or not a power of
+   two.
+ */
+
+/// aligns a pointer p on a size a
+template <typename T>
+static inline
+T alignon(T p, size_t a) {
+    size_t n = (size_t) p;
+    size_t rval = (n + a - 1) & -a;
+    return (T) rval;
+}
+ 
+
+///  We now support only 8-byte alignment of records
+#define ALIGNON 0x8
+
+/// align to 8-byte boundary
+template <typename T>
+static inline
+T align(T sz) { return alignon(sz, ALIGNON); }
+
+// sometimes we need compile-time constant alignment...
+template <size_t N, size_t K=ALIGNON>
+struct static_align {
+    enum { value=(N+K-1) & -K };
+};
+
 // avoid nasty bus errors...
 template<class T>
 static inline T* aligned_cast(char const* ptr) 
 {
   // bump the pointer up to the next proper alignment (always a power of 2)
-  size_t val = (size_t) ptr;
-  val += __alignof__(T) - 1;
-  val &= -__alignof__(T);
-  return (T*) val;
+  return (T*) alignon(ptr, __alignof__(T));
 }
 
 
@@ -183,9 +210,9 @@ static inline T* aligned_cast(char const* ptr)
 */
 template<int N>
 class allocaN {
-  char _buf[N+__alignof__(double)];
+  char _buf[N+__alignof__(uintptr_t)];
 public:
-  operator void*() { return aligned_cast<double>(_buf); }
+  operator void*() { return aligned_cast<uintptr_t>(_buf); }
   // no destructor because we don't know what's going on...
 };
 
