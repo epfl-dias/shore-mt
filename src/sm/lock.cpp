@@ -78,6 +78,7 @@ template class w_list_t<XctWaitsForLockElem>;
 template class w_list_i<XctWaitsForLockElem>;
 #endif
 
+w_hashing::uhash lockid_t::lockhashfunc;
 
 lock_m::lock_m(int sz)
 {

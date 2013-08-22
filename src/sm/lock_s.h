@@ -57,6 +57,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /*  -- do not edit anything above this line --   </std-header>*/
 
+#include <w_hashing.h>
+
 #ifdef __GNUG__
 #pragma interface
 #endif
@@ -313,7 +315,8 @@ public:
     void              zero();
 
 private:
-
+    static w_hashing::uhash lockhashfunc;
+    
     //
     // lspace -- contains enum for type of lockid_t
     //

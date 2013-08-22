@@ -655,10 +655,6 @@ lockid_t::operator!=(const lockid_t& lid) const
  * This hash function is used for lock caching.
  */
 
-
-#include <w_hashing.h>
-
-static w_hashing::uhash lockhashfunc;
 inline uint4_t
 lockid_t::hash() const
 {
