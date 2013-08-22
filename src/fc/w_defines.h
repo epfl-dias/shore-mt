@@ -124,6 +124,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 #include <unistd.h>
 
+#include <inttypes.h>
+
 /* the following cannot be "verbatim" included in shore-config.def,
  * unfortunately. The  #undef ARCH_LP64 gets mangled
  * by autoconf.
