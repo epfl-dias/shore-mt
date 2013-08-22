@@ -101,7 +101,6 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #endif
 
 #include "sthread.h"
-#include "rand48.h"
 #include "sthread_stats.h"
 #include "stcore_pthread.h"
 
@@ -115,20 +114,6 @@ template class w_list_i<sthread_t, queue_based_lock_t>;
 template class w_descend_list_t<sthread_t, queue_based_lock_t, sthread_t::priority_t>;
 template class w_keyed_list_t<sthread_t, queue_based_lock_t, sthread_t::priority_t>;
 #endif
-
-/* thread-local random number generator -- see rand48.h  */
-
-/**\var static __thread rand48 tls_rng
- * \brief A 48-bit pseudo-random number generator
- * \ingroup TLS
- * \details
- * Thread-safety is achieved by having one per thread.
- */
-static __thread rand48 tls_rng = RAND48_INITIALIZER;
-
-int sthread_t::rand() { return tls_rng.rand(); }
-double sthread_t::drand() { return tls_rng.drand(); }
-int sthread_t::randn(int max) { return tls_rng.randn(max); }
 
 class sthread_stats SthreadStats;
 
@@ -537,6 +522,17 @@ w_rc_t    sthread_t::fork()
 }
 
 
+struct __rng_init {
+    typedef uint32_t array[w_rand::R];
+    array _w;
+    
+    __rng_init() {
+        for (int i=0; i < w_rand::R; i++)
+            _w[i] = ::rand();
+    }
+    array &get() { return _w; }
+};
+
 /*
  *  sthread_t::sthread_t(priority, name)
  *
@@ -558,7 +554,8 @@ sthread_t::sthread_t(priority_t        pr,
   _unblock_flag(false),
   _core(0),
   _status(t_virgin),
-  _priority(pr)
+  _priority(pr),
+  _rng(__rng_init().get())
 {
     if(!_start_terminate_lock || !_start_cond )
         W_FATAL(fcOUTOFMEMORY);
@@ -803,25 +800,6 @@ void sthread_t::_start()
        in run() ... this is mostly useless if that happens */
     purify_name_thread(name());
 #endif
-
-    { 
-        // thread checker complains about this not being reentrant
-        // so we'll protect it with a mutex.
-        // We could use reentrant rand_r but then we need to seed it.
-        // and the whole point here is to use rand() to seed each thread
-        // differently.
-        // to protect non-reentrant rand()
-        static queue_based_lock_t rand_mutex;
-
-        long seed1, seed2;
-        {
-            CRITICAL_SECTION(cs, rand_mutex);
-            seed1 = ::rand();
-            seed2 = ::rand();
-        }
-        tls_rng.seed( (seed1 << 24) ^ seed2);
-    }
-     
     
     {
         /* do not save sigmask */

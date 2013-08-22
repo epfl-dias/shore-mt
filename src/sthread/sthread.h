@@ -93,6 +93,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 #include "gethrtime.h"
 #include <vtable.h>
 #include <w_list.h>
+#include "w_rand.h"
 
 // this #include reflects the fact that sthreads is now just a pthreads wrapper
 #include <pthread.h>
@@ -836,11 +837,21 @@ public:
     // NOTE: this returns a POINTER
     static sthread_t*    me() { return me_lval(); }
                          // for debugging:
-    pthread_t            myself(); // pthread_t associated with this 
-    static int           rand(); // returns an int in [0, 2**31)
-    static double        drand(); // returns a double in [0.0, 1)
-    static int           randn(int max); // returns an int in [0, max)
+    pthread_t            myself(); // pthread_t associated with this
+    static w_rand        *tls_rng() { return &me()->_rng; }
+    w_rand               *rng() { return &_rng; }
 
+    static unsigned int  rand() { return tls_rng()->rand(); }
+    static double        drand() {return tls_rng()->drand(); }
+    static unsigned int  randn(unsigned int max) {
+        return tls_rng()->randn(max);
+    }
+    
+    // return an int in [lo, hi]
+    static unsigned int  randn(unsigned int lo, unsigned int hi) {
+        return tls_rng()->randn(lo, hi);
+    }
+    
     /* XXX  sleep, fork, and wait exit overlap the unix version. */
 
     // sleep for timeout milliseconds
@@ -908,7 +919,10 @@ private:
     w_link_t                    _link;        // protected by _wait_lock
 
     w_link_t                    _class_link;    // used in _class_list,
-	// protected by _class_list_lock
+
+    w_rand                      _rng;
+    
+    // protected by _class_list_lock
     static sthread_list_t* _class_list;
 
 #ifdef LOCKHACK

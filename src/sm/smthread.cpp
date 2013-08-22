@@ -359,7 +359,7 @@ bool smthread_t::_try_initialize_fingerprint()
 
     for( int i=0; i < FINGER_BITS; i++) {
     retry:
-        int rval = me()->randn(atomic_thread_map_t::BITS);
+        int rval = rng()->randn(atomic_thread_map_t::BITS);
         for(int j=0; j < i; j++) {
             if(rval == _fingerprint[j])
                 goto retry;

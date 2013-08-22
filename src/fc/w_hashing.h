@@ -77,7 +77,8 @@ private:
     static const int bitshift= 16;
     static u64 init() 
     {
-        return ((u64) sthread_t::rand() << 32) | sthread_t::rand(); 
+        // don't use sthread_t::rand because we're called from static_init
+        return ((u64) ::rand() << 32) | ::rand(); 
     }
 public:
     /// Initializes with two random numbers.
