@@ -48,6 +48,7 @@ include_HEADERS = \
 libfc_a_SOURCES      = \
         rand48.cpp \
         block_alloc.cpp \
+	w_temp_alloc.cpp \
 	cpu_info.cpp fc-noinline.cpp \
         dynarray.cpp \
         mem_block.cpp \
