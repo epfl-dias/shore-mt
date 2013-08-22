@@ -7,7 +7,7 @@ AC_CONFIG_HEADERS([config/shore-config.h:config/shore-config-h.in])
 AC_CONFIG_SRCDIR([config/shore.def])
 AC_COPYRIGHT(COPYRIGHT-NOTICE)
 AC_CONFIG_AUX_DIR(config)
-AC_CONFIG_MACRO_DIRS([m4])
+AC_CONFIG_MACRO_DIR([m4])
 
 # clobber the annoying '-g -O2' automake likes to insert
 CXXFLAGS=
