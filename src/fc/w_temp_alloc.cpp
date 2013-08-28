@@ -26,12 +26,6 @@
 #include <pthread.h>
 #include <cstdio>
 #include <cassert>
-#include <cstdlib>
-#include <cstring>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <memory>
-#include <inttypes.h>
 
 #if !HAVE_DECL_MAP_ANONYMOUS
 #if HAVE_DECL_MAP_ANON
@@ -53,63 +47,46 @@
 #define SPLOG(fmt, ...)
 #endif
 
-struct w_temp_pool {
-    char *buf;
-    size_t bufsz;
-    size_t end;
-    size_t hiwater;
-
-    void init();
-    void fini();
-    w_temp_alloc::ptr alloc(size_t sz);
-    void grow_buf();
+struct sentinel_pool : w_temp_alloc::pool {
+    virtual w_temp_alloc::ptr alloc(size_t bytes);
 };
 
-static __thread w_temp_pool tpool;
+static sentinel_pool _sentinel;
+static __thread w_temp_alloc::pool *tpool = &_sentinel;
+
 static pthread_key_t pool_key;
 static pthread_once_t pool_init_once = PTHREAD_ONCE_INIT;
-    
-static size_t system_pagesz;
-static size_t pool_buf_bound;
 
 
-w_temp_alloc::ptr w_temp_alloc::alloc(size_t sz) { return tpool.alloc(sz); }
+w_temp_alloc::ptr w_temp_alloc::alloc(size_t sz) { return tpool->alloc(sz); }
 
 w_temp_alloc::mark::mark()
-    : end(tpool.end)
+    : end(tpool->end)
 {
 }
 
 w_temp_alloc::mark::~mark() {
-    if (tpool.end > tpool.hiwater)
-        tpool.hiwater = tpool.end;
+    if (tpool->end > tpool->hiwater)
+        tpool->hiwater = tpool->end;
     
-    tpool.end = end;
+    tpool->end = end;
 }
+
+static void pool_fini(w_temp_alloc::pool *p);
 
 extern "C" {
     // pthread_key destructor
     static void w_temp_alloc_pthread_exit(void* arg __attribute__((unused)) ) {
         assert (arg == &tpool);
-        tpool.fini();
+        pool_fini(tpool);
     }
 
     // atexit callback
     static void w_temp_alloc_atexit() {
-        tpool.fini();
+        pool_fini(tpool);
     }
             
     static void w_temp_alloc_init() {
-        long rval = sysconf(_SC_PAGESIZE);
-        if (rval < 0) {
-            system_pagesz = 4096;
-            fprintf(stderr,
-                    "WARNING: Unable to determine the page size on this system.\n"
-                    "-> Defaulting to %zd\n", system_pagesz);
-        }
-        system_pagesz = rval;
-        pool_buf_bound = alignon(SQL_POOL_MMAP_LIMIT, system_pagesz);
-        
         if (pthread_key_create(&pool_key, &w_temp_alloc_pthread_exit)) {
             fprintf(stderr,
                     "WARNING: Unable to register destructors for thread-local pool allocator\n"
@@ -119,66 +96,65 @@ extern "C" {
     }
 }
 
-void w_temp_pool::init() {
+w_temp_alloc::ptr sentinel_pool::alloc(size_t sz) {
     // man page says failure is always due to programmer error
     if (pthread_once(&pool_init_once, &w_temp_alloc_init))
         throw std::bad_alloc();
 
+    tpool = new w_temp_alloc::dynarray_pool(SQL_POOL_MMAP_LIMIT);
+
     // register it so the thread destructor is called
-    pthread_setspecific(pool_key, this);
-    if (pthread_getspecific(pool_key) != this)
+    pthread_setspecific(pool_key, tpool);
+    if (pthread_getspecific(pool_key) != tpool)
         fprintf(stderr,
                 "WARNING: unable to register destructor for w_temp_pool of tid=%zx!\n"
                 "-> thread-local memory will not be reclaimed until process exit\n",
                 (uintptr_t) pthread_self());
         
-    int flags = MAP_PRIVATE|MAP_ANONYMOUS;
-    buf = (char*) mmap(0, pool_buf_bound, PROT_NONE, flags, -1, 0);
-    if (buf == MAP_FAILED)
-        throw std::bad_alloc();
-
+    return tpool->alloc(sz);
 }
 
-void w_temp_pool::fini() {
-    if (not buf)
-        return; // never used in this thread
-        
-    if (end > hiwater)
-        hiwater = end;
+void pool_fini(w_temp_alloc::pool *p) {
+    assert (p == tpool);
+    assert (p != &_sentinel);
+    
+    if (p->end > p->hiwater)
+        p->hiwater = p->end;
         
     SPLOG("Thread %zd w_temp_alloc peaked at %zd bytes\n",
-          (size_t)pthread_self(), hiwater);
-        
-    munmap(buf, pool_buf_bound);
-    bufsz = end = hiwater = 0;
-    buf = 0;
+          (size_t)pthread_self(), p->hiwater);
+
+    delete p;
 }
 
-void w_temp_pool::grow_buf() {
-    size_t newsz = 3*bufsz/2;
-    if (not buf) {
-        init();
-        newsz = 1024;
-    }
-    if (bufsz == pool_buf_bound)
-        throw std::bad_alloc();
-    
-    newsz = alignon(newsz, system_pagesz);
-    if (newsz > pool_buf_bound)
-        newsz = pool_buf_bound;
-
-    if (mprotect(buf+bufsz, newsz-bufsz, PROT_READ|PROT_WRITE))
-        throw std::bad_alloc();
-    
-    bufsz = newsz;
-}
-
-w_temp_alloc::ptr w_temp_pool::alloc(size_t sz) {
+w_temp_alloc::ptr w_temp_alloc::fixed_pool::alloc(size_t sz) {
     size_t nbytes = align(sz);
     if (bufsz - end < nbytes)
-        grow_buf();
-            
-    uint32_t rval = end;
+        throw std::bad_alloc();
+    
+    uint32_t offset = end;
     end += nbytes;
-    return (w_temp_alloc::ptr) { sz, buf + rval };
+    ptr rval = {sz, buf + offset};
+    return rval;
+}
+
+w_temp_alloc::ptr w_temp_alloc::dynarray_pool::alloc(size_t sz) {
+    size_t nbytes = align(sz);
+    if (data.size() - end < nbytes and data.ensure_capacity(end+nbytes))
+        throw std::bad_alloc();
+    
+    uint32_t offset = end;
+    end += nbytes;
+    ptr rval = {sz, data + offset};
+    return rval;
+}
+
+w_temp_alloc::pool_swap::pool_swap(w_temp_alloc::pool *p)
+    : _old_pool(p)
+{
+    std::swap(tpool, _old_pool);
+}
+
+w_temp_alloc::pool_swap::~pool_swap() {
+    std::swap(tpool, _old_pool);
 }

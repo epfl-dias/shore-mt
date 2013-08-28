@@ -25,6 +25,7 @@
 #define __W_TEMP_ALLOC_H
 
 #include "w_defines.h"
+#include "dynarray.h"
 
 #include <utility>
 #include <cstring>
@@ -198,6 +199,60 @@ struct w_temp_alloc {
 
         void destroy(pointer p) {
             p->~value_type();
+        }
+    };
+
+    /* A pool of memory that can be carved up by this allocator
+     */
+    struct pool {
+        size_t end;
+        size_t hiwater;
+
+        pool() : end(0), hiwater(0) { }
+
+        virtual ptr alloc(size_t sz)=0;
+        virtual ~pool() { }
+    };
+
+    struct fixed_pool : pool {
+        char *buf;
+        size_t bufsz;
+        fixed_pool(char *b, size_t bsz)
+            : buf(b), bufsz(bsz)
+        {
+        }
+        virtual ptr alloc(size_t nbytes);
+    };
+
+    struct dynarray_pool : pool {
+        dynarray data;
+        dynarray_pool(size_t max_size) {
+            data.init(max_size, ALIGNON);
+        }
+        virtual ptr alloc(size_t nbytes);
+        virtual ~dynarray_pool() {
+            data.fini();
+        }
+    };
+    
+    /* Temporarily replace the calling thread's pool with a new one.
+
+       Useful when a different (usually longer) lifetime is needed for
+       an object.
+     */
+    struct pool_swap {
+        explicit pool_swap(pool *replacement);
+        ~pool_swap();
+    private:
+        pool *_old_pool;
+    };
+
+    struct fixed_pool_swap {
+        fixed_pool _pool;
+        pool_swap _ps;
+        explicit fixed_pool_swap(char *buf, size_t bufsz)
+            : _pool(buf, bufsz), _ps(&_pool)
+        {
         }
     };
 
