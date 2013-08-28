@@ -523,14 +523,15 @@ w_rc_t    sthread_t::fork()
 
 
 struct __rng_init {
-    typedef uint32_t array[w_rand::R];
-    array _w;
-    
-    __rng_init() {
-        for (int i=0; i < w_rand::R; i++)
-            _w[i] = ::rand();
-    }
-    array &get() { return _w; }
+  typedef uint32_t array[w_rand::R];
+  typedef uint32_t const const_array[w_rand::R];
+  array _w;
+  
+  __rng_init() {
+    for (int i=0; i < w_rand::R; i++)
+      _w[i] = ::rand();
+  }
+  const_array &get() { return _w; }
 };
 
 /*

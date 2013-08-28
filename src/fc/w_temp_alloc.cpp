@@ -180,5 +180,6 @@ w_temp_alloc::ptr w_temp_pool::alloc(size_t sz) {
             
     uint32_t rval = end;
     end += nbytes;
-    return (w_temp_alloc::ptr) { sz, buf + rval };
+    w_temp_alloc::ptr result = { sz, buf + rval };
+    return result;
 }

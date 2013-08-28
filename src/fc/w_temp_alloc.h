@@ -26,7 +26,7 @@
 
 #include "w_defines.h"
 
-#include <utility>
+#include <algorithm>
 #include <cstring>
 
 /* A thread-local region allocator, designed for objects with a
@@ -86,8 +86,14 @@ struct w_temp_alloc {
         bool is_valid() const { return _buf; }
         size_t size() const { return _bufsz; }
     
-        _decay decay() { return (_decay) { _buf }; }
-        _decay_const decay() const { return (_decay_const) { _buf }; }
+        _decay decay() {
+	    _decay result = { _buf };
+	    return result;
+	}
+        _decay_const decay() const {
+	    _decay_const result = { _buf };
+	    return result;
+	}
     
         // change the (perceived) size of this buf
         void resize(size_t newsz) {
