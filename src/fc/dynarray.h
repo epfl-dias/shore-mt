@@ -100,6 +100,9 @@ struct dynarray {
      */
     int ensure_capacity(size_t min_size);
 
+    /* UNSAFE, but useful for debugging */
+    int truncate(size_t new_size=0);
+
     /* The currently available size. Assuming sufficient memory is
        available the array can grow to /capacity()/ bytes -- using
        calls to /resize()/.

@@ -168,6 +168,18 @@ int dynarray::fini() {
     return 0;
 }
 
+int dynarray::truncate(size_t new_size) {
+    new_size = alignon(new_size, MM_PAGE_SIZE);
+    if (_size < new_size)
+        return EINVAL;
+
+    if (mprotect(_base+new_size, _size-new_size, PROT_NONE))
+        return errno;
+
+    _size = new_size;
+    return 0;
+}
+
 int dynarray::resize(size_t new_size) {
     // round up to the nearest page boundary
     new_size = alignon(new_size, MM_PAGE_SIZE);
