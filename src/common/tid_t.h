@@ -81,7 +81,7 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
  */
 class tid_t {
 public:
-    typedef w_base_t::uint8_t datum_t;
+    typedef uint64_t datum_t;
     enum { hwm = max_uint4 };
 
     tid_t() : _data(0) { }

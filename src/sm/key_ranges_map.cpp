@@ -411,8 +411,8 @@ w_rc_t key_ranges_map::getPartitionByKey(const Key& key, lpid_t& pid)
  *
  ******************************************************************/
 
-w_rc_t key_ranges_map::getPartitions(const Key& key1, bool key1Included,
-                                     const Key& key2, bool key2Included,
+w_rc_t key_ranges_map::getPartitions(const Key& key1, bool /* key1Included */,
+                                     const Key& key2, bool /* key2Included */,
                                      vector<lpid_t>& pidVec) 
 {
     w_rc_t r = RCOK;

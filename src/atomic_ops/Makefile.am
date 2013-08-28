@@ -4,7 +4,7 @@ include $(top_srcdir)/Makefile.generic
 
 if HAVE_GCC_ATOMIC_BUILTINS
 OSUBDIRS =
-OSOURCES =
+OSOURCES = empty.cpp
 OHEADERS = atomic_ops_builtin.h
 else
 OSUBDIRS = asm_linkage atomic_ops
@@ -23,6 +23,8 @@ include_HEADERS = atomic_ops.h $(OHEADERS)
 libatomic_ops_a_SOURCES      = $(OSOURCES)
 
 atomic_ops.o:  links
+
+emtpy.o:
 
 links: 
 	chmod +x ./makelinks.sh

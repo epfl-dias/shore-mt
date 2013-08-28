@@ -279,7 +279,7 @@ log_core::scavenge(lsn_t min_rec_lsn, lsn_t min_xct_lsn)
         fileoff_t max_chkpt = max_chkpt_size();
         while(!verify_chkpt_reservation() && reclaimed > 0) {
             long skimmed = std::min(max_chkpt, reclaimed);
-            atomic_add_long((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
+            atomic_add_64((uint64_t*)&_space_rsvd_for_chkpt, skimmed);
             reclaimed -= skimmed;
         }
         release_space(reclaimed);
@@ -958,9 +958,10 @@ log_core::shutdown()
 }
 
 // used to access the _waiting and _dummy nodes together
-struct hacked_qnode {
+struct hacked_qnode 
+{
     mcs_lock::qnode* _next;
-    unsigned long _state;
+    uint64_t _state;
 };
 
 static union {
@@ -2303,7 +2304,9 @@ bool log_core::_wait_for_expose(insert_info* info, bool attempt_abort) {
 	if(attempt_abort && info->pred2 && _slot_array->indexof(info) % 32) {
 	    unsigned long waiting = WAITING.hq._state;
 	    membar_exit();
-	    if(info->me2h._state == waiting && waiting == atomic_cas_64(&info->me2h._state, waiting, ABORT_ME.hq._state)) {
+	    if(info->me2h._state == waiting && 
+               waiting == atomic_cas_64(&info->me2h._state, waiting, ABORT_ME.hq._state)) 
+            {
 		//fprintf(stderr, "slot %d bailed from queue\n", info - _slot_array);
 		return true; // abort succeeded
 	    }

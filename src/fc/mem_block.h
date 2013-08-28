@@ -29,6 +29,9 @@
 #include <cassert>
 #include "w_base.h"
 
+#include <stdint.h>
+
+
 #define NORET
 
 /* NOTE: The classes defined here are non-template helpers for the
@@ -88,7 +91,7 @@ struct block_list;
  */
 struct block_bits {
     
-    typedef w_base_t::uint8_t     bitmap; 
+    typedef uint64_t     bitmap; 
 
     enum         { MAX_CHIPS=8*sizeof(bitmap) };
     

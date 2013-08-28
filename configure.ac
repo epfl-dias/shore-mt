@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT(Shore-Storage-Manager, 6.0.1, Noone._Sadly-_this_is_unsupported_software.)
+AC_INIT(Shore-Storage-Manager, 7.0.0, Noone._Sadly-_this_is_unsupported_software.)
 AC_CONFIG_HEADERS([config/shore-config.h:config/shore-config-h.in])
 AC_CONFIG_SRCDIR([config/shore.def])
 AC_COPYRIGHT(COPYRIGHT-NOTICE)
