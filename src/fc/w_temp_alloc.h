@@ -259,6 +259,14 @@ struct w_temp_alloc {
     ptr _ptr;
 };
 
+static struct _w_temp_alloc_new {
+} w_temp_alloc_new;
+
+inline
+void *operator new(size_t n, _w_temp_alloc_new &) {
+    return w_temp_alloc(n);
+}
+
 // efficient swap for w_temp_alloc::buf (no copying involved) 
 inline
 void swap(w_temp_alloc::buf &a, w_temp_alloc::buf &b) {
