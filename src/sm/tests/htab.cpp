@@ -38,7 +38,6 @@ typedef unsigned short uint2_t;
 #include "w_getopt.h"
 #include "rand48.h"
 
-rand48  tls_rng  = RAND48_INITIALIZER;
 bool    debug(false);
 bool    Random(false);
 bool    Random_uniq(false);
@@ -277,7 +276,7 @@ void htab_tester::run()
             // the already-created pids and if this pgnum is
             // already there, we have to jettison it and
             // try another.
-            pgnum = tls_rng.randn(_pagebound);
+	  pgnum = rng()->randn(_pagebound);
 
             if(Random_uniq)  {
                 // give it at most _pagebound tries
@@ -288,7 +287,7 @@ void htab_tester::run()
                     // Is it already in use?
                     if(info.status == Zero) break;
                     // yes -> try again
-                    pgnum = tls_rng.randn(_pagebound);
+                    pgnum = rng()->randn(_pagebound);
                 }
                 if(j == 0) {
                     cerr << " Could not create unique random set " << endl;

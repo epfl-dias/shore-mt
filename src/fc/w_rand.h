@@ -27,6 +27,8 @@
 #include <inttypes.h>
 #include <cstddef>
 
+using std::size_t;
+
 /* A uniform pseudorandom RNG that implements the WELL512a algorithm
    [1]. WELL is a family of high-quality (but not crypto-quality!)
    PRNG that is somewhat superior to the Mersenne twister.

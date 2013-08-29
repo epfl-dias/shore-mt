@@ -23,14 +23,14 @@
 */
 #include "w_rand.h"
 
-#include <utility>
+#include <algorithm>
 #include <unistd.h>
 #include <pthread.h>
 
 w_rand::w_rand()
     : _state(0)
 {
-    uint32_t s[] = {
+    uint32_t const s[] = {
         (uint32_t) (uintptr_t) &_state,
         (uint32_t) getpid(),
         (uint32_t) (uintptr_t) pthread_self(),
