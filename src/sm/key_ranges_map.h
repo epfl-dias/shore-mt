@@ -243,9 +243,7 @@ public:
     
     // Returns the list of partitions that cover: 
     // [key1, key2], (key1, key2], [key1, key2), or (key1, key2) ranges
-    w_rc_t getPartitions(const Key& key1, bool key1Included,
-                         const Key& key2, bool key2Included,                         
-                         vector<lpid_t>& pidVec);
+    w_rc_t getPartitions(const Key& key1, const Key& key2, vector<lpid_t>& pidVec);
     // Returns the list of all root ids in partitions
     w_rc_t getAllPartitions(vector<lpid_t>& pidVec);
 
