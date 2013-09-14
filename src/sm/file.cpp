@@ -364,13 +364,6 @@ file_m::_create_rec(
 
     bool         have_page = false;
 
-    //
-    // First time through from append_file_i this isn't true:
-    // if(policy == t_append) {
-        // w_assert3(page.is_fixed());
-    // }
-
-
     { // open scope for hu
         slotid_t        slot = 0;
 
@@ -483,13 +476,6 @@ file_m::_create_mrbt_rec(
         );
 
     bool         have_page = false;
-
-    //
-    // First time through from append_file_i this isn't true:
-    // if(policy == t_append) {
-        // w_assert3(page.is_fixed());
-    // }
-
 
     { // open scope for hu
         slotid_t        slot = 0;
