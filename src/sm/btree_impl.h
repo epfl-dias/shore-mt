@@ -343,15 +343,14 @@ private:
     static rc_t                 _handle_dup_keys(
         btsink_t*                    sink,
         slotid_t&                    slot,
-        file_p*                            prevp,
-        file_p*                            curp,
-        int&                             count,
-        record_t*&                     r,
-        lpid_t&                            pid,
-        int                            nkc,
-            const key_type_s*            kc,
-        bool                            lexify_keys,
-        const bool bIgnoreLatches = false);
+        file_p*                      prevp,
+        file_p*                      curp,
+        int&                         count,
+        record_t*&                   r,
+        lpid_t&                      pid,
+        int                          nkc,
+	const key_type_s*            kc,
+        bool                         lexify_keys);
 
 };
 

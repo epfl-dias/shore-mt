@@ -222,7 +222,7 @@ public:
         concurrency_t                    cc,
         const cvec_t&                    key,
         const cvec_t&                    elem,
-	const bool                        bIgnoreLatches);
+	const bool                       bIgnoreLatches);
     static rc_t                        mr_remove_key(
         const lpid_t&                    root,
         int                              nkc,
@@ -339,7 +339,7 @@ public:
 					     const bool bIgnoreLatches = false);
     static rc_t                        is_empty(const lpid_t& root, bool& ret, const bool bIgnoreLatches = false);
     static rc_t                        purge(const lpid_t& root, bool check_empty, 
-					     bool forward_processing, const bool bIgnoreLatches = false);
+					     bool forward_processing);
     static rc_t                 get_du_statistics(
         const lpid_t&                    root, 
         btree_stats_t&                btree_stats,

@@ -2502,71 +2502,6 @@ public:
      */
     static rc_t            destroy_mr_index(const stid_t& iid); 
 
-    /**\brief Bulk-load a Multi-rooted B+-Tree index from multiple data sources.
-     * \ingroup SSMBULKLD
-     *
-     * @param[in] stid  ID of the index to be loaded.
-     * @param[in] nsrcs  Number of files used for data sources.
-     * @param[in] source  Array of IDs of files used for data sources.
-     * @param[out] stats  Statistics concerning the load activity will be
-     *                     written here.
-     * @param[in] sort_duplicates  If "true" the bulk-load will sort
-     * duplicates by value.
-     * @param[in] lexify_keys  If "true" the keys are assumed not to
-     * be in 
-     * lexicographic format, and the bulk-load will reformat the key before
-     * storing it in the index,
-     * otherwise they are assumed already to be in lexicographic format.
-     */
-    static rc_t            bulkld_mr_index(
-        const stid_t&             stid, 
-        int                       nsrcs,
-        const stid_t*             source,
-        sm_du_stats_t&            stats,
-        bool                      sort_duplicates = true,
-        bool                      lexify_keys = true,
-	const bool                bIgnoreLatches = false
-    );
-
-    /**\brief Bulk-load a  Multi-rooted B+-Tree index from a single data source.
-     * \ingroup SSMBULKLD
-     *
-     * @param[in] stid  ID of the index to be loaded.
-     * @param[in] source  IDs of file used for data source.
-     * @param[out] stats  Statistics concerning the load activity will be
-     *                     written here.
-     * @param[in] sort_duplicates  If "true" the bulk-load will sort
-     * duplicates by value.
-     * @param[in] lexify_keys  If "true" the keys are assumed not to
-     * be in 
-     * lexicographic format, and the bulk-load will reformat the key before
-     * storing it in the index,
-     * otherwise they are assumed already to be in lexicographic format.
-     */
-    static rc_t            bulkld_mr_index(
-        const stid_t&             stid, 
-        const stid_t&             source,
-        sm_du_stats_t&            stats,
-        bool                      sort_duplicates = true,
-        bool                      lexify_keys = true,
-	const bool                bIgnoreLatches = false
-    );
-
-    /**\brief Bulk-load a Multi-rooted B+-Tree index from a single data stream.
-     * \ingroup SSMBULKLD
-     *
-     * @param[in] stid  ID of the index to be loaded.
-     * @param[in] sorted_stream  Iterator that serves as the data source.
-     * @param[out] stats  Statistics concerning the load activity will be
-     *                     written here.
-     *
-     * See sort_stream_i.
-     */
-    static rc_t            bulkld_mr_index(
-        const stid_t&             stid, 
-        sort_stream_i&            sorted_stream,
-        sm_du_stats_t&            stats);
-
     /**\cond skip */
     static rc_t            print_mr_index(stid_t stid);
     /**\endcond skip */
@@ -3731,22 +3666,6 @@ private:
     );
 
     static rc_t            _destroy_mr_index(const stid_t& iid); 
-
-    static rc_t            _bulkld_mr_index(
-        const stid_t&         stid,
-        int                   nsrcs,
-        const stid_t*         source,
-        sm_du_stats_t&        stats,
-        bool                  sort_duplicates = true,
-        bool                  lexify_keys = true,
-	const bool            bIgnoreLatches = false
-    );
-
-    static rc_t            _bulkld_mr_index(
-        const stid_t&          stid, 
-        sort_stream_i&         sorted_stream,
-        sm_du_stats_t&         stats
-    );
 
     static rc_t            _print_mr_index(const stid_t &iid);
 
