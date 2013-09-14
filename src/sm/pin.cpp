@@ -322,7 +322,7 @@ rc_t pin_i::update_mrbt_rec(smsize_t start, const vec_t& data,
             DBG(<<"pinned");
             _check_lsn();
         }
-        W_DO_GOTO(rc, _repin(EX, old_value, bIgnoreLocks));
+        W_DO_GOTO(rc, _repin(bIgnoreLatches ? NL : EX, old_value, bIgnoreLocks));
         w_assert3(bIgnoreLatches || _hdr_page().latch_mode() == LATCH_EX);
         w_assert3((_lmode == EX) || bIgnoreLocks); 
 
@@ -687,7 +687,7 @@ rc_t pin_i::_pin(const rid_t& rid, smsize_t start,
         _lmode = lmode;
     } else {
         // we trust the caller and therefore can do this
-        if (_lmode == NL) _lmode = SH;
+        if (latch_mode != LATCH_NL && _lmode == NL) _lmode = SH;
     }
     w_assert3(_lmode > NL); 
 
@@ -769,10 +769,11 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/,
         if (_flags & pin_lg_data_pinned) {
             w_assert3(_flags & pin_separate_data && _data_page().is_fixed());  
         }
-
+	
         // upgrade to an EX latch if all we had before was an SH latch
 
-        if (_hdr_page().latch_mode() != lock_to_latch(_lmode)) {
+        if (_hdr_page().latch_mode() != LATCH_NL &&
+	    _hdr_page().latch_mode() != lock_to_latch(_lmode)) {
             w_assert3(_hdr_page().latch_mode() == LATCH_SH);
             w_assert3(_lmode == EX || _lmode == UD || bIgnoreLocks);
 

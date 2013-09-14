@@ -4588,7 +4588,7 @@ btree_impl::_update(
             /*
              *  Conditionally lock current/next entry.
              */
-            lock_mode_t mode = SH;
+            lock_mode_t mode = EX;
             rc = lm->lock(kvl, mode, t_long, WAIT_IMMEDIATE);
             if (rc.is_error()) {
                 DBG(<<"rc=" << rc);
@@ -4618,7 +4618,7 @@ btree_impl::_update(
                  *  meaning there's no chance of the whole index being
                  *  destroyed in the meantime.
                  */
-		fix_latch = LATCH_SH;
+		fix_latch = LATCH_EX;
 		if(bIgnoreLatches) {
 		    fix_latch = LATCH_NL;
 		}
@@ -4639,8 +4639,15 @@ btree_impl::_update(
             } // acquiring locks
         } // if any locking needed
 
-	// pin: this is the only different part actually, you can have a more clever implementation here
+	// pin: this and EX-latching is the only diff compared to lookup
         if (found) {
+	    lpid_t pid = child->pid();
+	    child->unfix();
+	    fix_latch = LATCH_EX;
+	    if(bIgnoreLatches) {
+		fix_latch = LATCH_NL;
+	    }
+	    W_DO( child->fix(pid, fix_latch) );	    
 	    W_DO( child->overwrite(slot+1, rec.klen()+sizeof(int4_t), new_el) );
         } else {
             // rec will be the next record if !found
