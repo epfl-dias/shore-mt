@@ -342,14 +342,13 @@ public:
      * place to perform the update.
      * @param[in] data A vector containing the data to place in the record
      * at location \a start.
-     * @param[out] old_value deprecated
      * The portion of the record containing the start byte need not
      * be pinned before this is called.
      */
-    rc_t    update_rec(smsize_t start, const vec_t& data, int* old_value = 0,
+    rc_t    update_rec(smsize_t start, const vec_t& data,
                        const bool bIgnoreLocks = false);
 
-    rc_t    update_mrbt_rec(smsize_t start, const vec_t& data, int* old_value = 0,
+    rc_t    update_mrbt_rec(smsize_t start, const vec_t& data,
 			    const bool bIgnoreLocks = false,
 			    const bool bIgnoreLatches = false);
 
@@ -419,8 +418,9 @@ private:
     rc_t        _pin(const rid_t &rid, smsize_t start, lock_mode_t m,
                      const bool bIgnoreLatches = false);
 
-    rc_t        _repin(lock_mode_t lmode, int* old_value = 0,
-                       const bool bIgnoreLocks = false);
+    rc_t        _repin(lock_mode_t lmode,
+                       const bool bIgnoreLocks = false,
+		       const bool bIgnoreLatches = false);
 
     file_p*     _get_hdr_page_no_lsn_check() const {
                         return pinned() ? &_hdr_page() : 0;}
@@ -484,28 +484,28 @@ private:
     // disable
     NORET        pin_i(const pin_i&);
     NORET        pin_i& operator=(const pin_i&);
-
+    
 public:
-	/**\cond skip */
-	// Put inside pin_i only for the purpose of namescoping.
-	static latch_mode_t lock_to_latch(lock_mode_t m);
-	/**\endcond skip */
+    /**\cond skip */
+    // Put inside pin_i only for the purpose of namescoping.
+    static latch_mode_t lock_to_latch(lock_mode_t m, bool bIgnoreLatches = false);
+    /**\endcond skip */
 };
 
 /**\cond skip */
-inline latch_mode_t pin_i::lock_to_latch(lock_mode_t m) {
-	switch(m) {
-	case SH:
-	case UD:
-	case NL:
-		return LATCH_SH;
-	case EX:
-		return LATCH_EX;
-
-	default:
-		W_FATAL(smlevel_0::eNOTIMPLEMENTED);
-	}
-	return LATCH_NL; // never gets here
+inline latch_mode_t pin_i::lock_to_latch(lock_mode_t m, bool bIgnoreLatches) {
+    switch(m) {
+    case SH:
+    case UD:
+    case NL:
+	return bIgnoreLatches ? LATCH_NLS : LATCH_SH;
+    case EX:
+	return bIgnoreLatches ? LATCH_NLX : LATCH_EX;
+	
+    default:
+	W_FATAL(smlevel_0::eNOTIMPLEMENTED);
+    }
+    return LATCH_NL; // never gets here
 };
 /**\endcond skip */
 

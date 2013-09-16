@@ -70,7 +70,8 @@ Rome Research Laboratory Contract No. F30602-97-2-0247.
 
 /**\enum latch_mode_t
  */
-enum latch_mode_t { LATCH_NL = 0, LATCH_SH = 1, LATCH_EX = 2 };
+enum latch_mode_t { LATCH_NL = 0, LATCH_SH = 1, LATCH_EX = 2,
+		    LATCH_NLS = 4, LATCH_NLX = 8 }; // pin: for plp
 
 
 
@@ -290,12 +291,20 @@ latch_t::num_holders() const
 inline latch_mode_t
 latch_t::mode() const
 {
-    switch(_lock.mode()) {
-    case mcs_rwlock::NONE: return LATCH_NL;
-    case mcs_rwlock::WRITER: return LATCH_EX;
-    case mcs_rwlock::READER: return LATCH_SH;
-    default: w_assert1(0); // shouldn't ever happen
-             return LATCH_SH; // keep compiler happy
+    if(_lock.is_plp()) {
+	if(_lock.is_reader()) {
+	    return LATCH_NLS;
+	} else {
+	    return LATCH_NLX;
+	}
+    } else {
+	switch(_lock.mode()) {
+	case mcs_rwlock::NONE: return LATCH_NL;
+	case mcs_rwlock::WRITER: return LATCH_EX;
+	case mcs_rwlock::READER: return LATCH_SH;
+	default: w_assert1(0); // shouldn't ever happen
+	    return LATCH_SH; // keep compiler happy
+	}
     }
 }
 

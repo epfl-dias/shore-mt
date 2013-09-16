@@ -411,11 +411,17 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
     DBGTHRD( << "want to acquire in mode " 
             << W_ENUM(new_mode) << " " << *this
             );
-    //w_assert2(new_mode != LATCH_NL); // mrbt
+    w_assert2(new_mode != LATCH_NL);
     w_assert2(me);
 
-    if(new_mode == LATCH_NL) {
-	// do nothing
+    // pin: special case for plp
+    if(new_mode == LATCH_NLS || new_mode == LATCH_NLX) {
+	if(me->_latch != this) {
+	    me->_latch = this;
+	    me->_count = 1;
+	}
+	_lock.set_plp(new_mode == LATCH_NLS);
+	me->_mode = new_mode;
 	return (RCOK);
     }
 		
@@ -570,7 +576,7 @@ w_rc_t latch_t::_acquire(latch_mode_t new_mode,
     
     DBGTHRD(<< "acquired " << *this );
 
-
+    
     return RCOK;  
 };
 
@@ -585,6 +591,14 @@ latch_t::_release(latch_holder_t* me)
     w_assert2(me->_mode != LATCH_NL);
     w_assert2(me->_count > 0);
 
+    // pin: special case for plp
+    if(me->_mode == LATCH_NLS || me->_mode == LATCH_NLX) {
+	me->_mode = LATCH_NL;
+	me->_count = 0;
+	_lock.unset_plp();
+	return;
+    }
+    
     atomic_dec_uint(&_total_count); 
     if(--me->_count) {
         DBGTHRD(<< "was held multiple times -- still " << me->_count << " " << *this );
@@ -706,7 +720,7 @@ latch_t::held_by_me() const
 bool
 latch_t::is_mine() const {
     holder_search me(this);
-    return me.value()? (me->_mode == LATCH_EX) : false;
+    return me.value()? (me->_mode == LATCH_EX || me->_mode == LATCH_NLX) : false;
 }
 
 // NOTE: this is not safe, but it can be used by unit tests

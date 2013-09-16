@@ -93,10 +93,8 @@ btree_p::distribute(
 {
     w_assert3(is_fixed());
     w_assert3(rsib.is_fixed());
-    if(!bIgnoreLatches) {
-	w_assert3(latch_mode() == LATCH_EX);
-	w_assert3(rsib.latch_mode() == LATCH_EX);
-    }
+    w_assert3(latch_mode() == LATCH_EX || latch_mode() == LATCH_NLX);
+    w_assert3(rsib.latch_mode() == LATCH_EX || rsib.latch_mode() == LATCH_NLX);
     w_assert1(snum >= 0 && snum <= nrecs());
     /*
      *  Assume we have already inserted the tuple into slot snum
@@ -188,15 +186,11 @@ btree_p::_unlink(btree_p &rsib, const bool bIgnoreLatches)
     << " nrecs " << nrecs()
     );
     w_assert3(is_fixed());
-    if(!bIgnoreLatches) {
-	w_assert3(latch_mode() == LATCH_EX);
-    }
+    w_assert3(latch_mode() == LATCH_EX || latch_mode() == LATCH_NLX);
     if(rsib.is_fixed()) {
         // might not have a right sibling
         w_assert3(rsib.is_fixed());
-	if(!bIgnoreLatches) {
-	    w_assert3(rsib.latch_mode() == LATCH_EX);
-	}
+	w_assert3(rsib.latch_mode() == LATCH_EX || rsib.latch_mode() == LATCH_NLX);
     }
     lpid_t  lsib_pid = pid(); // get vol, store
     lsib_pid.page = prev();
@@ -222,10 +216,7 @@ btree_p::_unlink(btree_p &rsib, const bool bIgnoreLatches)
         btree_p lsib;
         if(lsib_pid.page) {
             INC_TSTAT(bt_links);
-	    latch_mode_t mode = LATCH_EX;
-	    if(bIgnoreLatches) {
-		mode = LATCH_NL;
-	    }
+	    latch_mode_t mode = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
             W_DO( lsib.fix(lsib_pid, mode) ); 
             SSMTEST("btree.unlink.3");
             W_DO( lsib.link_up(lsib.prev(), rsib_page) );
@@ -290,10 +281,7 @@ btree_p::unlink_and_propagate(
 
             w_assert3( ! is_fixed());
 
-	    latch_mode_t mode = LATCH_EX;
-	    if(bIgnoreLatches) {
-		mode = LATCH_NL;
-	    }
+	    latch_mode_t mode = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
             X_DO(parent.fix(parent_pid, mode), anchor);
             X_DO(parent.search(key, elem, found_key, total_match, slot), anchor)
 
@@ -307,8 +295,8 @@ btree_p::unlink_and_propagate(
                 w_assert3(parent.child(slot) == child_pid.page);
             }
 
-            X_DO(btree_impl::_propagate(root_pid, key, elem, 
-					child_pid, lev, true, bIgnoreLatches), anchor);
+            X_DO(btree_impl::_propagate(root_pid, key, elem, child_pid, lev, true,
+					bIgnoreLatches), anchor);
             parent.unfix();
         }
         SSMTEST("btree.propagate.d.1");

@@ -785,8 +785,8 @@ bf_core_m::grab(
         cs.exit(); // PROTOCOL
     }
     w_assert2(
-        found? (ret->latch.mode() == mode) : (ret->latch.mode() == LATCH_EX)
-    ); 
+	      found ? (ret->latch.mode() == mode) : (ret->latch.mode() == LATCH_EX || ret->latch.mode() == LATCH_NLX)
+	      ); 
 
     return RCOK;
 }
@@ -905,7 +905,7 @@ bf_core_m::find(
     w_assert2((pid == p->frame()->pid) && (pid == p->pid()));
     w_assert1(p->latch.mode() >= mode); 
     w_assert1(p->latch.held_by_me() >= 1); // since mode is not NL
-    if(mode == LATCH_EX) {
+    if(mode == LATCH_EX || mode == LATCH_NLX) {
         w_assert1(p->latch.is_mine()); 
     }
     return RCOK;
@@ -932,13 +932,11 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
      */
     w_assert2(p - _buftab >= 0 && p - _buftab < _num_bufs);
     w_assert2(p->pin_cnt() > 0);
-
-
+    
+    
     // mode is LATCH_NL in error case
-    //w_assert2( (mode != LATCH_NL) || error_occurred); // mrbt
-    w_assert2( !error_occurred || (mode == LATCH_NL &&  error_occurred)); // mrbt
-    //w_assert2(p->latch.is_mine()); // mrbt
-    w_assert2(p->latch.is_mine() || (!error_occurred && mode == LATCH_NL)); // mrbt
+    w_assert2(!error_occurred || (mode == LATCH_NL &&  error_occurred));
+    w_assert2(p->latch.is_mine() || (!error_occurred && mode == LATCH_NL));
 
     w_assert9(!p->old_pid_valid());
 
@@ -985,28 +983,25 @@ bf_core_m::publish( bfcb_t* p, latch_mode_t mode, bool error_occurred)
         // downgrade the latch to whatever mode we actually wanted
         if(mode == LATCH_SH)  {
             p->latch.downgrade(); // PROTOCOL
-        }
-        else if(mode == LATCH_EX) {
+        } else if(mode == LATCH_EX) {
             // do nothing
-        }
-        else if(mode == LATCH_NL)  {
+        } else if(mode == LATCH_NL) {
             // is this really allowed?
             // Do we need to unpin the frame here?
             // The assertion will tell us if this ever happens.
-            //w_assert0(false); // mrbt
-
+            w_assert0(false);
+	    p->latch.latch_release(); // PROTOCOL
+        } else if(mode == LATCH_NLX || mode == LATCH_NLS) { // pin: for plp
 #if SM_PLP_TRACING
-        if (_ptrace_level>=PLP_TRACE_PAGE) {
-            gettimeofday(&my_time, NULL);
-            CRITICAL_SECTION(plpcs,_ptrace_lock);
-            _ptrace_out << p->pid() << " " << pthread_self() << " " << p->latch.mode() << " "
-                        << my_time.tv_sec << "." << my_time.tv_usec << endl;
-            plpcs.exit();
-        }
-#endif
-
-	//           p->latch.latch_release(); // PROTOCOL // mrbt
-
+	    if (_ptrace_level>=PLP_TRACE_PAGE) {
+		gettimeofday(&my_time, NULL);
+		CRITICAL_SECTION(plpcs,_ptrace_lock);
+		_ptrace_out << p->pid() << " " << pthread_self() << " "
+			    << p->latch.mode() << " "
+			    << my_time.tv_sec << "." << my_time.tv_usec << endl;
+		plpcs.exit();
+	    }
+#endif	   	
         }
     }
 }

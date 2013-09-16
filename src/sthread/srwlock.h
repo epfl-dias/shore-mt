@@ -109,9 +109,12 @@ class mcs_rwlock : protected queue_based_lock_t
      */
     unsigned int volatile _holders; // 2*readers + writer
 
+    bool _is_plp;
+    bool _is_reader;
+
 public:
     enum rwmode_t { NONE=0, WRITER=0x1, READER=0x2 };
-    mcs_rwlock() : _holders(0) { }
+    mcs_rwlock() : _holders(0), _is_plp(false), _is_reader(false) { }
     ~mcs_rwlock() {}
 
     /// Return the mode in which this lock is held by anyone.
@@ -119,17 +122,23 @@ public:
         return (holders == WRITER)? WRITER : (holders > 0) ? READER : NONE; }
 
     /// True if locked in any mode.
-    bool is_locked() const { return (*&_holders)==0?false:true; }
+    bool is_locked() const { return (!_is_plp && (*&_holders)==0)?false:true; }
 
     /// 1 if held in write mode, else it's the number of readers
     int num_holders() const { int holders = *&_holders; 
-                              return (holders == WRITER)? 1 : holders/2; }
+	return (holders == WRITER || _is_plp) ? 1 : holders/2; }
 
     /// True iff has one or more readers.
-    bool has_reader() const { return *&_holders & ~WRITER; }
+    bool has_reader() const { return !_is_plp && (*&_holders & ~WRITER); }
     /// True iff has a writer (never more than 1) 
-    bool has_writer() const { return *&_holders & WRITER; }
+    bool has_writer() const { return !_is_plp && (*&_holders & WRITER); }
 
+    // pin: for plp
+    void set_plp(bool is_reader) { _is_plp = true; _is_reader = is_reader; }
+    void unset_plp() { _is_plp = false; }
+    bool is_plp() { return _is_plp; }
+    bool is_reader() { return _is_reader; }
+    
     /// True if success.
     bool attempt_read();
     /// Wait (spin) until acquired.

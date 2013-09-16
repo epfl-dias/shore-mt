@@ -107,7 +107,7 @@ pin_i::~pin_i()
 rc_t pin_i::pin(const rid_t& rid, smsize_t start, lock_mode_t lmode,
                 const bool bIgnoreLatches)
 {
-    latch_mode_t latch_mode = ( bIgnoreLatches ? LATCH_NL : lock_to_latch(lmode) );
+    latch_mode_t latch_mode = lock_to_latch(lmode, bIgnoreLatches);
     return pin(rid, start, lmode, latch_mode);
 }
 
@@ -220,7 +220,6 @@ rc_t pin_i::next_bytes(bool& eof)
 }
 
 rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
-                       int* old_value, /* temporary: for degugging only */
                        const bool bIgnoreLocks)
 {
     bool        was_pinned = pinned(); // must be first due to hp CC bug
@@ -235,7 +234,7 @@ rc_t pin_i::update_rec(smsize_t start, const vec_t& data,
             DBG(<<"pinned");
             _check_lsn();
         }
-        W_DO_GOTO(rc, _repin(EX, old_value, bIgnoreLocks));
+        W_DO_GOTO(rc, _repin(EX, bIgnoreLocks));
         w_assert3(_hdr_page().latch_mode() == LATCH_EX);
         w_assert3((_lmode == EX) || bIgnoreLocks);
 
@@ -306,7 +305,6 @@ failure:
 }
 
 rc_t pin_i::update_mrbt_rec(smsize_t start, const vec_t& data,
-			    int* old_value, /* temporary: for degugging only */
 			    const bool bIgnoreLocks,
 			    const bool bIgnoreLatches)
 {
@@ -322,8 +320,9 @@ rc_t pin_i::update_mrbt_rec(smsize_t start, const vec_t& data,
             DBG(<<"pinned");
             _check_lsn();
         }
-        W_DO_GOTO(rc, _repin(bIgnoreLatches ? NL : EX, old_value, bIgnoreLocks));
-        w_assert3(bIgnoreLatches || _hdr_page().latch_mode() == LATCH_EX);
+        W_DO_GOTO(rc, _repin(bIgnoreLatches?NL:EX, bIgnoreLocks, bIgnoreLatches));
+        w_assert3(_hdr_page().latch_mode() == LATCH_EX ||
+		  _hdr_page().latch_mode() == LATCH_NLX);
         w_assert3((_lmode == EX) || bIgnoreLocks); 
 
         //
@@ -349,9 +348,11 @@ rc_t pin_i::update_mrbt_rec(smsize_t start, const vec_t& data,
 	    // if !locked, then unpin in case lock req (in update) blocks
 	    if (was_pinned && _lmode != EX) unpin();
 	    
-	    W_DO_GOTO(rc, SSM->_update_mrbt_rec(_rid, start, data, bIgnoreLocks, bIgnoreLatches));
+	    W_DO_GOTO(rc, SSM->_update_mrbt_rec(_rid, start, data,
+						bIgnoreLocks, bIgnoreLatches));
 	    _lmode = EX;  // record is now EX locked
-	    if (was_pinned) W_DO_GOTO(rc, _repin(EX));
+	    if (was_pinned)
+		W_DO_GOTO(rc, _repin(EX, bIgnoreLocks, bIgnoreLatches));
 	    
         }
 	
@@ -385,7 +386,7 @@ failure:
         // other problems because our pin state changed.
         if(rc.err_num() == eDEADLOCK) return rc; // gnats 90
         
-        W_COERCE(_repin(SH)); 
+        W_COERCE(_repin(SH, bIgnoreLocks, bIgnoreLatches)); 
     }
     w_assert2(was_pinned == pinned());
 
@@ -499,7 +500,7 @@ rc_t pin_i::append_mrbt_rec(const vec_t& data,
     // record is now EX locked
     _lmode = EX;
 
-    if (was_pinned) W_DO_GOTO(rc, _repin(EX));
+    if (was_pinned) W_DO_GOTO(rc, _repin(EX, bIgnoreLocks, bIgnoreLatches));
 
 // success
     if (was_pinned) {
@@ -516,7 +517,7 @@ failure:
     if (was_pinned && !pinned()) {
         // this should not fail
         if(rc.err_num() == eDEADLOCK) return rc; // gnats 90
-        W_COERCE(_repin(SH)); 
+        W_COERCE(_repin(SH, bIgnoreLocks, bIgnoreLatches)); 
     }
     w_assert3(was_pinned == pinned());
     return rc;
@@ -637,7 +638,7 @@ rc_t pin_i::_pin(const rid_t& rid,
                  lock_mode_t lock_mode,
                  const bool bIgnoreLatches)
 {
-    latch_mode_t latch_mode = ( bIgnoreLatches ? LATCH_NL : lock_to_latch(lock_mode) );
+    latch_mode_t latch_mode = lock_to_latch(lock_mode, bIgnoreLatches);
     return _pin(rid, start, lock_mode, latch_mode);
 }
 
@@ -687,7 +688,9 @@ rc_t pin_i::_pin(const rid_t& rid, smsize_t start,
         _lmode = lmode;
     } else {
         // we trust the caller and therefore can do this
-        if (latch_mode != LATCH_NL && _lmode == NL) _lmode = SH;
+        if (latch_mode != LATCH_NLX && latch_mode != LATCH_NLS && _lmode == NL) {
+	    _lmode = SH;
+	}
     }
     w_assert3(_lmode > NL); 
 
@@ -737,8 +740,8 @@ failure:
     return rc;
 }
 
-rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/,
-                   const bool bIgnoreLocks)
+rc_t pin_i::_repin(lock_mode_t lmode,
+		   const bool bIgnoreLocks, const bool bIgnoreLatches)
 {
     rc_t         rc;
 
@@ -772,8 +775,13 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/,
 	
         // upgrade to an EX latch if all we had before was an SH latch
 
-        if (_hdr_page().latch_mode() != LATCH_NL &&
-	    _hdr_page().latch_mode() != lock_to_latch(_lmode)) {
+	if(bIgnoreLatches) {
+	    if(_hdr_page().latch_mode() == LATCH_NLS) {
+		lpid_t hdrpid = _hdr_page().pid();
+		_hdr_page().unfix();
+		_hdr_page().fix(hdrpid, LATCH_NLX);
+	    }
+	} else if (_hdr_page().latch_mode() < lock_to_latch(_lmode)) {
             w_assert3(_hdr_page().latch_mode() == LATCH_SH);
             w_assert3(_lmode == EX || _lmode == UD || bIgnoreLocks);
 
@@ -825,7 +833,8 @@ rc_t pin_i::_repin(lock_mode_t lmode, int* /*old_value*/,
     } else {
         // find the page we need and latch it
         DBGTHRD(<<"repin");
-        W_DO_GOTO(rc, fi->locate_page(_rid, _hdr_page(), lock_to_latch(_lmode)));
+        W_DO_GOTO(rc, fi->locate_page(_rid, _hdr_page(),
+				      lock_to_latch(_lmode, bIgnoreLatches)));
         W_DO_GOTO(rc, _hdr_page().get_rec(_rid.slot, _rec) );
         w_assert3(_rec);
         if (_start > 0 && _start >= _rec->body_size()) {

@@ -853,7 +853,7 @@ rc_t scan_file_i::_init(bool for_append)
             DBGTHRD(<<" requesting first page: " << curr_rid.pid);
 
             W_COERCE(this->_prefetch->request(curr_rid.pid, 
-                        pin_i::lock_to_latch(_page_lock_mode)));
+		     pin_i::lock_to_latch(_page_lock_mode, _bIgnoreLatches)));
         }
     }
 #if W_DEBUG_LEVEL > 1
@@ -913,7 +913,8 @@ scan_file_i::_next(pin_i*& pin_ptr, smsize_t start, bool& eof)
                         }
                         DBGTHRD(<<" requesting next page: " << _next_pid);
                         W_COERCE(this->_prefetch->request(_next_pid, 
-                            pin_i::lock_to_latch(_page_lock_mode)));
+			         pin_i::lock_to_latch(_page_lock_mode,
+						      _bIgnoreLatches)));
                     }
                 }
             } 

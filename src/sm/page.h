@@ -626,7 +626,7 @@ page_p::latch_mode() const
     // if(_pp) w_assert2( ((_mode == LATCH_EX) == mine) || times>1);
     if(_pp) {
         bool mine = is_mine();
-        if(_mode == LATCH_EX) w_assert2(mine); 
+        if(_mode == LATCH_EX || _mode == LATCH_NLX) w_assert2(mine); 
     }
 #endif
     return _pp ? _mode : LATCH_NL;

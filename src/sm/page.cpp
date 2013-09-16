@@ -836,13 +836,18 @@ page_p::_fix(
     /* allow these only */
     w_assert1((page_flags & ~t_virgin) == 0);
 
-    if (_pp && _pp->pid == pid) 
-        {
+    if (_pp && _pp->pid == pid) {
         if(_mode >= m)  {
             /*
              *  We have already fixed the page... do nothing.
              */
-        } else if(condl) {
+        } else if(m == LATCH_NLX) { // pin: we don't want upgrade for plp
+            bf->unfix(_pp, false, _refbit);
+            W_DO( bf->fix(_pp, pid, ptag, m, 
+			  (page_flags & t_virgin) != 0,  // no_read
+			  ret_store_flags,
+			  ignore_store_id, store_flags) );
+	} else if(condl) {
               bool would_block = false;
               bf->upgrade_latch_if_not_block(_pp, would_block);
               if(would_block)
@@ -855,7 +860,7 @@ page_p::_fix(
              *  to upgrade the latch mode.
              */
             bf->upgrade_latch(_pp, m); // might block
-                        w_assert2(_pp && bf->is_bf_page(_pp, true));
+	    w_assert2(_pp && bf->is_bf_page(_pp, true));
             _mode = bf->latch_mode(_pp);
             w_assert3(_mode >= m);
         }
@@ -1080,7 +1085,7 @@ page_p::mark_free(slotid_t idx)
      */
     if(idx == 0 && (tag() == t_file_p || tag() == t_file_mrbt_p)) 
     {
-      w_assert1(latch_mode() == LATCH_EX);
+      w_assert1(latch_mode() == LATCH_EX || latch_mode() == LATCH_NLX);
       /*
        * Slot 0 is file_p_hdr_t, never a user-created record.
        * If this is slot 0, we are being called from redo, or
@@ -1573,7 +1578,7 @@ page_p::remove_compress(slotid_t idx, int cnt)
 rc_t
 page_p::set_byte(slotid_t idx, u_char bits, logical_operation op)
 {
-    w_assert3(latch_mode() == LATCH_EX );
+    w_assert3(latch_mode() == LATCH_EX || latch_mode() == LATCH_NLX);
     /*
      *  Compute the byte address
      */

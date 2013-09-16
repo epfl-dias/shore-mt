@@ -236,7 +236,8 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
     // Determine if this page is holding up scavenging of logs by (being 
     // presumably hot, and) having a rec_lsn that's in the oldest open
     // log partition and that oldest partition being sufficiently aged....
-    if(mode == LATCH_EX && smlevel_0::log && curr_rec_lsn().valid()) 
+    if((mode == LATCH_EX || mode == LATCH_NLX) &&
+       smlevel_0::log && curr_rec_lsn().valid()) 
     {
         w_assert1(latch.is_mine()); 
 
@@ -277,7 +278,8 @@ bfcb_t::update_rec_lsn(latch_mode_t mode)
         }
     }
     
-    if (mode == LATCH_EX && this->curr_rec_lsn() == lsn_t::null)  {
+    if ((mode == LATCH_EX || mode == LATCH_NLX) &&
+	this->curr_rec_lsn() == lsn_t::null)  {
         /*
          *  intent to modify
          *  page would be dirty later than this lsn
@@ -1124,20 +1126,19 @@ bf_m::_fix(
          */
         w_assert2( found? (b != v) : (b == v) );
         w_assert2(
-            found? (v->latch.mode() == mode) : (b->latch.mode() == LATCH_EX)
-        ); 
+		  found ? (v->latch.mode() == mode) : (b->latch.mode() == LATCH_EX || b->latch.mode() == LATCH_NLX)
+	    );
         
         if(found) {
             // the victim (the value of v passed to grab())
             // got added back into the freelist and v is the 
             // existing frame in the buffer pool.
-            w_assert2( b != v) ;
-            w_assert2( v->latch.mode() == mode) ;
+            w_assert2(b != v) ;
+            w_assert2(v->latch.mode() == mode) ;
             b = v;
-        }
-        else  {
+        } else  {
             w_assert0(b == v);
-            w_assert0(b->latch.mode() == LATCH_EX);
+            w_assert0(b->latch.mode() == LATCH_EX || b->latch.mode() == LATCH_NLX);
         }
     }
     /* Whether b is a replacement or came off the
@@ -1441,7 +1442,7 @@ bf_m::upgrade_latch_if_not_block(const page_s* buf, bool& would_block)
     // the invariant that if this is an EX lock, the
     // rec_lsn isn't null
     latch_mode_t m = _core->latch_mode(b);
-    if(m == LATCH_EX ) {
+    if(m == LATCH_EX) {
         b->update_rec_lsn(m);
     }
 }
@@ -2002,9 +2003,9 @@ bf_m::_clean_segment(
                     w_assert2(bp->latch.held_by_me() == true); 
 
                     if(_core->_in_htab(bp) && bp->dirty()) {
-                        // ... copy the whole page // pin: temp comment out for the below two lines
-                        //w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
-                        //w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
+                        // ... copy the whole page
+                        w_assert0(bp->curr_rec_lsn().valid()); // else why are we cleaning?
+                        w_assert0(!bp->old_rec_lsn().valid()); // never set when mutex is free!
                         w_assert1(consecutive < smlevel_0::max_many_pages);
                         pbuf[consecutive] = *bp->frame();
                         bparray[consecutive] = bp;
@@ -2150,7 +2151,7 @@ bf_m::_clean_segment(
                         // w_assert0(ps->pid == bp->pid());
                         w_assert0(ps->pid.page == bp->pid().page);
 
-                        //w_assert0(bp->old_rec_lsn().valid()); // pin: temp comment out for this line
+                        w_assert0(bp->old_rec_lsn().valid());
 
                         // mark the page as no longer being written out
                         bp->clr_old_rec_lsn();
@@ -3048,7 +3049,8 @@ bf_m::_set_dirty(bfcb_t* b)
 {
     if( !b->dirty() ) {
         b->set_dirty_bit();
-        w_assert2( _core->latch_mode(b) == LATCH_EX );
+        w_assert2(_core->latch_mode(b) == LATCH_EX ||
+		  _core->latch_mode(b) == LATCH_NLX);
         /*
          * The following assert should hold because:
          * prior to set_dirty, the page should have
@@ -3068,7 +3070,7 @@ bf_m::_set_dirty(bfcb_t* b)
         {
             DBG(<< "pid " << b->pid() <<" mode=" 
             <<  int(_core->latch_mode(b)) << " rec_lsn=" << b->curr_rec_lsn());
-            w_assert3(b->latch.mode() == LATCH_EX);
+            w_assert3(b->latch.mode() == LATCH_EX || b->latch.mode() == LATCH_NLX);
             w_assert3(b->curr_rec_lsn() != lsn_t::null); 
             w_assert3(b->dirty()); // we just set it so it's now dirty
         }

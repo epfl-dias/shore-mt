@@ -117,7 +117,7 @@ btree_m::create(
         W_DO(log_comment(s.c_str()));
     }
 #endif
-    latch_mode_t latch = LATCH_NL;
+    latch_mode_t latch = LATCH_NLX;
     if(!bIgnoreLatches) {
 	get_latches(___s,___e); 
 	check_latches(___s,___e, ___s+___e);
@@ -1270,10 +1270,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
              *  Fix the cursor page. If page has changed (lsn
              *  mismatch) then call fetch_init to re-traverse.
              */
-	    mode = LATCH_SH;
-	    if(bIgnoreLatches) {
-		mode = LATCH_NL;
-	    }
+	    mode = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
             W_DO( p1.fix(cursor.pid(), mode) );
             if (cursor.lsn() == p1.lsn())  {
                 break;
@@ -1334,14 +1331,11 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
 
                 // unconditional
                 tree_latch tree_root(child->root());
-		mode = LATCH_SH;
-		if(bIgnoreLatches) {
-		    mode = LATCH_NL;
-		}
+		mode = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
                 w_error_t::err_num_t rce =
-                   tree_root.get_for_smo(false, mode,
-                            *child, mode, false, 
-                                child==&p1? &p2 : &p1, LATCH_NL, bIgnoreLatches);
+		    tree_root.get_for_smo(false, mode, *child, mode, false, 
+					  child == &p1? &p2 : &p1,
+					  LATCH_NL, bIgnoreLatches);
                 if(rce) return RC(rce);
 
                 p1.unfix();
@@ -1414,10 +1408,7 @@ btree_m::fetch(cursor_t& cursor, const bool bIgnoreLatches)
                     p1.unfix();
                     p2.unfix();
                     W_DO( lm->lock(kvl, SH, t_long) );
-		    mode = LATCH_SH;
-		    if(bIgnoreLatches) {
-			mode = LATCH_NL;
-		    }
+		    mode = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
                     W_DO( child->fix(pid, mode) );
                     if (lsn == child->lsn() && child == &p1)  {
                         ;

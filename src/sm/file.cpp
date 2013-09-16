@@ -559,9 +559,8 @@ file_m::move_mrbt_rec_to_given_page(
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid, // output
-    file_p&          page,
-    bool&                 space_found,
-    const bool            bIgnoreLatches
+    file_p&               page,
+    bool&                 space_found
 )
 {
     smsize_t        space_needed;
@@ -588,7 +587,7 @@ file_m::move_mrbt_rec_to_given_page(
         histoid_update_t hu(page);
 
         if(page.is_fixed()) {
-	    w_assert2(bIgnoreLatches || page.latch_mode() == LATCH_EX);
+	    w_assert2(page.latch_mode()==LATCH_NLX || page.latch_mode()==LATCH_EX);
 	    
             rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
 
@@ -608,7 +607,8 @@ file_m::move_mrbt_rec_to_given_page(
                 hu.replace_page(&page); // ???
 #if W_DEBUG_LEVEL > 2
                 {
-		    w_assert3(bIgnoreLatches || page.latch_mode() == LATCH_EX);
+		    w_assert3(page.latch_mode() == LATCH_NLX ||
+			      page.latch_mode() == LATCH_EX);
                     space_bucket_t b = page.bucket();
                     if((page.page_bucket_info.old() != b) && 
                         page.page_bucket_info.initialized()) {
@@ -623,11 +623,13 @@ file_m::move_mrbt_rec_to_given_page(
         // split into 2 parts so we don't hog the histoid, and
         // so we don't run into double-acquiring it in append_rec.
 
-	w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+	w_assert2(page.is_fixed() &&
+		  (page.latch_mode()==LATCH_NLX || page.latch_mode()==LATCH_EX));
 
-        W_DO(_create_mrbt_rec_in_slot(page, slot, hdr, data, rid, bIgnoreLatches));
+        W_DO(_create_mrbt_rec_in_slot(page, slot, hdr, data, rid));
 
-        w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+	w_assert2(page.is_fixed() &&
+		  (page.latch_mode()==LATCH_NLX || page.latch_mode()==LATCH_EX));
 
         hu.update();
     } // close scope for hu
@@ -642,7 +644,7 @@ file_m::create_mrbt_rec_in_given_page(
     const vec_t&          hdr,
     const vec_t&          data,
     rid_t&                rid, // output
-    file_p&          page,
+    file_p&               page,
     bool&                 space_found,
     const bool            bIgnoreLatches
 )
@@ -671,7 +673,7 @@ file_m::create_mrbt_rec_in_given_page(
         histoid_update_t hu(&sd);
 
         if(page.is_fixed()) {
-	    w_assert2(bIgnoreLatches || page.latch_mode() == LATCH_EX);
+	    w_assert2(page.latch_mode()==LATCH_EX || page.latch_mode()==LATCH_NLX);
 	    
             rc_t rc = page.find_and_lock_next_slot(space_needed, slot);
 
@@ -691,7 +693,8 @@ file_m::create_mrbt_rec_in_given_page(
                 hu.replace_page(&page); // ???
 #if W_DEBUG_LEVEL > 2
                 {
-		    w_assert3(bIgnoreLatches || page.latch_mode() == LATCH_EX);
+		    w_assert3(page.latch_mode() == LATCH_EX ||
+			      page.latch_mode() == LATCH_NLX);
                     space_bucket_t b = page.bucket();
                     if((page.page_bucket_info.old() != b) && 
                         page.page_bucket_info.initialized()) {
@@ -706,11 +709,13 @@ file_m::create_mrbt_rec_in_given_page(
         // split into 2 parts so we don't hog the histoid, and
         // so we don't run into double-acquiring it in append_rec.
 
-	w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+	w_assert2(page.is_fixed() &&
+		  (page.latch_mode()==LATCH_EX || page.latch_mode()==LATCH_NLX));
 
-        W_DO(_create_rec_in_slot(page, slot, rec_impl, hdr, data, sd, false, rid, bIgnoreLatches));
+        W_DO(_create_rec_in_slot(page, slot, rec_impl, hdr, data, sd, false, rid));
 
-        w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+	w_assert2(page.is_fixed() &&
+		  (page.latch_mode()==LATCH_EX || page.latch_mode()==LATCH_NLX));
 
         hu.update();
     } // close scope for hu
@@ -732,8 +737,8 @@ file_m::destroy_rec_slot(const rid_t rid, file_mrbt_p& page, const bool bIgnoreL
      * Find or create a histoid for this store.
      */
     w_assert2(page.is_fixed());
-    w_assert2(bIgnoreLatches || page.is_latched_by_me());
-    w_assert2(bIgnoreLatches || page.is_mine());
+    w_assert2(page.is_latched_by_me());
+    w_assert2(page.is_mine());
 
     W_DO( page.destroy_rec(rid.slot) ); // does a page_mark for the slot
 
@@ -762,16 +767,15 @@ file_m::_create_mrbt_rec_in_slot(
     slotid_t       slot,
     const vec_t&   hdr,
     const vec_t&   data,
-    rid_t&        rid, // out
-    const bool    MAYBE_UNUSED bIgnoreLatches
+    rid_t&         rid // out
 )
 {
     FUNC(_create_mrbt_rec_in_slot);
-    //w_assert2(page.is_fixed() && page.is_file_mrbt_p());
+    w_assert2(page.is_fixed() /*&& page.is_file_mrbt_p()*/);
 
     // if bIgnoreLatches = false
-          // page is already in the file and locked IX or EX
-          // slot is already locked EX
+    // page is already in the file and locked IX or EX
+    // slot is already locked EX
     rid.pid = page.pid();
     rid.slot = slot;
 
@@ -787,7 +791,8 @@ file_m::_create_mrbt_rec_in_slot(
     // it is small, so put the data in as well
     tag.flags = t_small;
     tag.body_len = data.size();
-    w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+    w_assert2(page.is_fixed() &&
+	      (page.latch_mode() == LATCH_NLX || page.latch_mode() == LATCH_EX));
     rc = page.fill_slot(rid.slot, tag, hdr, data, 100);
     if (rc.is_error())  {
 	
@@ -824,10 +829,7 @@ file_m::create_mrbt_rec_l(
     FUNC(create_mrbt_rec_l);
 
     // 0. determine latch mode
-    latch_mode_t latch = LATCH_EX;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    } 
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
 
     // 1. use the already assumed to be empty page
     shpid_t empty_page = sd.get_page_with_space(leaf);
@@ -923,12 +925,8 @@ file_m::create_mrbt_rec_p(
     FUNC(create_mrbt_rec_p);
 
     // 0. determine latch mode
-    latch_mode_t heap_latch = LATCH_EX;
-    latch_mode_t leaf_latch = LATCH_SH;
-    if(bIgnoreLatches) {
-	heap_latch = LATCH_NL;
-	leaf_latch = LATCH_NL;
-    }
+    latch_mode_t heap_latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
+    latch_mode_t leaf_latch = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
 
     btree_p leaf_page;
     W_DO( leaf_page.fix(leaf, leaf_latch) );
@@ -1602,8 +1600,7 @@ file_m::_create_rec_in_slot(
     const vec_t&   data,
     sdesc_t&       sd,
     bool           do_append,
-    rid_t&        rid, // out
-    const bool    MAYBE_UNUSED bIgnoreLatches
+    rid_t&        rid // out
 )
 {
     FUNC(_create_rec_in_slot);
@@ -1628,7 +1625,8 @@ file_m::_create_rec_in_slot(
         // it is small, so put the data in as well
         tag.flags = t_small;
         tag.body_len = data.size();
-        w_assert2(page.is_fixed() && (bIgnoreLatches || page.latch_mode() == LATCH_EX));
+	w_assert2(page.is_fixed() &&
+		  (page.latch_mode()==LATCH_EX || page.latch_mode()==LATCH_NLX));
         rc = page.fill_slot(rid.slot, tag, hdr, data, 100);
         if (rc.is_error())  {
 
@@ -1692,18 +1690,15 @@ file_m::destroy_rec(const rid_t& rid, const bool bIgnoreLatches)
     record_t*    rec;
 
     DBGTHRD(<<"destroy_rec");
-    latch_mode_t latch = LATCH_EX;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
     W_DO(_locate_page(rid, page, latch));
 
     /*
      * Find or create a histoid for this store.
      */
     w_assert2(page.is_fixed());
-    w_assert2(bIgnoreLatches || page.is_latched_by_me());
-    w_assert2(bIgnoreLatches || page.is_mine());
+    w_assert2(page.is_latched_by_me());
+    w_assert2(page.is_mine());
 
 
     W_DO( page.get_rec(rid.slot, rec) );
@@ -1748,10 +1743,7 @@ file_m::update_rec(const rid_t& rid, uint4_t start, const vec_t& data, const boo
     file_p    page;
     record_t*            rec;
 
-    latch_mode_t page_latch_mode = LATCH_EX;
-    if(bIgnoreLatches) {
-	page_latch_mode = LATCH_NL;
-    }
+    latch_mode_t page_latch_mode = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
     DBGTHRD(<<"update_rec");
     W_DO(_locate_page(rid, page, page_latch_mode));
 
@@ -1948,10 +1940,7 @@ file_m::append_mrbt_rec(const rid_t& rid, const vec_t& data, const sdesc_t& sd, 
     // NOTE: we grabbed an EX lock in ss_m::_append_rec
     // or create_rec
     DBGTHRD(<<"append_mrbt_rec");
-    latch_mode_t latch = LATCH_EX;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
     W_DO( _locate_page(rid, page, latch) );
 
     /*
@@ -2195,10 +2184,7 @@ file_m::truncate_mrbt_rec(const rid_t& rid, uint4_t amount, bool& should_forward
     should_forward = false;  // no need to forward record at this time
 
     DBGTHRD(<<"trucate_mrbt_rec");
-    latch_mode_t latch = LATCH_EX;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
     W_DO (_locate_page(rid, page, latch));
 
     /*
@@ -2337,10 +2323,7 @@ file_m::read_hdr(const rid_t& s_rid, int& len,
     file_p page;
     
     DBGTHRD(<<"read_hdr");
-    latch_mode_t latch = LATCH_SH;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
     W_DO(_locate_page(rid, page, latch) );
     record_t* rec;
     W_DO( page.get_rec(rid.slot, rec) );
@@ -2367,10 +2350,7 @@ file_m::read_rec(const rid_t& s_rid,
     file_p page;
     
     DBGTHRD(<<"read_rec");
-        latch_mode_t latch = LATCH_SH;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
     W_DO( _locate_page(rid, page, latch) );
     record_t* rec;
     W_DO( page.get_rec(rid.slot, rec) );
@@ -2391,10 +2371,7 @@ file_m::splice_hdr(rid_t rid, slot_length_t start, slot_length_t len,
 {
     file_p page;
     DBGTHRD(<<"splice_hdr");
-    latch_mode_t latch = LATCH_EX;
-    if(bIgnoreLatches) {
-	latch = LATCH_NL;
-    }
+    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
     W_DO( _locate_page(rid, page, latch) );
 
     record_t* rec;
@@ -2579,10 +2556,7 @@ file_m::_free_page(file_p& page, const bool bIgnoreLatches)
                 page.unfix();
                 rc = lm->lock_force(pid, EX, t_long, WAIT_SPECIFIED_BY_XCT);
                 if(!rc.is_error()) {
-		    latch_mode_t latch = LATCH_EX;
-		    if(bIgnoreLatches) {
-			latch = LATCH_NL;
-		    }
+		    latch_mode_t latch = bIgnoreLatches ? LATCH_NLX : LATCH_EX;
                     // got lock. nothing should go wrong with the latch
                     W_DO(page.conditional_fix(pid, latch));
 

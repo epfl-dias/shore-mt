@@ -2848,7 +2848,8 @@ xct_t::give_logbuf(logrec_t* l, const page_p *page)
 
     if(page != (page_p *)0) {
         // Should already be EX-latched since it's the last modified page!
-        w_assert1(page->latch_mode() == LATCH_EX);
+        w_assert1(page->latch_mode() == LATCH_NLX ||
+		  page->latch_mode() == LATCH_EX);
 
         last_mod_page = *page; // refixes
     } 
@@ -2877,7 +2878,8 @@ xct_t::give_logbuf(logrec_t* l, const page_p *page)
 
     if(last_mod_page.is_fixed()) { // i.e., is  fixed
         w_assert2(l->tag()!=0);
-        w_assert2(last_mod_page.latch_mode() == LATCH_EX);
+        w_assert2(last_mod_page.latch_mode() == LATCH_NLX ||
+		  last_mod_page.latch_mode() == LATCH_EX);
     } else {
         w_assert2(l->tag()==0);
         w_assert3(last_mod_page.latch_mode() == LATCH_NL);
@@ -2890,7 +2892,8 @@ xct_t::give_logbuf(logrec_t* l, const page_p *page)
     goto done;
     
     if(last_mod_page.is_fixed() ) {
-        w_assert2(last_mod_page.latch_mode() == LATCH_EX);
+        w_assert2(last_mod_page.latch_mode() == LATCH_NLX ||
+		  last_mod_page.latch_mode() == LATCH_EX);
         // WAL: stuff the lsn into the page so the buffer manager
         // can force the log to that lsn before writing the page.
         last_mod_page.set_lsns(_last_lsn);

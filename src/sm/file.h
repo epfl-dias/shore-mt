@@ -277,8 +277,7 @@ public:
                                 const vec_t&        data,
                                 rid_t&              rid,
                                 file_p&             page,        // input
-				bool&               space_found,
-                                const bool        bIgnoreParents = false);
+				bool&               space_found);
 
     static rc_t create_mrbt_rec_in_given_page(
 				smsize_t            len_hint,
@@ -455,17 +454,14 @@ protected:
                     const vec_t&        data,
                     sdesc_t&            sd,
                     bool                do_append,
-                    rid_t&              rid, // out
-		    const bool bIgnoreLatches = false
-                    );
+                    rid_t&              rid); // out
 
     static rc_t _create_mrbt_rec_in_slot(
                     file_p&        page,
                     slotid_t            slot,
 		    const vec_t&        hdr,
                     const vec_t&        data,
-                    rid_t&              rid, // out
-                    const bool          bIgnoreLatches = false);
+                    rid_t&              rid); // out
 
     static rc_t _undo_alloc_file_page(file_p& page);
     static rc_t _free_page(file_p& page, const bool bIgnoreLatches = false);
