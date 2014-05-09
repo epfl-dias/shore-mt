@@ -4098,6 +4098,35 @@ btree_impl::_lookup(
                  */
 		fix_latch = bIgnoreLatches ? LATCH_NLS : LATCH_SH;
                 W_DO( child->fix(pid, fix_latch) );
+		
+		if(!bIgnoreLatches) {
+		    /* PATCH from Yanqin Jin (UCSD)
+		    ** Have to do the following again in case
+		    ** we have just unfixed child due to
+		    ** failure to acquire lock. The underlying
+		    ** buffer frame may well have changed.
+		    ** Imagine this me() just checks that leaf
+		    ** _satisfy the condition, conditionally
+		    ** tries to lock kvl in mode but fails.
+		    ** Thus leaf (child) will unfix the buf frame,
+		    ** as recommended in ARIES/KVL paper to improve
+		    ** concurrency and avoid deadlock. Once me() unfixes
+		    ** that frame, another thread may well slip in and
+		    ** steal that frame. Later when me() succeeds in
+		    ** locking kvl UNconditionally, me()
+		    ** tries to fix pid again but may end up
+		    ** using a different buffer pool frame. In this case
+		    ** we MUST execute the following because the previous
+		    ** rec and/or cursor are no longer valid because they
+		    ** still refer to the OLD buffer frame
+		    */
+		    if(cursor) {
+			// does the unscramble
+			W_DO(cursor->make_rec(*child, slot));
+		    }
+		    rec.set(*child, slot);
+		}
+
                 if (lsn == child->lsn() && child == &leaf)  {
                     /* do nothing */;
                 } else {
